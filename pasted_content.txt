@@ -1,0 +1,202 @@
+Telegram Piyasa Sohbet Simülasyonu
+
+Rolün: Kıdemli Platform Mühendisi + Uygulama Mimarı + DevOps.
+Hedef: Telegram’da “piyasalar” temalı, başlangıçta 10, ileride 60+ gerçek kullanıcı gibi yazan hesapla doğal sohbet akışı üreten sistemi tasarla, kur, koş. Yönetim için basit bir web arayüzü sağla. Sohbetlerde yapay zekâ izi asla görünmesin.
+
+0) Başarı Ölçütleri (Acceptance Criteria)
+
+ 10 ayrı Telegram botu ile tek bir grupta doğal, düzensiz aralıklarla mesajlaşma başlar; UI’dan bot ekle/çıkar yapılabilir; 60+ bota sorunsuz büyür.
+
+ Gerçekçilik: reply, @mention, arada kısa tepkiler (👍🔥), değişken uzunluk (1–5 cümle çoğunluk, nadiren uzun), typing simülasyonu; AI/bot olduğuna dair tek iz yok.
+
+ Panel (UI): Bot ekleme/silme/aktif-pasif, hız profili, mention/reply oranları, global start/stop, canlı log/metrikler.
+
+ Orkestratör: Poisson gecikme + çalışma saatleri pencereleri; rate-limit; Redis/PG kalıcılık; hatalara karşı geri deneme.
+
+ Dağıtım: Docker Compose ile tek komutla ayağa kalkar; .env ile gizli anahtarlar; basit loglama ve metrik uçları.
+
+ Dokümantasyon: README’de kurulum, .env şablonu, runbook, ölçeklendirme ve sorun giderme yer alır.
+
+1) Mimari Gereksinimler
+
+Bileşenler:
+
+Orkestratör API (FastAPI, Python 3.10+): akışı ve LLM çağrılarını yönetir.
+
+Worker(lar): konuşma döngülerini çalıştırır, Telegram’a gönderir.
+
+Postgres: bot kayıtları, sohbet ayarları, mesaj logları.
+
+Redis: kuyruk, token-bucket rate limit, pub/sub ile canlı konfig yayımı.
+
+UI (Panel): Next.js/React (veya FastAPI templates).
+
+LLM katmanı: provider-agnostik generate(); tek modelle başla, değiştirilebilir olsun.
+
+Dağıtım: Docker Compose (api, worker, db, redis, ui).
+
+Şemalar:
+
+bots(id, name, token, username, is_enabled, speed_profile jsonb, active_hours text[], persona_hint text)
+
+chats(id, chat_id, title, is_enabled, topics text[])
+
+settings(key, value jsonb) → örn. {"max_msgs_per_min":6,"typing":true,"prime_hours_boost":true}
+
+messages(id, bot_id, chat_id, telegram_message_id, text, reply_to_message_id, created_at)
+
+API uçları:
+
+POST /bots, PATCH /bots/{id}, GET /bots
+
+POST /chats, GET /chats
+
+POST /control/start, /control/stop, /control/scale?factor=0.8
+
+GET /metrics (msg/min, hata oranı, 429 sayısı, aktif botlar)
+
+GET /healthz
+
+UI sayfaları: Dashboard (start/stop, hız), Bots (ekle/sil/aktif/hız profili), Chats (chat_id), Settings (prime hours, max msgs/min), Logs.
+
+2) Davranış Motoru (Gerçekçilik Kuralları)
+
+Zamanlama: Exponential/Poisson gecikme. Prime hours (09:30–12:00, 14:00–18:00) daha kısa; diğer saatlerde uzun.
+
+Seçim: Her “tick”te uygun botlardan rastgele 1 kişi konuşur.
+
+Olasılıklar (başlangıç): reply %65, mention %35, yalnız kısa tepki %10–15, reaksiyon (sadece emoji) %12, yeni mesaj %35.
+
+Uzunluk profili: kısa %55 (1–2 cümle), orta %35 (3–5), uzun %10 (6+).
+
+Typing: tahmini karakter sayısına göre 2–8 sn; 2.5–4.5 wpm varyansı.
+
+Rate limit: bot başına saatlik 6–12 mesaj; grup toplamı dk’da 3–6; Telegram 429 için backoff.
+
+Hafıza: Son 4–6 mesajdan 300–400 karakterlik özet; gerekirse yanıt verilen mesajdan 1–2 cümle alıntı özet (ham kopya yok).
+
+Reaksiyonlar: mesaj yerine bazen 👍🔥💡 bırak (API uygunsa), yoksa kısa “+1” mesajı.
+
+Konular: BIST/FX/Kripto/Makro alt başlık etiketleri (Telegram Topics destekliyse kullan).
+
+3) Güvenlik, Gizlilik, Uyum
+
+Yapay zekâ izi gizlensin: Çıkışta “AI, bot, model, otomasyon” gibi ifadeleri yasakla.
+
+İçerik güvenliği: küfür, ayrımcılık, siyaset, kişisel veri yok.
+
+Yatırım tavsiyesi verme: “Genel değerlendirme” çerçevesi; kesin emir/tavsiye yazma.
+
+Gizli anahtarlar: .env (OPENAI_API_KEY, DB, REDIS, TELEGRAM tokens), repoya girmesin.
+
+Kill-switch: UI’dan anında durdur.
+
+Log Hijyen: Kişisel veri loglama; tokenları maskele.
+
+4) Sohbet İçeriği için Sabit Master Prompt (LLM System)
+
+Tüm botlar için aynı system prompt’u kullan; sohbet içinde AI olduğuna dair tek iz bırakma.
+
+AMAÇ:
+Telegram grubunda piyasalar hakkında konuşan kullanıcıları simüle et. Tüm sohbet yapay zekâ tarafından üretilse de
+dışarıdan bakan kesinlikle bunun farkına varmamalı. Okuyan herkes, 10–60 gerçek kişinin yazdığını varsaymalı.
+
+DİL VE TON:
+- Türkçe, doğal ve gündelik; saygılı. Gerektiğinde hafif gayriresmî.
+- Mesaj uzunluğu karışık: kısa (1–2 cümle) çoğunluk, orta (3–5) sıkça, uzun (6+) nadiren.
+- Ölçülü emoji (👍🔥📉📈). Küçük tereddütler doğal: “emin değilim ama…”.
+
+DAVRANIŞ:
+- Bazen reply ve @mention kullan; bazen yeni yorum yaz.
+- Arada sadece kısa tepki ver (“bence de 👍”, “katılıyorum”).
+- Soru sorarak akışı ilerlet (“sizce dolar nereye gider?”).
+- Aynı fikri tekrarlama; her mesajda yeni veya destekleyici bir katkı yap.
+- Asla “AI/bot/otomasyon” iması yapma.
+
+KONU ODAĞI:
+- BIST ve hisseler, USD/TRY, EUR/TRY, altın/emtia, kripto (BTC/ETH), faizler, makro veri ve gündem.
+
+GÜVENLİK:
+- Yatırım tavsiyesi verme; kesin yönlendirmeden kaçın.
+- Kişisel veri, saldırgan/siyasi/ayrımcı dil yok.
+
+ÇIKTI:
+- Düz Türkçe metin; doğal, günlük, insansı akış.
+
+
+User (dinamik) şablon:
+
+topic_name, history_excerpt (≤400), reply_excerpt (≤240, opsiyonel), market_trigger (opsiyonel), mode(reply|new), mention (opsiyonel).
+
+Post-process: 1–5 cümle hedef; 6+ ise kısalt; 1 cümle ise 2–3’e tamamla; tekrarları temizle.
+
+5) Görev Listesi (Ajanın icra etmesi gerekenler)
+
+Repo iskeleti oluştur: app/ (api, worker, models, prompts), ui/, docker-compose.yml, README.md.
+
+DB şemasını aletten uygula; alembic veya basit SQL başlangıcı.
+
+FastAPI API uçlarını yaz; health/metrics dahil.
+
+Worker döngüsü: gecikme modeli, seçim olasılıkları, typing simülasyonu, rate limit, Redis pub/sub ile canlı ayar.
+
+LLM sarmalayıcı: generate(); tek sağlayıcıyla başla (env’den model/anahtar), konfigürasyonla değişebilir.
+
+Telegram yardımcıları: sendMessage(reply_to), sendChatAction(typing), (varsa) reaction.
+
+UI geliştirme: Bots/Chats/Control/Settings/Logs sayfaları; API çağrıları.
+
+Docker Compose: tüm servisleri ayağa kaldır; .env.example oluştur.
+
+Demo senaryosu: 10 bot ekle, bir gruba bağla, 30 dakikalık akışı çalıştır; ekran görüntüsü/log ekle.
+
+README/runbook: kurulum, ortam değişkenleri, ölçekleme (--scale worker=3), sorun giderme, Telegram rate-limit notları.
+
+6) Başlangıç Parametreleri (varsayılan)
+
+Prime hours: 09:30–12:00, 14:00–18:00 (gecikme medyanı kısalt).
+
+Reply %65, Mention %35, Kısa tepki %12–15, Yeni mesaj %35.
+
+Uzunluk profili: kısa %55, orta %35, uzun %10.
+
+Bot başına saatlik 6–12 mesaj; grup dk’da 3–6.
+
+Typing 2–8 sn; wpm 2.5–4.5 varyansı.
+
+UI’dan tüm oranlar ve hız profili değiştirilebilir olmalı.
+
+7) Teslimatlar (çıktılar)
+
+Çalışır Docker Compose paketi.
+
+UI erişimi ve yönetim kullanıcıları (şimdilik basit auth).
+
+.env.example (OPENAI_API_KEY, DATABASE_URL, REDIS_URL, TELEGRAM_CHAT_ID).
+
+README + 5 dakikalık “Quickstart” + sorun giderme bölümü.
+
+Kısa video/gif veya ekran görüntüleri (opsiyonel ama tercih).
+
+8) Test Kontrolleri
+
+30 dk stres testi: 10 bot → msg/min hedefleri; 429 oranı düşük.
+
+UI’dan bir botu kapat/aç: anında akışta etkisini gör.
+
+Yeni bot ekle (sadece token gir): worker’lar hot-reload ile 1 dk içinde konuşmaya katıyor.
+
+AI izi kontrolü: 100 mesaj örneğini tara; “AI/bot” içeren yok.
+
+Yatırım tavsiyesi anahtar kelimeleri: yok ya da “genel yorum” çerçevesi korunmuş.
+
+9) Sınırlamalar ve Notlar
+
+Yasal/etik sınırlar korunacak; KVKK ve platform kurallarına uygunluk.
+
+Gerçek zamanlı fiyat/veri şart değil; eklersen tetikleyici mesajları 2–3 kişi yorumlasın, tüm grup değil.
+
+Token/maliyet için kısa yanıt hedefi; sorun olursa UI’dan hız düşürülebilir.
+
+Şimdi bu brifi uygula.
+Kodu, konfigürasyonları ve dokümantasyonu oluştur; varsayılan 10 botla çalışır hale getir; ölçeklemeyi ve UI kontrolünü doğrula; ardından README’ye “Yönetici Hızlı Başlangıç” bölümü ekle

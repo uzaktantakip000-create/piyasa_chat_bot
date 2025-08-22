@@ -1,0 +1,74 @@
+version: "3.9"
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: dockerfile.api
+    env_file:
+      - .env
+    environment:
+      # Veritabanı ve Redis (Postgres tercih; istersen SQLite kullanmak için bu satırı kaldır)
+      - DATABASE_URL=postgresql+psycopg://app:app@db:5432/app
+      - REDIS_URL=redis://redis:6379/0
+
+      # LLM ve Telegram
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - TELEGRAM_API_BASE=${TELEGRAM_API_BASE:-https://api.telegram.org}
+      - TELEGRAM_TIMEOUT=${TELEGRAM_TIMEOUT:-20}
+
+      # Genel
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - PORT=8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  worker:
+    build:
+      context: .
+      dockerfile: dockerfile.api
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+psycopg://app:app@db:5432/app
+      - REDIS_URL=redis://redis:6379/0
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - TELEGRAM_API_BASE=${TELEGRAM_API_BASE:-https://api.telegram.org}
+      - TELEGRAM_TIMEOUT=${TELEGRAM_TIMEOUT:-20}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    command: ["python", "worker.py"]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=app
+      - POSTGRES_PASSWORD=app
+      - POSTGRES_DB=app
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server","--save","","--appendonly","no"]
+    ports:
+      - "6379:6379"
+
+volumes:
+  pgdata:
