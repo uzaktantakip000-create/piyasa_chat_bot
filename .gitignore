@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+.env
+app.db
+pasted_content.txt
+Kurulum

@@ -367,7 +367,7 @@ class BehaviorEngine:
         return persona_profile, stances, holdings
 
     # ---- Tutarlılık koruması ----
-    def apply_consistency_guard(
+    async def apply_consistency_guard(
         self,
         *,
         draft_text: str,
@@ -404,7 +404,7 @@ class BehaviorEngine:
 - SADECE nihai metni döndür, başka açıklama yazma.
 """
         # Düşük sıcaklık, kısa yanıt
-        revised = self.llm.generate(user_prompt=guard_prompt, temperature=0.3, max_tokens=220)
+        revised = await self.llm.generate(user_prompt=guard_prompt, temperature=0.3, max_tokens=220)
         if not revised:
             return None
 
@@ -432,14 +432,14 @@ class BehaviorEngine:
                 return True
         return False
 
-    def paraphrase_safe(self, text: str) -> Optional[str]:
+    async def paraphrase_safe(self, text: str) -> Optional[str]:
         """Basit yeniden yazım; anlamı korur, tekrar algılamayı aşmaya çalışır."""
         prompt = f"""Metni aynı anlamla, 1-2 kısa cümlede farklı ifade et; iddialı/kesin ton kullanma:
 
 METİN:
 {text}
 """
-        return self.llm.generate(user_prompt=prompt, temperature=0.4, max_tokens=120)
+        return await self.llm.generate(user_prompt=prompt, temperature=0.4, max_tokens=120)
 
     # ---- Akış ----
     async def tick_once(self) -> None:
@@ -539,7 +539,7 @@ METİN:
                 if bool(s.get("news_trigger_enabled", True)) and self.news is not None:
                     # Her mesajda değil; bir miktar rastgelelik:
                     if random.random() < float(s.get("news_trigger_probability", 0.75)):
-                        brief = self.news.get_brief(topic)
+                        brief = await self.news.get_brief(topic)
                         if brief:
                             market_trigger = brief
             except Exception as e:
@@ -560,7 +560,7 @@ METİN:
             )
 
             # LLM üretimi (taslak)
-            text = self.llm.generate(user_prompt=user_prompt, temperature=0.8, max_tokens=220)
+            text = await self.llm.generate(user_prompt=user_prompt, temperature=0.8, max_tokens=220)
             if not text:
                 logger.warning("LLM boş/filtreli çıktı; atlanıyor.")
                 await asyncio.sleep(self.next_delay_seconds(db))
@@ -568,7 +568,7 @@ METİN:
 
             # Tutarlılık koruması
             if bool(s.get("consistency_guard_enabled", True)):
-                revised = self.apply_consistency_guard(
+                revised = await self.apply_consistency_guard(
                     draft_text=text,
                     persona_profile=persona_profile,
                     stances=stances,
@@ -589,7 +589,7 @@ METİN:
                 attempts = int(s.get("dedup_max_attempts", 2))
                 tries = 0
                 while self.is_duplicate_recent(db, bot_id=bot.id, text=text, hours=window_h) and tries < attempts:
-                    alt = self.paraphrase_safe(text)
+                    alt = await self.paraphrase_safe(text)
                     if not alt or alt.strip() == text.strip():
                         break
                     text = alt.strip()

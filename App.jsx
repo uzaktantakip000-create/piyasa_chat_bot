@@ -18,11 +18,11 @@ import {
   TrendingUp,
   Wand2
 } from 'lucide-react'
-import Dashboard from './components/Dashboard'
-import Bots from './components/Bots'
-import Chats from './components/Chats'
-import SettingsPage from './components/Settings'
-import Logs from './components/Logs'
+import Dashboard from './Dashboard'
+import Bots from './Bots'
+import Chats from './Chats'
+import SettingsPage from './Settings'
+import Logs from './Logs'
 import Wizard from './components/Wizard'
 import './App.css'
 

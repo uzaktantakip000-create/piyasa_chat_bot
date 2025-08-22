@@ -3,15 +3,15 @@ from __future__ import annotations
 
 from typing import Optional, List
 import os
-import time
+import asyncio
 import random
 import logging
 
 # OpenAI SDK v1.x
 try:
-    from openai import OpenAI
+    from openai import AsyncOpenAI
 except Exception:  # pragma: no cover
-    OpenAI = None  # type: ignore
+    AsyncOpenAI = None  # type: ignore
 
 # -------------------------------------------------------------------
 # system_prompt bağımlılıkları: geçmiş sürümle uyumlu olacak şekilde
@@ -66,7 +66,7 @@ class LLMClient:
     """
 
     def __init__(self) -> None:
-        if OpenAI is None:
+        if AsyncOpenAI is None:
             raise RuntimeError("OpenAI SDK yüklü değil.")
 
         self.model: str = os.getenv("LLM_MODEL", "gpt-4o-mini")
@@ -79,12 +79,12 @@ class LLMClient:
         # OpenAI istemcisi: base_url/env anahtarı ile
         base_url = os.getenv("OPENAI_BASE_URL") or None
         # Not: SDK v1'de timeout parametresi desteklenir
-        self.client = OpenAI(base_url=base_url, timeout=self.timeout)
+        self.client = AsyncOpenAI(base_url=base_url, timeout=self.timeout)
 
     # --------------------------
     # Ana üretim fonksiyonu
     # --------------------------
-    def generate(
+    async def generate(
         self,
         *,
         user_prompt: str,
@@ -105,10 +105,10 @@ class LLMClient:
         if self.fallback_model and self.fallback_model != self.model:
             models.append(self.fallback_model)
 
-        for model in models:
+        for idx, model in enumerate(models):
             for attempt in range(1, self.max_retries + 1):
                 try:
-                    resp = self.client.chat.completions.create(
+                    resp = await self.client.chat.completions.create(
                         model=model,
                         messages=messages,
                         temperature=temperature,
@@ -140,9 +140,9 @@ class LLMClient:
                     )
                     if attempt == self.max_retries:
                         break
-                    time.sleep(sleep_s)
-            # bir sonraki modele (fallback) geç
-            logger.info("Switching to fallback model: %s", model if model != self.model else (self.fallback_model or "-"))
+                    await asyncio.sleep(sleep_s)
+            if idx < len(models) - 1:
+                logger.info("Switching to fallback model: %s", models[idx + 1])
 
         return None
 

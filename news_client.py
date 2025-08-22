@@ -63,12 +63,12 @@ class NewsClient:
                 self._llm = None
 
     # ------------- public -------------
-    def get_brief(self, topic_hint: Optional[str]) -> Optional[str]:
+    async def get_brief(self, topic_hint: Optional[str]) -> Optional[str]:
         """
         Konu ipucuna göre yakın zamandan bir başlık seçer ve kısa tetik döndürür.
         Örn: "Gündem: Fed toplantısı yaklaşırken...", veya LLM ile temkinli kısa bir cümle.
         """
-        items = self._get_recent_items()
+        items = await self._get_recent_items()
         if not items:
             return None
 
@@ -82,7 +82,7 @@ class NewsClient:
 
         # LLM ile temkinli TR özet (opsiyonel)
         if self.use_llm and self._llm is not None:
-            brief = self._summarize_title_tr(title)
+            brief = await self._summarize_title_tr(title)
             if brief:
                 return brief
 
@@ -90,7 +90,7 @@ class NewsClient:
         return f"Gündem: {title}"
 
     # ------------- fetch/cache -------------
-    def _get_recent_items(self, window_minutes: int = 180) -> List[NewsItem]:
+    async def _get_recent_items(self, window_minutes: int = 180) -> List[NewsItem]:
         """
         Cache tazeyse ondan; değilse RSS'leri çekip parse eder.
         Son 3 saat (varsayılan) içindeki maddeleri öne alır.
@@ -100,13 +100,14 @@ class NewsClient:
             items = self._cache_items
         else:
             items = []
-            for url in self.feeds:
-                try:
-                    r = httpx.get(url, timeout=self.timeout)
-                    r.raise_for_status()
-                    items.extend(self._parse_rss(r.text))
-                except Exception as e:
-                    log.debug("RSS fetch failed: %s (%s)", url, e)
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                for url in self.feeds:
+                    try:
+                        r = await client.get(url)
+                        r.raise_for_status()
+                        items.extend(self._parse_rss(r.text))
+                    except Exception as e:
+                        log.debug("RSS fetch failed: %s (%s)", url, e)
             # Yenile cache
             self._cache_items = items
             self._cache_at = now
@@ -184,7 +185,7 @@ class NewsClient:
         return pool[0] if pool else None
 
     # ------------- llm summary -------------
-    def _summarize_title_tr(self, title: str) -> Optional[str]:
+    async def _summarize_title_tr(self, title: str) -> Optional[str]:
         if self._llm is None:
             return None
         prompt = f"""Başlığı 1 kısa cümlede Türkçe ve temkinli şekilde özetle. Yatırım tavsiyesi verme, kesin hüküm kurma.
@@ -192,7 +193,7 @@ class NewsClient:
 Başlık: {title}
 """
         try:
-            out = self._llm.generate(user_prompt=prompt, temperature=0.3, max_tokens=80)
+            out = await self._llm.generate(user_prompt=prompt, temperature=0.3, max_tokens=80)
             if out:
                 return out.strip()
         except Exception as e:
