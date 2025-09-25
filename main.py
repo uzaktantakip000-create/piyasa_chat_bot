@@ -10,7 +10,8 @@ from dotenv import load_dotenv
 load_dotenv()  # .env dosyasını yükler
 
 import redis
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import Body, Depends, HTTPException, Query, Response, status
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -21,7 +22,7 @@ from database import (
 )
 from schemas import (
     BotCreate, BotUpdate, BotResponse,
-    ChatCreate, ChatResponse,
+    ChatCreate, ChatUpdate, ChatResponse,
     SettingResponse, MetricsResponse,
     PersonaProfile,
     StanceCreate, StanceUpdate, StanceResponse,
@@ -126,7 +127,7 @@ def delete_bot(bot_id: int, db: Session = Depends(get_db)):
     db.delete(db_bot)
     db.commit()
     publish_config_update(get_redis(), {"type": "bot_deleted", "bot_id": bot_id})
-    return {"ok": True}
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 # ----- Chats -----
 @app.post("/chats", response_model=ChatResponse, status_code=status.HTTP_201_CREATED)
@@ -143,11 +144,48 @@ def list_chats(db: Session = Depends(get_db)):
     chats = db.query(Chat).order_by(Chat.id.asc()).all()
     return chats
 
+
+@app.patch("/chats/{chat_id}", response_model=ChatResponse)
+def update_chat(chat_id: int, patch: ChatUpdate, db: Session = Depends(get_db)):
+    db_chat = db.query(Chat).filter(Chat.id == chat_id).first()
+    if not db_chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    for field, value in patch.dict(exclude_unset=True).items():
+        setattr(db_chat, field, value)
+
+    db.commit()
+    db.refresh(db_chat)
+    publish_config_update(get_redis(), {"type": "chat_updated", "chat_id": chat_id})
+    return db_chat
+
+
+@app.delete("/chats/{chat_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_chat(chat_id: int, db: Session = Depends(get_db)):
+    db_chat = db.query(Chat).filter(Chat.id == chat_id).first()
+    if not db_chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    db.delete(db_chat)
+    db.commit()
+    publish_config_update(get_redis(), {"type": "chat_deleted", "chat_id": chat_id})
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
 # ----- Settings -----
+def _normalize_setting_value(raw: Any) -> Dict[str, Any]:
+    if isinstance(raw, dict) and "value" in raw and len(raw) == 1:
+        return raw
+    return {"value": raw}
+
+
+def _setting_to_response(row: Setting) -> SettingResponse:
+    return SettingResponse(key=row.key, value=_normalize_setting_value(row.value), updated_at=row.updated_at)
+
+
 @app.get("/settings", response_model=List[SettingResponse])
 def list_settings(db: Session = Depends(get_db)):
     rows = db.query(Setting).order_by(Setting.key.asc()).all()
-    return rows
+    return [_setting_to_response(row) for row in rows]
+
 
 def _set_setting(db: Session, key: str, value: Any):
     row = db.query(Setting).filter(Setting.key == key).first()
@@ -157,6 +195,7 @@ def _set_setting(db: Session, key: str, value: Any):
     else:
         row.value = value
     db.commit()
+    db.refresh(row)
     return row
 
 # >>> NEW: bulk settings update <<<
@@ -179,8 +218,28 @@ def update_settings_bulk(body: SettingsBulkUpdate, db: Session = Depends(get_db)
         changed.append(k)
         out.append(row)
     db.commit()
+    for row in out:
+        db.refresh(row)
     publish_config_update(get_redis(), {"type": "settings_updated", "keys": changed})
-    return out
+    return [_setting_to_response(row) for row in out]
+
+
+class SettingUpdate(BaseModel):
+    value: Any
+
+
+@app.patch("/settings/{key}", response_model=SettingResponse)
+def update_setting(key: str, payload: SettingUpdate, db: Session = Depends(get_db)):
+    row = db.query(Setting).filter(Setting.key == key).first()
+    if not row:
+        row = Setting(key=key, value=payload.value)
+        db.add(row)
+    else:
+        row.value = payload.value
+    db.commit()
+    db.refresh(row)
+    publish_config_update(get_redis(), {"type": "settings_updated", "keys": [key]})
+    return _setting_to_response(row)
 
 # Control: start/stop/scale
 @app.post("/control/start")
@@ -195,14 +254,27 @@ def control_stop(db: Session = Depends(get_db)):
     publish_config_update(get_redis(), {"type": "control", "simulation_active": False})
     return {"ok": True}
 
+class ScalePayload(BaseModel):
+    factor: float = Field(1.0, gt=0)
+
+
 @app.post("/control/scale")
-def control_scale(body: Dict[str, Any], db: Session = Depends(get_db)):
-    factor = float(body.get("factor", 1.0))
-    if factor <= 0:
+def control_scale(
+    factor: Optional[float] = Query(default=None, gt=0),
+    body: Optional[ScalePayload] = Body(default=None),
+    db: Session = Depends(get_db),
+):
+    resolved = factor
+    if resolved is None and body is not None:
+        resolved = body.factor
+    if resolved is None:
+        resolved = 1.0
+    factor_value = float(resolved)
+    if factor_value <= 0:
         raise HTTPException(400, "factor must be > 0")
-    _set_setting(db, "scale_factor", factor)
-    publish_config_update(get_redis(), {"type": "scale", "factor": factor})
-    return {"ok": True, "factor": factor}
+    _set_setting(db, "scale_factor", factor_value)
+    publish_config_update(get_redis(), {"type": "scale", "factor": factor_value})
+    return {"ok": True, "factor": factor_value}
 
 # ----- Metrics -----
 @app.get("/metrics", response_model=MetricsResponse)
@@ -240,20 +312,30 @@ def metrics(db: Session = Depends(get_db)):
     )
 
 # ----- Logs (recent) -----
+def _serialize_log(message: Message) -> Dict[str, Any]:
+    text = message.text or ""
+    if len(text) > 100:
+        text = text[:100] + "..."
+    return {
+        "id": message.id,
+        "bot_name": message.bot.name if message.bot and message.bot.name else "",
+        "chat_title": message.chat.title if message.chat and message.chat.title else "",
+        "text": text,
+        "created_at": message.created_at.isoformat() if message.created_at else None,
+        "reply_to": message.reply_to_message_id,
+    }
+
+
+@app.get("/logs")
+def list_logs(limit: int = 100, db: Session = Depends(get_db)):
+    limit = min(max(limit, 1), 1000)
+    rows = db.query(Message).order_by(Message.created_at.desc()).limit(limit).all()
+    return [_serialize_log(row) for row in rows]
+
+
 @app.get("/logs/recent")
 def recent_logs(limit: int = 20, db: Session = Depends(get_db)):
-    rows = db.query(Message).order_by(Message.created_at.desc()).limit(limit).all()
-    return [
-        {
-            "id": m.id,
-            "bot": m.bot.name if m.bot else None,
-            "chat": m.chat.title if m.chat else None,
-            "text": (m.text[:100] + "...") if m.text and len(m.text) > 100 else m.text,
-            "created_at": m.created_at.isoformat() if m.created_at else None,
-            "reply_to": m.reply_to_message_id,
-        }
-        for m in rows
-    ]
+    return list_logs(limit=limit, db=db)
 
 # ==========================================================
 # Persona / Stances / Holdings (Mevcut Uçlar)
