@@ -35,7 +35,8 @@ class BotUpdate(BaseModel):
 class BotResponse(BaseModel):
     id: int
     name: str
-    token: str
+    token_masked: str
+    has_token: bool
     username: Optional[str]
     is_enabled: bool
     speed_profile: Dict[str, Any]

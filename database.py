@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime
 from typing import Generator, Any, Dict
@@ -9,6 +10,10 @@ from sqlalchemy import (
     JSON, ForeignKey, Float, UniqueConstraint, Index
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker, Session
+
+from security import decrypt_token, encrypt_token, SecurityConfigError
+
+logger = logging.getLogger("database")
 
 # --------------------------------------------------------------------
 # Engine & Session
@@ -36,7 +41,7 @@ class Bot(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
-    token = Column(String(255), nullable=False)
+    token_encrypted = Column("token", String(255), nullable=False)
     username = Column(String(100), nullable=True)
     is_enabled = Column(Boolean, default=True, nullable=False)
 
@@ -53,6 +58,14 @@ class Bot(Base):
     # Yeni ilişkiler
     stances = relationship("BotStance", back_populates="bot", cascade="all,delete-orphan")
     holdings = relationship("BotHolding", back_populates="bot", cascade="all,delete-orphan")
+
+    @property
+    def token(self) -> str:
+        return decrypt_token(self.token_encrypted)
+
+    @token.setter
+    def token(self, raw_token: str) -> None:
+        self.token_encrypted = encrypt_token(raw_token)
 
 
 class Chat(Base):
@@ -160,6 +173,27 @@ def get_db() -> Generator[Session, None, None]:
 def create_tables() -> None:
     """Create database tables."""
     Base.metadata.create_all(bind=engine)
+
+
+def migrate_plain_tokens() -> None:
+    """Encrypt legacy plaintext bot tokens in place."""
+    db = SessionLocal()
+    try:
+        bots = db.query(Bot).all()
+        migrated = 0
+        for bot in bots:
+            raw_value = bot.token_encrypted
+            if raw_value and not raw_value.startswith("gAAAA"):
+                bot.token = raw_value  # setter encrypts
+                migrated += 1
+        if migrated:
+            db.commit()
+            logger.info("Encrypted %d legacy bot tokens", migrated)
+    except SecurityConfigError as exc:
+        logger.warning("Skipping token migration: %s", exc)
+        db.rollback()
+    finally:
+        db.close()
 
 
 def init_default_settings() -> None:

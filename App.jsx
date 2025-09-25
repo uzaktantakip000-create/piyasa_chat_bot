@@ -18,17 +18,14 @@ import {
   TrendingUp,
   Wand2
 } from 'lucide-react'
-import Dashboard from './components/Dashboard'
-import Bots from './components/Bots'
-import Chats from './components/Chats'
-import SettingsPage from './components/Settings'
-import Logs from './components/Logs'
+import Dashboard from './Dashboard'
+import Bots from './Bots'
+import Chats from './Chats'
+import SettingsPage from './Settings'
+import Logs from './Logs'
 import Wizard from './components/Wizard'
+import { apiFetch } from './apiClient'
 import './App.css'
-
-const API_BASE_URL = process.env.NODE_ENV === 'production' 
-  ? '/api' 
-  : 'http://localhost:8000'
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -48,12 +45,10 @@ function App() {
   // Fetch metrics
   const fetchMetrics = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/metrics`)
-      if (response.ok) {
-        const data = await response.json()
-        setMetrics(data)
-        setSimulationActive(data.simulation_active)
-      }
+      const response = await apiFetch('/metrics')
+      const data = await response.json()
+      setMetrics(data)
+      setSimulationActive(data.simulation_active)
     } catch (error) {
       console.error('Failed to fetch metrics:', error)
     }
@@ -63,15 +58,12 @@ function App() {
   const toggleSimulation = async () => {
     try {
       const endpoint = simulationActive ? '/control/stop' : '/control/start'
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      await apiFetch(endpoint, {
         method: 'POST'
       })
-      
-      if (response.ok) {
-        setSimulationActive(!simulationActive)
-        // Refresh metrics after a short delay
-        setTimeout(fetchMetrics, 1000)
-      }
+
+      setSimulationActive(!simulationActive)
+      setTimeout(fetchMetrics, 1000)
     } catch (error) {
       console.error('Failed to toggle simulation:', error)
     }
@@ -208,7 +200,7 @@ function App() {
           <main className="flex-1 overflow-auto p-6">
             <Routes>
               <Route path="/" element={<Dashboard metrics={metrics} />} />
-              <Route path="/wizard" element={<Wizard apiBase={API_BASE_URL} onDone={fetchMetrics} />} />
+              <Route path="/wizard" element={<Wizard onDone={fetchMetrics} />} />
               <Route path="/bots" element={<Bots />} />
               <Route path="/chats" element={<Chats />} />
               <Route path="/settings" element={<SettingsPage />} />

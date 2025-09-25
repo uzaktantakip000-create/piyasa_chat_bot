@@ -5,18 +5,16 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { 
-  FileText, 
-  RefreshCw, 
+import {
+  FileText,
+  RefreshCw,
   Search,
   Filter,
   Download,
   Eye
 } from 'lucide-react'
 
-const API_BASE_URL = process.env.NODE_ENV === 'production' 
-  ? '/api' 
-  : 'http://localhost:8000'
+import { apiFetch } from './apiClient'
 
 function Logs() {
   const [logs, setLogs] = useState([])
@@ -28,13 +26,12 @@ function Logs() {
   // Fetch logs
   const fetchLogs = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/logs?limit=${limitFilter}`)
-      if (response.ok) {
-        const data = await response.json()
-        setLogs(data)
-      }
+      const response = await apiFetch(`/logs?limit=${limitFilter}`)
+      const data = await response.json()
+      setLogs(data)
     } catch (error) {
       console.error('Failed to fetch logs:', error)
+      alert('Loglar getirilirken hata oluştu: ' + error.message)
     } finally {
       setLoading(false)
     }

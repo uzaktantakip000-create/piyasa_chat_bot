@@ -21,7 +21,7 @@
 
 ### Aşama 6: Docker Compose yapılandırmasını tamamlama ve dağıtım
 - [ ] Docker Compose dosyasını oluşturma (tüm servisleri ayağa kaldır)
-- [ ] .env.example dosyasını oluşturma
+- [x] .env.example dosyasını oluşturma
 
 ### Aşama 7: Dokümantasyon (README, runbook) oluşturma
 - [ ] README ve runbook oluşturma (kurulum, ortam değişkenleri, ölçekleme, sorun giderme, Telegram rate-limit notları)
@@ -36,7 +36,7 @@
 ### Aşama 9: Teslimatları hazırlama ve kullanıcıya sunma
 - [ ] Çalışır Docker Compose paketi hazırlama
 - [ ] UI erişimi ve yönetim kullanıcıları (şimdilik basit auth) hazırlama
-- [ ] .env.example dosyasını hazırlama
+- [x] .env.example dosyasını hazırlama
 - [ ] README + 5 dakikalık “Quickstart” + sorun giderme bölümü hazırlama
 - [ ] Kısa video/gif veya ekran görüntüleri (opsiyonel ama tercih) hazırlama
 
