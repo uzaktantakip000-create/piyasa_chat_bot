@@ -1,5 +1,9 @@
 ## Yapılacaklar Listesi
 
+### Acil Düzeltmeler
+- [x] .gitignore ekleyip gerçek `.env` dosyasını repodan kaldırma
+- [x] Docker Compose build tanımında yanlış dosya adı kullanımını düzeltme (Dockerfile.api)
+
 ### Aşama 1: Proje gereksinimlerini anlama ve planlama
 - [x] Yüklenen dosyayı okuma ve içeriğini analiz etme
 - [ ] Proje planını güncelleme (yapıldı)
@@ -20,11 +24,11 @@
 - [x] UI geliştirme (Bots/Chats/Control/Settings/Logs sayfaları; API çağrıları)
 
 ### Aşama 6: Docker Compose yapılandırmasını tamamlama ve dağıtım
-- [ ] Docker Compose dosyasını oluşturma (tüm servisleri ayağa kaldır)
+- [x] Docker Compose dosyasını oluşturma (tüm servisleri ayağa kaldır)
 - [x] .env.example dosyasını oluşturma
 
 ### Aşama 7: Dokümantasyon (README, runbook) oluşturma
-- [ ] README ve runbook oluşturma (kurulum, ortam değişkenleri, ölçekleme, sorun giderme, Telegram rate-limit notları)
+- [x] README ve runbook oluşturma (kurulum, ortam değişkenleri, ölçekleme, sorun giderme, Telegram rate-limit notları)
 
 ### Aşama 8: Sistemi test etme ve doğrulama
 - [ ] 30 dk stres testi yapma
@@ -34,9 +38,9 @@
 - [ ] Yatırım tavsiyesi anahtar kelimeleri kontrolü
 
 ### Aşama 9: Teslimatları hazırlama ve kullanıcıya sunma
-- [ ] Çalışır Docker Compose paketi hazırlama
+- [x] Çalışır Docker Compose paketi hazırlama
 - [ ] UI erişimi ve yönetim kullanıcıları (şimdilik basit auth) hazırlama
 - [x] .env.example dosyasını hazırlama
-- [ ] README + 5 dakikalık “Quickstart” + sorun giderme bölümü hazırlama
+- [x] README + 5 dakikalık “Quickstart” + sorun giderme bölümü hazırlama
 - [ ] Kısa video/gif veya ekran görüntüleri (opsiyonel ama tercih) hazırlama
 
