@@ -1,101 +1,152 @@
 # Telegram Piyasa Sohbet Simülasyonu
 
-Bu depo, Telegram'da 10+ botla gerçekçi piyasa sohbetleri üreten sistemin hem FastAPI backend'ini hem de React tabanlı yönetim panelini içerir. Proje; bot/sohbet yönetimi, davranış motoru, LLM entegrasyonu ve dağıtım araçlarını tek pakette sunar.
+Bu rehber, teknik geçmişi olmayan kişilerin bile projeyi kurup çalıştırabilmesi için yazıldı. Aşağıdaki adımları sırasıyla izlerseniz, Telegram üzerinde piyasa sohbetlerini canlandıran bu sistemi kendi bilgisayarınızda veya bir sunucuda çalıştırabilirsiniz.
 
-## Özellikler
-- FastAPI tabanlı REST API ile bot, sohbet, ayar ve persona uçları
-- Davranış motoru (worker) ile LLM tabanlı mesaj üretimi ve Telegram gönderimi
-- Yönetim paneli (React) ile dashboard, bot/sohbet/ayar/log ekranları
-- Redis ile anlık konfigürasyon yayını (opsiyonel)
-- Docker Compose ile API, worker, PostgreSQL ve Redis'i tek komutla başlatma
-- API anahtarı, panel şifresi ve bot token şifreleme ile güçlendirilmiş güvenlik katmanı
+## Bu doküman kimin için?
+- Telegram botlarını yönetmek isteyen ama yazılım altyapısına hâkim olmayan ekipler
+- Projeyi devralıp "nasıl ayağa kaldırırım?" sorusuna cevap arayan yeni ekip arkadaşları
+- Sistem yöneticileri veya proje sahipleri
 
-## Hızlı Başlangıç (5 Dakika)
+> **İpucu:** Adımları uygularken bilmediğiniz bir kavramla karşılaşırsanız paniğe gerek yok. Her bölümde kısa açıklamalar ve görsel benzeri tarifler bulunuyor.
 
-### 1. Depoyu klonla ve ortamı hazırla
-```bash
-git clone <repo-url>
-cd piyasa_chat_bot
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-```
+## Proje ne yapar?
+- Birden fazla Telegram botunu (örneğin 10 bot) aynı anda çalıştırır.
+- Botlar; belirlediğiniz kişilik, tutum ve haber akışına göre mesaj üretir.
+- Üretilen mesajlar gerçek bir grup sohbetindeymişsiniz gibi Telegram'a gönderilir.
+- Tüm ayarları ve bot listesini web tabanlı bir yönetim panelinden kontrol edebilirsiniz.
 
-### 2. Ortam değişkenlerini tanımla
-```bash
-cp .env.example .env
-```
-`.env` dosyasındaki kritik alanlar:
-
-| Değişken | Açıklama |
+## Ana bileşenler (kısaca)
+| Bileşen | Ne işe yarıyor? |
 | --- | --- |
-| `API_KEY` | Panelden API'ye giden tüm istekler `X-API-Key` başlığında bu değeri taşır. Boş bırakılamaz. |
-| `TOKEN_ENCRYPTION_KEY` | Telegram bot tokenlarını şifrelemek için kullanılır. `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` ile üret. |
-| `DATABASE_URL` | Varsayılan `sqlite:///./app.db`. Üretimde PostgreSQL önerilir. |
-| `ALLOWED_ORIGINS` | Paneli barındıran domain(ler). Virgülle ayır. |
-| `VITE_API_KEY` | Yönetim paneli build'i için varsayılan API anahtarı. |
-| `VITE_DASHBOARD_PASSWORD` | (Opsiyonel) Panel girişini korumak için kullanılacak şifre. Tanımlanmazsa sadece API anahtarı gerekir. |
+| **FastAPI (backend)** | Botlar, sohbetler, ayarlar ve metrikler için web servislerini sunar. |
+| **Davranış motoru (worker.py)** | Botların nasıl cevap vereceğini hesaplar ve Telegram'a mesaj yollar. |
+| **React yönetim paneli** | Tarayıcıdan bot ekleyip ayarları değiştirdiğiniz arayüz. |
+| **Veritabanı** | Bot bilgileri, sohbetler ve mesaj geçmişi burada saklanır. Varsayılan olarak SQLite dosyası kullanılır. |
+| **Redis (isteğe bağlı)** | Ayar değişikliklerini anında çalışan motora iletmek için kullanılır. Olmasa da sistem çalışır. |
 
-Geliştirme sırasında Redis zorunlu değildir; ancak gerçek zamanlı ayar yayınları için `.env` dosyasında `REDIS_URL` tanımlanabilir.
+## Başlamadan önce bilmeniz gerekenler
 
-### 3. API ve worker'ı başlat
-```bash
-uvicorn main:app --reload
-# Ayrı terminalde
-python worker.py
-```
+### Gerekli araçlar
+| Araç | Ne işe yarar? | Minimum sürüm |
+| --- | --- | --- |
+| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Tüm sistemi tek komutla çalıştırmak için tavsiye edilir. | 4.x |
+| Alternatif: Python + Node.js | Docker kullanmak istemiyorsanız gereklidir. | Python 3.11, Node.js 18 |
+| Bir Telegram hesabı | Bot oluşturmak ve grup yönetmek için zorunludur. | - |
 
-### 4. Paneli çalıştır (Vite)
-```bash
-npm install
-npm run dev
-```
-> Not: Panel Vite altyapısı ile çalışır; `VITE_API_KEY` değeri `.env` veya `vite.config.js` üzerinden build'e aktarılmalıdır.
-> İlk açılışta yönetim paneli API anahtarını ve tanımlıysa `VITE_DASHBOARD_PASSWORD` şifresini soran bir giriş ekranı gösterir.
+### Telegram bot token'ı nasıl alınır?
+1. Telegram uygulamasını açın ve `@BotFather` hesabına mesaj atın.
+2. `/newbot` komutunu gönderin, bot ismini ve kullanıcı adını seçin.
+3. BotFather size `123456789:ABCDEF...` formatında bir **token** verecek. Bu değeri güvenle saklayın; README'nin ilerleyen bölümünde kullanacağız.
+4. Birden fazla bot istiyorsanız adımları tekrarlayın.
 
-### 5. Docker Compose ile çalıştır
-```bash
-docker compose up --build
-```
-Bu komut; FastAPI, worker, PostgreSQL ve Redis servislerini ayağa kaldırır. Varsayılan olarak API 8000 portundan, Redis 6379 portundan yayın yapar.
+### API anahtarı ne işe yarar?
+Yönetim paneline erişmek için bir parola gibi düşünün. Panelde gördüğünüz her ekran bu anahtarı kullanarak API'ye bağlanır. Anahtarı `.env` dosyasında belirleyeceksiniz.
 
-## Testler ve Kontroller
-```bash
-python -m compileall -x '/\.venv' .
-pytest
-```
+## Kurulum için iki seçenek
+Çoğu kullanıcı için en kolay yol **Docker Compose** kullanmaktır. Bilgisayarınızda Docker yoksa veya kullanmak istemiyorsanız, manuel kurulum adımlarını izleyebilirsiniz.
 
-30 dakikalık yük testi gereksinimi için depo içinde `scripts/stress_test.py` aracı bulunmaktadır. Aynı süreçte farklı API isteklerini üretip metrikleri, bot akışını ve kontrol uçlarını zorlar:
+### Seçenek A: Docker Compose (önerilen)
+1. **Kaynak dosyaları indirin**
+   - GitHub'da sağ üstten **Code → Download ZIP** diyerek projeyi indirin.
+   - ZIP dosyasını çıkartın ve klasöre girin (ör. `piyasa_chat_bot`).
+2. **Ortam dosyasını hazırlayın**
+   - `piyasa_chat_bot` klasörü içinde `.env.example` dosyasını bulun.
+   - Dosyayı kopyalayıp yeni adını `.env` yapın. (Windows'ta dosya adı başına nokta koymak için "Farklı Kaydet" kısmında "`.env`" yazabilirsiniz.)
+   - `.env` dosyasını bir metin editöründe açın ve şu alanları düzenleyin:
+     - `API_KEY=...` → Panel girişinde kullanılacak güçlü bir cümle yazın. (Örnek: `API_KEY=Benim-Cok-Gizli-Anahtarim`)
+     - `TOKEN_ENCRYPTION_KEY=...` → Tek satırda uzun bir anahtar olmalı. Terminaliniz varsa `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` komutunu kullanabilirsiniz. Terminal yoksa [online Fernet key generator](https://asecuritysite.com/encryption/fernet) gibi bir araçtan kopyalayabilirsiniz.
+     - `DATABASE_URL=` → Varsayılan değeri (`sqlite:///./app.db`) bırakabilirsiniz. PostgreSQL kullanmak istiyorsanız burada bağlantı adresini yazın.
+     - `ALLOWED_ORIGINS=` → Yönetim paneline hangi web adreslerinden erişileceğini yazın. Yerel kullanım için `http://localhost:5173` yeterlidir.
+     - `VITE_API_KEY=` ve `VITE_DASHBOARD_PASSWORD=` → Panelin tarayıcı tarafında hatırlayacağı değerlerdir. `VITE_API_KEY`, az önce belirlediğiniz `API_KEY` ile aynı olmalıdır. İsterseniz panel için ayrıca bir şifre (`VITE_DASHBOARD_PASSWORD`) tanımlayabilirsiniz.
+3. **Docker'ı başlatın**
+   - Terminal (PowerShell, CMD, macOS Terminal vb.) açın.
+   - Proje klasörüne geçin. Örnek: `cd C:\Users\kullanici\Downloads\piyasa_chat_bot`
+   - Aşağıdaki komutu çalıştırın:
+     ```bash
+     docker compose up --build
+     ```
+   - İlk kurulum birkaç dakika sürebilir. İşlem bittiğinde FastAPI, worker, PostgreSQL ve Redis servisleri hazır olacaktır.
+4. **Yönetim paneline bağlanın**
+   - Tarayıcıdan `http://localhost:3000` (veya Vite geliştirme sunucusu kullanıyorsanız `http://localhost:5173`) adresine gidin.
+   - Açılan giriş ekranında `.env` dosyasında tanımladığınız `API_KEY` (ve varsa `VITE_DASHBOARD_PASSWORD`) değerlerini girin.
+   - Başarılı girişten sonra dashboard yüklenir.
+5. **Servisi kapatmak**
+   - Terminalde `Ctrl + C` ile komutu durdurabilir veya başka bir terminalde `docker compose down` çalıştırabilirsiniz.
 
-```bash
-python scripts/stress_test.py --duration 1800 --concurrency 6 --api-key $API_KEY
-```
-> Yerel geliştirme sırasında doğrulama için `--duration 30` gibi daha kısa bir süre tercih edilebilir.
+### Seçenek B: Manuel kurulum (Docker yoksa)
+1. **Python ortamını kurun**
+   ```bash
+   python -m venv .venv
+   # Windows: .venv\Scripts\activate
+   # macOS/Linux: source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+2. **Node.js bağımlılıkları**
+   ```bash
+   npm install
+   ```
+3. **.env dosyasını hazırlayın**
+   - Docker adımlarındaki aynı ayarları buraya da uygulayın.
+4. **API'yi başlatın**
+   ```bash
+   uvicorn main:app --reload
+   ```
+5. **Worker'ı başlatın** (ayrı bir terminalde sanal ortamı tekrar aktive etmeyi unutmayın)
+   ```bash
+   python worker.py
+   ```
+6. **Yönetim panelini başlatın**
+   ```bash
+   npm run dev
+   ```
+7. **Tarayıcıdan giriş yapın**
+   - `http://localhost:5173` adresine gidin ve `API_KEY` + panel şifrenizle giriş yapın.
+8. **Servisi durdurmak**
+   - Her terminalde `Ctrl + C` kombinasyonu ile süreçleri kapatın.
 
-## Güvenlik Notları
-- `API_KEY` ve `TOKEN_ENCRYPTION_KEY` değerlerini repoya kesinlikle eklemeyin. `.gitignore` dosyası `.env` ve türevlerini dışlar.
-- API anahtarı olmadan hiçbir yönetim uç noktası erişilebilir değildir.
-- Tokenlar veritabanında Fernet ile şifrelenir; eski düz metin kayıtları `migrate_plain_tokens()` ile otomatik şifrelenir.
+## Yönetim panelini adım adım kullanma
+1. **Bot ekleme**
+   - Sol menüden **Bots** sayfasına gidin.
+   - `Add bot` butonuna basın.
+   - Telegram bot tokenınızı "Token" alanına yapıştırın (sistem arka planda şifreler).
+   - Botun adını, kullanıcı adını ve varsa kişilik ipuçlarını girin.
+   - Kaydettikten sonra bot listesinde maskelemiş token (`1234******abcd`) görünecektir.
+2. **Sohbet oluşturma**
+   - **Chats** sekmesine gidin.
+   - Telegram grup kimliğini (ör. `-1001234567890`) ve açıklamasını ekleyin.
+   - Hangi botların o sohbete mesaj atacağını belirtin.
+3. **Ayarları düzenleme**
+   - **Settings** bölümünde mesaj sıklığı, yazma hızı, prime saatler gibi seçenekler bulunur.
+   - Kaydettiğiniz her değişiklik worker'a otomatik gönderilir.
+   - Değerleri aşırı uçlara çekmeden önce küçük artışlarla test etmeniz önerilir.
+4. **Simülasyonu başlatma/durdurma**
+   - Dashboard ana sayfasında yer alan kontrol butonları ile tüm botları durdurup yeniden başlatabilirsiniz.
+   - `Scale` butonları ile hız çarpanını değiştirebilirsiniz.
+5. **Logları inceleme**
+   - **Logs** sekmesi, API ve worker tarafından yakalanan hataları gösterir.
+   - Telegram rate limit uyarıları (ör. `429 Too Many Requests`) görürseniz mesaj hızını azaltın.
 
-## Yapı Taşları
-- `main.py`: FastAPI uygulaması, CRUD uçları, ayar yönetimi ve metrikler
-- `behavior_engine.py`: Davranış motoru döngüsü, LLM çağrıları, Telegram gönderimleri
-- `telegram_client.py`: Telegram Bot API istemcisi, hata sayaçları ve geridönüş mekanizması
-- `worker.py`: Davranış motorunu sürekli çalıştıran runner
-- `Dashboard.jsx`, `Bots.jsx`, `Chats.jsx`, `Settings.jsx`, `Logs.jsx`: Panel sayfaları
-- `docker-compose.yml`: API, worker, Postgres, Redis servisleri için orkestrasyon
-- `RUNBOOK.md`: Daha ayrıntılı operasyon rehberi ve ortam kurulum talimatları
+## Günlük kullanım önerileri
+- Önemli değişikliklerden önce `.env` dosyasının ve `app.db` veritabanının yedeğini alın.
+- Çok sayıda bot ekledikten sonra sistemi yeniden başlatmak (API + worker) yapılandırmayı temizler.
+- Uzun süreli çalışmalarda Docker konteynerlerinin loglarını arada bir kontrol edin: `docker compose logs -f api` gibi.
 
-## Sorun Giderme
-- **`401 Invalid or missing API key`**: Paneldeki `.env` veya barındırma ortamında `VITE_API_KEY` ve API tarafında `API_KEY` değerlerinin eşleştiğinden emin olun. Panel şifresi (`VITE_DASHBOARD_PASSWORD`) değiştirilirse mevcut oturumlar sonlandırılır.
-- **`TOKEN_ENCRYPTION_KEY is not set`**: API başlatılmadan önce `.env` dosyasında geçerli bir anahtar üretildiğinden emin olun. Eski düz metin tokenlar anahtar sağlanmadan migrate edilmez.
-- **Docker build başarısız**: `docker-compose.yml` içinde `Dockerfile.api` yolu ve `.env` dosyasındaki gerekli değişkenler doğrulanmalı.
-- **Worker Redis'e bağlanamıyor**: `REDIS_URL` boş bırakıldığında worker otomatik olarak Redis senkronizasyonunu devre dışı bırakır; loglardaki uyarılar bilgilendirme amaçlıdır.
+## Sorun giderme
+| Belirti | Muhtemel sebep | Çözüm |
+| --- | --- | --- |
+| Panelde "Invalid or missing API key" hatası | Paneldeki `VITE_API_KEY` değeri ile `.env` dosyasındaki `API_KEY` eşleşmiyor | `.env` dosyasını kontrol edin, paneli kapatıp yeniden açın. |
+| API başlarken `TOKEN_ENCRYPTION_KEY is not set` uyarısı | `.env` içinde boş bıraktınız | Yeni bir Fernet anahtarı üretin ve `.env` dosyasına yazın, API'yi yeniden başlatın. |
+| Bot mesaj göndermiyor | Token yanlış veya bot sohbet grubuna eklenmemiş | Telegram'da botu ilgili gruba ekleyip admin yetkisi verin, ardından worker'ı yeniden başlatın. |
+| Docker konteynerleri hemen kapanıyor | `.env` içindeki PostgreSQL/Redis bağlantıları ulaşılamıyor | İlk etapta varsayılan SQLite + Redis'siz ayarlarla deneyin. |
 
-## Yol Haritası
-- UI bileşenlerinin stil katmanının tamamlanması ve paketlenmesi
-- Entegrasyon testleri ile Telegram / LLM uçlarının otomasyonu
-- Gelişmiş auth (örn. kullanıcı bazlı oturum) ve rol yönetimi
-- Gerçek zamanlı metrikler için SSE/WebSocket desteği
+## Sık sorulan küçük sorular
+- **Bu sistem gerçek para işlemi yapar mı?** Hayır. Sadece sohbet simülasyonu üretir.
+- **Tek botla çalıştırabilir miyim?** Evet, bot sayısı size bağlıdır.
+- **İnternete bağlı olmak zorunda mıyım?** Telegram'a mesaj gönderebilmek için internet şarttır.
+- **Hangi işletim sistemleri destekleniyor?** Windows 10/11, macOS ve modern Linux dağıtımları. Docker veya Python + Node.js kurabiliyorsanız sistem çalışır.
 
-Daha fazla ayrıntı ve operasyonel senaryolar için `RUNBOOK.md` dosyasına göz atın.
+## Daha fazla bilgi
+- Ayrıntılı operasyon ve bakım adımları için `RUNBOOK.md` dosyasına bakın.
+- Teknik mimari, plan ve yapılacaklar listesi için `PLAN.md` ve `todo.md` dosyalarını inceleyebilirsiniz.
+
+Kurulum sırasında takıldığınız nokta olursa dosyadaki adımlara geri dönüp eksik kalemleri tamamlayın. Her adımı tamamladığınızda sistemi güvenle çalıştırabilir, Telegram üzerinde kendi piyasa sohbet simülasyonunuzu başlatabilirsiniz.
