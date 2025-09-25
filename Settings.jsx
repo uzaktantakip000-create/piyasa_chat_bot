@@ -165,6 +165,12 @@ function Settings() {
                 </div>
               </div>
 
+              <div className="rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
+                💡 Öneri: Reply olasılığını %50-%70, mention oranını %20-%40 aralığında tutmak Telegram spam filtreleri için
+                güvenlidir. Kısa tepki ve yeni mesaj olasılıklarının toplamı %50’yi aşarsa botlar aynı anda çok sık mesaj
+                gönderebilir.
+              </div>
+
               <div className="space-y-4">
                 <h4 className="font-medium">Mesaj Uzunluk Profili</h4>
                 <div className="grid grid-cols-3 gap-4">
@@ -216,6 +222,10 @@ function Settings() {
                     />
                   </div>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Toplamın %100’e yakın olmasına dikkat edin; kısa mesaj ağırlığı yüksek olduğunda Telegram rate-limit’leri
+                  daha toleranslıdır.
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -250,6 +260,9 @@ function Settings() {
                     min={1}
                     max={20}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    6-8 aralığı doğal sohbet temposu sunar. 10+ değerleri Telegram limitlerine daha hızlı ulaşır.
+                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -389,38 +402,56 @@ function Settings() {
 
               <div className="space-y-4">
                 <h4 className="font-medium">Typing Hızı (WPM)</h4>
+                <p className="text-sm text-muted-foreground">
+                  Ortalama kullanıcılar 2-6 WPM aralığında yazıyor. Daha yüksek değerler botların ani tepki vermesine neden
+                  olup gerçekçilik algısını düşürebilir.
+                </p>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Minimum WPM</Label>
                     <Input
                       type="number"
                       step="0.1"
-                      value={settings.typing_speed_wpm?.value?.min || 2.5}
+                      value={settings.typing_speed_wpm?.value?.min ?? 2.5}
                       onChange={(e) => {
+                        const parsed = Number.parseFloat(e.target.value)
+                        if (Number.isNaN(parsed)) {
+                          return
+                        }
+                        const clamped = Math.min(12, Math.max(0.5, parsed))
                         const current = settings.typing_speed_wpm?.value || {}
-                        updateSetting('typing_speed_wpm', { 
-                          value: { ...current, min: parseFloat(e.target.value) }
-                        })
+                        const next = { ...current, min: clamped }
+                        if (typeof next.max === 'number' && next.max < clamped) {
+                          next.max = clamped
+                        }
+                        updateSetting('typing_speed_wpm', { value: next })
                       }}
-                      min={1}
-                      max={10}
+                      min={0.5}
+                      max={12}
                     />
                   </div>
-                  
+
                   <div className="space-y-2">
                     <Label>Maksimum WPM</Label>
                     <Input
                       type="number"
                       step="0.1"
-                      value={settings.typing_speed_wpm?.value?.max || 4.5}
+                      value={settings.typing_speed_wpm?.value?.max ?? 4.5}
                       onChange={(e) => {
+                        const parsed = Number.parseFloat(e.target.value)
+                        if (Number.isNaN(parsed)) {
+                          return
+                        }
+                        const clamped = Math.min(12, Math.max(0.5, parsed))
                         const current = settings.typing_speed_wpm?.value || {}
-                        updateSetting('typing_speed_wpm', { 
-                          value: { ...current, max: parseFloat(e.target.value) }
-                        })
+                        const next = { ...current, max: clamped }
+                        if (typeof next.min === 'number' && next.min > clamped) {
+                          next.min = clamped
+                        }
+                        updateSetting('typing_speed_wpm', { value: next })
                       }}
-                      min={1}
-                      max={10}
+                      min={0.5}
+                      max={12}
                     />
                   </div>
                 </div>

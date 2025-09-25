@@ -44,3 +44,7 @@
 - [x] README + 5 dakikalık “Quickstart” + sorun giderme bölümü hazırlama
 - [x] Kısa video/gif veya ekran görüntüleri (opsiyonel ama tercih) hazırlama (`docs/dashboard-login.svg`)
 
+### Devam Eden İyileştirmeler
+- [x] Ayarlar sayfasındaki yazma hızı alanlarında NaN değerlerini engelleyip güvenli aralığa (0.5-12 WPM) sıkıştırma
+- [x] Olasılık kaydırıcıları ve hız kontrolleri için kullanıcıya önerilen değerleri anlatan yardım metinleri ekleme
+
