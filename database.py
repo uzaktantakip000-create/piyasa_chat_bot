@@ -12,6 +12,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker, Session
 
 from security import decrypt_token, encrypt_token, SecurityConfigError
+from settings_utils import DEFAULT_MESSAGE_LENGTH_PROFILE
 
 logger = logging.getLogger("database")
 
@@ -217,7 +218,7 @@ def init_default_settings() -> None:
             "new_message_probability": 0.35,
 
             # Uzunluk dağılımı
-            "message_length_profile": {"short": 0.55, "medium": 0.35, "long": 0.10},
+            "message_length_profile": DEFAULT_MESSAGE_LENGTH_PROFILE.copy(),
 
             # Yazma hızı (WPM)
             "typing_speed_wpm": {"min": 2.5, "max": 4.5},

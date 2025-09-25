@@ -48,3 +48,7 @@
 - [x] Ayarlar sayfasındaki yazma hızı alanlarında NaN değerlerini engelleyip güvenli aralığa (0.5-12 WPM) sıkıştırma
 - [x] Olasılık kaydırıcıları ve hız kontrolleri için kullanıcıya önerilen değerleri anlatan yardım metinleri ekleme
 
+### Yapılabilecekler
+- [x] Mesaj uzunluk profili değerlerini API katmanında otomatik normalize ederek toplamın %100 olmasını garanti altına alma.
+- [x] Ayarlar panelindeki mesaj uzunluk kaydırıcılarını normalize eden ve toplam yüzdelik göstergesi sunan kullanıcı dostu arayüz geliştirmesi.
+

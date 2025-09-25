@@ -29,6 +29,7 @@ from schemas import (
     HoldingCreate, HoldingUpdate, HoldingResponse,
 )
 from security import mask_token, require_api_key, SecurityConfigError
+from settings_utils import normalize_message_length_profile
 
 logger = logging.getLogger("api")
 logging.basicConfig(level=os.getenv("LOG_LEVEL","INFO"))
@@ -204,14 +205,21 @@ def delete_chat(chat_id: int, db: Session = Depends(get_db)):
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 # ----- Settings -----
-def _normalize_setting_value(raw: Any) -> Dict[str, Any]:
+def _normalize_setting_value(key: str, raw: Any) -> Dict[str, Any]:
+    if key == "message_length_profile":
+        normalized = normalize_message_length_profile(raw)
+        return {"value": normalized}
     if isinstance(raw, dict) and "value" in raw and len(raw) == 1:
         return raw
     return {"value": raw}
 
 
 def _setting_to_response(row: Setting) -> SettingResponse:
-    return SettingResponse(key=row.key, value=_normalize_setting_value(row.value), updated_at=row.updated_at)
+    return SettingResponse(
+        key=row.key,
+        value=_normalize_setting_value(row.key, row.value),
+        updated_at=row.updated_at,
+    )
 
 
 @app.get("/settings", response_model=List[SettingResponse], dependencies=api_dependencies)
@@ -242,6 +250,8 @@ def update_settings_bulk(body: SettingsBulkUpdate, db: Session = Depends(get_db)
     changed: List[str] = []
     out: List[Setting] = []
     for k, v in body.updates.items():
+        if k == "message_length_profile":
+            v = normalize_message_length_profile(v)
         row = db.query(Setting).filter(Setting.key == k).first()
         if not row:
             row = Setting(key=k, value=v)
@@ -263,12 +273,15 @@ class SettingUpdate(BaseModel):
 
 @app.patch("/settings/{key}", response_model=SettingResponse, dependencies=api_dependencies)
 def update_setting(key: str, payload: SettingUpdate, db: Session = Depends(get_db)):
+    value = payload.value
+    if key == "message_length_profile":
+        value = normalize_message_length_profile(value)
     row = db.query(Setting).filter(Setting.key == key).first()
     if not row:
-        row = Setting(key=key, value=payload.value)
+        row = Setting(key=key, value=value)
         db.add(row)
     else:
-        row.value = payload.value
+        row.value = value
     db.commit()
     db.refresh(row)
     publish_config_update(get_redis(), {"type": "settings_updated", "keys": [key]})

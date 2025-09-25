@@ -17,6 +17,38 @@ import {
 
 import { apiFetch } from './apiClient'
 
+const DEFAULT_MESSAGE_LENGTH_PROFILE = { short: 0.55, medium: 0.35, long: 0.10 }
+
+function normalizeMessageLengthProfile(rawProfile) {
+  const base = { ...DEFAULT_MESSAGE_LENGTH_PROFILE }
+  if (rawProfile && typeof rawProfile === 'object') {
+    Object.entries(rawProfile).forEach(([key, value]) => {
+      if (!(key in base)) {
+        return
+      }
+      const parsed = Number.parseFloat(value)
+      if (Number.isFinite(parsed) && parsed >= 0) {
+        base[key] = parsed
+      }
+    })
+  }
+
+  const total = Object.values(base).reduce((sum, val) => sum + val, 0)
+  if (total <= 0) {
+    return { ...DEFAULT_MESSAGE_LENGTH_PROFILE }
+  }
+
+  const normalized = Object.fromEntries(
+    Object.entries(base).map(([key, val]) => [key, val / total])
+  )
+  const sumNormalized = Object.values(normalized).reduce((sum, val) => sum + val, 0)
+  const residue = 1 - sumNormalized
+  const keys = Object.keys(DEFAULT_MESSAGE_LENGTH_PROFILE)
+  const lastKey = keys[keys.length - 1]
+  normalized[lastKey] = Math.max(0, normalized[lastKey] + residue)
+  return normalized
+}
+
 function Settings() {
   const [settings, setSettings] = useState({})
   const [loading, setLoading] = useState(true)
@@ -29,7 +61,11 @@ function Settings() {
       const data = await response.json()
       const settingsObj = {}
       data.forEach(setting => {
-        settingsObj[setting.key] = setting.value
+        let nextValue = setting.value
+        if (setting.key === 'message_length_profile' && setting.value?.value) {
+          nextValue = { value: normalizeMessageLengthProfile(setting.value.value) }
+        }
+        settingsObj[setting.key] = nextValue
       })
       setSettings(settingsObj)
     } catch (error) {
@@ -44,15 +80,20 @@ function Settings() {
   const updateSetting = async (key, value) => {
     try {
       setSaving(true)
+      let payload = value
+      if (key === 'message_length_profile' && value?.value) {
+        const normalized = normalizeMessageLengthProfile(value.value)
+        payload = { value: normalized }
+      }
       const response = await apiFetch(`/settings/${key}`, {
         method: 'PATCH',
-        body: JSON.stringify(value),
+        body: JSON.stringify(payload),
       })
 
       await response.json()
       setSettings(prev => ({
         ...prev,
-        [key]: value
+        [key]: payload
       }))
     } catch (error) {
       console.error('Failed to update setting:', error)
@@ -77,6 +118,41 @@ function Settings() {
   useEffect(() => {
     fetchSettings()
   }, [])
+
+  const messageLengthProfile = settings.message_length_profile?.value || DEFAULT_MESSAGE_LENGTH_PROFILE
+  const messageLengthTotal = Math.round(
+    ((messageLengthProfile.short ?? 0) + (messageLengthProfile.medium ?? 0) + (messageLengthProfile.long ?? 0)) * 100
+  )
+
+  const handleMessageLengthChange = (field) => ([value]) => {
+    const rawCurrent = settings.message_length_profile?.value || messageLengthProfile
+    const normalizedCurrent = normalizeMessageLengthProfile(rawCurrent)
+    const target = Math.min(1, Math.max(0, value / 100))
+    const remainder = Math.max(0, 1 - target)
+    const keys = Object.keys(DEFAULT_MESSAGE_LENGTH_PROFILE)
+    const otherKeys = keys.filter(key => key !== field)
+    const othersTotal = otherKeys.reduce((sum, key) => sum + (normalizedCurrent[key] ?? 0), 0)
+
+    const next = { ...normalizedCurrent, [field]: target }
+    if (otherKeys.length === 0) {
+      updateSetting('message_length_profile', { value: next })
+      return
+    }
+
+    if (othersTotal <= 0) {
+      const share = remainder / otherKeys.length
+      otherKeys.forEach(key => {
+        next[key] = share
+      })
+    } else {
+      otherKeys.forEach(key => {
+        const weight = normalizedCurrent[key] ?? 0
+        next[key] = remainder * (weight / othersTotal)
+      })
+    }
+
+    updateSetting('message_length_profile', { value: next })
+  }
 
   if (loading) {
     return <div className="flex items-center justify-center h-64">Yükleniyor...</div>
@@ -175,47 +251,32 @@ function Settings() {
                 <h4 className="font-medium">Mesaj Uzunluk Profili</h4>
                 <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-2">
-                    <Label>Kısa (%{((settings.message_length_profile?.value?.short ?? 0.55) * 100).toFixed(0)})</Label>
+                    <Label>Kısa (%{((messageLengthProfile.short ?? 0.55) * 100).toFixed(0)})</Label>
                     <Slider
-                      value={[(settings.message_length_profile?.value?.short ?? 0.55) * 100]}
-                      onValueChange={([value]) => {
-                        const current = settings.message_length_profile?.value || {}
-                        updateSetting('message_length_profile', { 
-                          value: { ...current, short: value / 100 }
-                        })
-                      }}
+                      value={[(messageLengthProfile.short ?? 0.55) * 100]}
+                      onValueChange={handleMessageLengthChange('short')}
                       max={100}
                       step={5}
                       className="w-full"
                     />
                   </div>
-                  
+
                   <div className="space-y-2">
-                    <Label>Orta (%{((settings.message_length_profile?.value?.medium ?? 0.35) * 100).toFixed(0)})</Label>
+                    <Label>Orta (%{((messageLengthProfile.medium ?? 0.35) * 100).toFixed(0)})</Label>
                     <Slider
-                      value={[(settings.message_length_profile?.value?.medium ?? 0.35) * 100]}
-                      onValueChange={([value]) => {
-                        const current = settings.message_length_profile?.value || {}
-                        updateSetting('message_length_profile', { 
-                          value: { ...current, medium: value / 100 }
-                        })
-                      }}
+                      value={[(messageLengthProfile.medium ?? 0.35) * 100]}
+                      onValueChange={handleMessageLengthChange('medium')}
                       max={100}
                       step={5}
                       className="w-full"
                     />
                   </div>
-                  
+
                   <div className="space-y-2">
-                    <Label>Uzun (%{((settings.message_length_profile?.value?.long ?? 0.10) * 100).toFixed(0)})</Label>
+                    <Label>Uzun (%{((messageLengthProfile.long ?? 0.10) * 100).toFixed(0)})</Label>
                     <Slider
-                      value={[(settings.message_length_profile?.value?.long ?? 0.10) * 100]}
-                      onValueChange={([value]) => {
-                        const current = settings.message_length_profile?.value || {}
-                        updateSetting('message_length_profile', { 
-                          value: { ...current, long: value / 100 }
-                        })
-                      }}
+                      value={[(messageLengthProfile.long ?? 0.10) * 100]}
+                      onValueChange={handleMessageLengthChange('long')}
                       max={100}
                       step={5}
                       className="w-full"
@@ -223,8 +284,7 @@ function Settings() {
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Toplamın %100’e yakın olmasına dikkat edin; kısa mesaj ağırlığı yüksek olduğunda Telegram rate-limit’leri
-                  daha toleranslıdır.
+                  {`Toplam: %${messageLengthTotal}. Kaydırıcıları değiştirdiğinizde oranlar otomatik olarak %100’e normalize edilir; kısa mesaj ağırlığı yüksek olduğunda Telegram rate-limit’leri daha toleranslıdır.`}
                 </p>
               </div>
             </CardContent>

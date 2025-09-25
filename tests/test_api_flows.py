@@ -106,3 +106,38 @@ def test_control_endpoints_update_settings(api_client):
     )
     assert scale_resp.status_code == 200
     assert scale_resp.json()["factor"] == pytest.approx(1.5)
+
+
+def test_message_length_profile_normalization(api_client):
+    payload = {
+        "value": {
+            "short": 0.9,
+            "medium": 0.9,
+            "long": 0.2,
+        }
+    }
+
+    response = api_client.patch(
+        "/settings/message_length_profile",
+        json=payload,
+        headers=auth_headers(),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    profile = body["value"]["value"]
+    assert profile["short"] == pytest.approx(0.45)
+    assert profile["medium"] == pytest.approx(0.45)
+    assert profile["long"] == pytest.approx(0.10, abs=1e-6)
+    assert profile["short"] + profile["medium"] + profile["long"] == pytest.approx(1.0)
+
+    settings = api_client.get("/settings", headers=auth_headers())
+    assert settings.status_code == 200
+    stored = None
+    for item in settings.json():
+        if item["key"] == "message_length_profile":
+            stored = item["value"]["value"]
+            break
+    assert stored is not None
+    assert stored["short"] == pytest.approx(profile["short"])
+    assert stored["medium"] == pytest.approx(profile["medium"])
+    assert stored["long"] == pytest.approx(profile["long"])
