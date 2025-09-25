@@ -58,6 +58,13 @@ class ChatCreate(BaseModel):
     topics: List[str] = Field(default_factory=list, description="Konu etiketleri")
 
 
+class ChatUpdate(BaseModel):
+    chat_id: Optional[str] = None
+    title: Optional[str] = None
+    is_enabled: Optional[bool] = None
+    topics: Optional[List[str]] = None
+
+
 class ChatResponse(BaseModel):
     id: int
     chat_id: str
