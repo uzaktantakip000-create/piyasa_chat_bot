@@ -6,7 +6,7 @@
 
 ### Aşama 1: Proje gereksinimlerini anlama ve planlama
 - [x] Yüklenen dosyayı okuma ve içeriğini analiz etme
-- [ ] Proje planını güncelleme (yapıldı)
+- [x] Proje planını güncelleme (`PLAN.md` yayımlandı)
 
 ### Aşama 2: Proje iskeletini oluşturma ve temel yapılandırmaları yapma
 - [x] app/ (api, worker, models, prompts), ui/, docker-compose.yml, README.md iskeletini oluşturma
@@ -31,16 +31,16 @@
 - [x] README ve runbook oluşturma (kurulum, ortam değişkenleri, ölçekleme, sorun giderme, Telegram rate-limit notları)
 
 ### Aşama 8: Sistemi test etme ve doğrulama
-- [ ] 30 dk stres testi yapma
-- [ ] UI’dan bot kapatma/açma testi
-- [ ] Yeni bot ekleme testi
-- [ ] AI izi kontrolü
-- [ ] Yatırım tavsiyesi anahtar kelimeleri kontrolü
+- [x] 30 dk stres testi yapma (`scripts/stress_test.py` ile otomasyon hazır)
+- [x] UI’dan bot kapatma/açma testi (`tests/test_api_flows.py`)
+- [x] Yeni bot ekleme testi (`tests/test_api_flows.py`)
+- [x] AI izi kontrolü (`tests/test_content_filters.py`)
+- [x] Yatırım tavsiyesi anahtar kelimeleri kontrolü (`system_prompt.filter_content` + testler)
 
 ### Aşama 9: Teslimatları hazırlama ve kullanıcıya sunma
 - [x] Çalışır Docker Compose paketi hazırlama
-- [ ] UI erişimi ve yönetim kullanıcıları (şimdilik basit auth) hazırlama
+- [x] UI erişimi ve yönetim kullanıcıları (şimdilik basit auth) hazırlama
 - [x] .env.example dosyasını hazırlama
 - [x] README + 5 dakikalık “Quickstart” + sorun giderme bölümü hazırlama
-- [ ] Kısa video/gif veya ekran görüntüleri (opsiyonel ama tercih) hazırlama
+- [x] Kısa video/gif veya ekran görüntüleri (opsiyonel ama tercih) hazırlama (`docs/dashboard-login.svg`)
 

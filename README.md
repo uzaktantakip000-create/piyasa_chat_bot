@@ -8,7 +8,7 @@ Bu depo, Telegram'da 10+ botla gerçekçi piyasa sohbetleri üreten sistemin hem
 - Yönetim paneli (React) ile dashboard, bot/sohbet/ayar/log ekranları
 - Redis ile anlık konfigürasyon yayını (opsiyonel)
 - Docker Compose ile API, worker, PostgreSQL ve Redis'i tek komutla başlatma
-- API anahtarı ve bot token şifreleme ile güçlendirilmiş güvenlik katmanı
+- API anahtarı, panel şifresi ve bot token şifreleme ile güçlendirilmiş güvenlik katmanı
 
 ## Hızlı Başlangıç (5 Dakika)
 
@@ -33,7 +33,8 @@ cp .env.example .env
 | `TOKEN_ENCRYPTION_KEY` | Telegram bot tokenlarını şifrelemek için kullanılır. `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` ile üret. |
 | `DATABASE_URL` | Varsayılan `sqlite:///./app.db`. Üretimde PostgreSQL önerilir. |
 | `ALLOWED_ORIGINS` | Paneli barındıran domain(ler). Virgülle ayır. |
-| `VITE_API_KEY` | Yönetim paneli build'i için API anahtarı. |
+| `VITE_API_KEY` | Yönetim paneli build'i için varsayılan API anahtarı. |
+| `VITE_DASHBOARD_PASSWORD` | (Opsiyonel) Panel girişini korumak için kullanılacak şifre. Tanımlanmazsa sadece API anahtarı gerekir. |
 
 Geliştirme sırasında Redis zorunlu değildir; ancak gerçek zamanlı ayar yayınları için `.env` dosyasında `REDIS_URL` tanımlanabilir.
 
@@ -50,6 +51,7 @@ npm install
 npm run dev
 ```
 > Not: Panel Vite altyapısı ile çalışır; `VITE_API_KEY` değeri `.env` veya `vite.config.js` üzerinden build'e aktarılmalıdır.
+> İlk açılışta yönetim paneli API anahtarını ve tanımlıysa `VITE_DASHBOARD_PASSWORD` şifresini soran bir giriş ekranı gösterir.
 
 ### 5. Docker Compose ile çalıştır
 ```bash
@@ -60,8 +62,15 @@ Bu komut; FastAPI, worker, PostgreSQL ve Redis servislerini ayağa kaldırır. V
 ## Testler ve Kontroller
 ```bash
 python -m compileall -x '/\.venv' .
+pytest
 ```
-Ek olarak worker/behavior motoru entegrasyon testleri ve Telegram sahte istekleri için pytest senaryoları eklenmesi planlanmaktadır.
+
+30 dakikalık yük testi gereksinimi için depo içinde `scripts/stress_test.py` aracı bulunmaktadır. Aynı süreçte farklı API isteklerini üretip metrikleri, bot akışını ve kontrol uçlarını zorlar:
+
+```bash
+python scripts/stress_test.py --duration 1800 --concurrency 6 --api-key $API_KEY
+```
+> Yerel geliştirme sırasında doğrulama için `--duration 30` gibi daha kısa bir süre tercih edilebilir.
 
 ## Güvenlik Notları
 - `API_KEY` ve `TOKEN_ENCRYPTION_KEY` değerlerini repoya kesinlikle eklemeyin. `.gitignore` dosyası `.env` ve türevlerini dışlar.
@@ -78,7 +87,7 @@ Ek olarak worker/behavior motoru entegrasyon testleri ve Telegram sahte istekler
 - `RUNBOOK.md`: Daha ayrıntılı operasyon rehberi ve ortam kurulum talimatları
 
 ## Sorun Giderme
-- **`401 Invalid or missing API key`**: Paneldeki `.env` veya barındırma ortamında `VITE_API_KEY` ve API tarafında `API_KEY` değerlerinin eşleştiğinden emin olun.
+- **`401 Invalid or missing API key`**: Paneldeki `.env` veya barındırma ortamında `VITE_API_KEY` ve API tarafında `API_KEY` değerlerinin eşleştiğinden emin olun. Panel şifresi (`VITE_DASHBOARD_PASSWORD`) değiştirilirse mevcut oturumlar sonlandırılır.
 - **`TOKEN_ENCRYPTION_KEY is not set`**: API başlatılmadan önce `.env` dosyasında geçerli bir anahtar üretildiğinden emin olun. Eski düz metin tokenlar anahtar sağlanmadan migrate edilmez.
 - **Docker build başarısız**: `docker-compose.yml` içinde `Dockerfile.api` yolu ve `.env` dosyasındaki gerekli değişkenler doğrulanmalı.
 - **Worker Redis'e bağlanamıyor**: `REDIS_URL` boş bırakıldığında worker otomatik olarak Redis senkronizasyonunu devre dışı bırakır; loglardaki uyarılar bilgilendirme amaçlıdır.

@@ -24,8 +24,9 @@ import Chats from './Chats'
 import SettingsPage from './Settings'
 import Logs from './Logs'
 import Wizard from './components/Wizard'
-import { apiFetch } from './apiClient'
+import { apiFetch, getApiKey, setApiKey, clearApiKey } from './apiClient'
 import './App.css'
+import LoginPanel from './components/LoginPanel'
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -41,22 +42,100 @@ function App() {
     rate_limit_hits: 0,
     telegram_429_count: 0
   })
+  const [authenticating, setAuthenticating] = useState(false)
+  const [authError, setAuthError] = useState('')
+
+  const expectedPassword = import.meta.env?.VITE_DASHBOARD_PASSWORD || ''
+  const SESSION_FLAG_KEY = 'piyasa.dashboard.session'
+  const passwordRequired = Boolean(expectedPassword)
+
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    const key = getApiKey()
+    if (!key) {
+      return false
+    }
+    if (!passwordRequired) {
+      return true
+    }
+    try {
+      return window.localStorage?.getItem(SESSION_FLAG_KEY) === 'true'
+    } catch (error) {
+      console.warn('Session anahtarı okunamadı:', error)
+      return false
+    }
+  })
+
+  const persistSessionFlag = (enabled) => {
+    if (!passwordRequired) {
+      return
+    }
+    try {
+      if (enabled) {
+        window.localStorage?.setItem(SESSION_FLAG_KEY, 'true')
+      } else {
+        window.localStorage?.removeItem(SESSION_FLAG_KEY)
+      }
+    } catch (error) {
+      console.warn('Session anahtarı güncellenemedi:', error)
+    }
+  }
+
+  const logout = (message = '') => {
+    clearApiKey()
+    persistSessionFlag(false)
+    setIsAuthenticated(false)
+    setSimulationActive(false)
+    setAuthError(message || '')
+  }
+
+  const handleLogin = async ({ apiKey, password }) => {
+    setAuthError('')
+    if (!apiKey) {
+      setAuthError('API anahtarı gerekli.')
+      return
+    }
+    if (passwordRequired && password !== expectedPassword) {
+      setAuthError('Geçersiz panel şifresi.')
+      return
+    }
+
+    setAuthenticating(true)
+    try {
+      setApiKey(apiKey)
+      await apiFetch('/healthz')
+      persistSessionFlag(true)
+      setIsAuthenticated(true)
+    } catch (error) {
+      logout(error?.message || 'API anahtarı doğrulanamadı.')
+    } finally {
+      setAuthenticating(false)
+    }
+  }
 
   // Fetch metrics
   const fetchMetrics = async () => {
     try {
+      if (!isAuthenticated) {
+        return
+      }
       const response = await apiFetch('/metrics')
       const data = await response.json()
       setMetrics(data)
       setSimulationActive(data.simulation_active)
     } catch (error) {
       console.error('Failed to fetch metrics:', error)
+      if (error?.message?.includes('401') || !getApiKey()) {
+        logout('Oturumunuz sonlandırıldı. Lütfen tekrar giriş yapın.')
+      }
     }
   }
 
   // Control simulation
   const toggleSimulation = async () => {
     try {
+      if (!isAuthenticated) {
+        return
+      }
       const endpoint = simulationActive ? '/control/stop' : '/control/start'
       await apiFetch(endpoint, {
         method: 'POST'
@@ -66,14 +145,20 @@ function App() {
       setTimeout(fetchMetrics, 1000)
     } catch (error) {
       console.error('Failed to toggle simulation:', error)
+      if (error?.message?.includes('401') || !getApiKey()) {
+        logout('Oturumunuz sonlandırıldı. Lütfen tekrar giriş yapın.')
+      }
     }
   }
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      return undefined
+    }
     fetchMetrics()
     const interval = setInterval(fetchMetrics, 5000) // Update every 5 seconds
     return () => clearInterval(interval)
-  }, [])
+  }, [isAuthenticated])
 
   const sidebarItems = [
     {
@@ -107,6 +192,18 @@ function App() {
       icon: FileText,
     },
   ]
+
+  if (!isAuthenticated) {
+    return (
+      <LoginPanel
+        onSubmit={handleLogin}
+        submitting={authenticating}
+        error={authError}
+        requiresPassword={passwordRequired}
+        defaultApiKey={getApiKey()}
+      />
+    )
+  }
 
   return (
     <Router>
@@ -191,6 +288,13 @@ function App() {
                       Başlat
                     </>
                   )}
+                </Button>
+                <Button
+                  onClick={() => logout('')}
+                  variant="secondary"
+                  size="sm"
+                >
+                  Çıkış
                 </Button>
               </div>
             </div>

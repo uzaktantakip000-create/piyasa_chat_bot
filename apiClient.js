@@ -1,22 +1,45 @@
 const DEFAULT_BASE_URL = import.meta.env?.PROD ? '/api' : 'http://localhost:8000'
 const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || DEFAULT_BASE_URL
-const API_KEY = import.meta.env?.VITE_API_KEY || window?.__API_KEY__
+const STORAGE_KEY = 'piyasa.dashboard.apiKey'
 
-if (!API_KEY) {
-  console.warn('[apiClient] API anahtarı bulunamadı. .env dosyanıza VITE_API_KEY ekleyin.')
+let apiKey = null
+
+function resolveInitialApiKey() {
+  if (typeof window !== 'undefined') {
+    try {
+      const persisted = window.localStorage?.getItem(STORAGE_KEY)
+      if (persisted) {
+        return persisted
+      }
+    } catch (error) {
+      console.warn('[apiClient] localStorage erişilemedi:', error)
+    }
+
+    if (window?.__API_KEY__) {
+      return window.__API_KEY__
+    }
+  }
+
+  return import.meta.env?.VITE_API_KEY || null
+}
+
+apiKey = resolveInitialApiKey()
+
+if (!apiKey) {
+  console.warn('[apiClient] API anahtarı bulunamadı. .env dosyanıza VITE_API_KEY ekleyin veya giriş ekranından girin.')
 }
 
 function buildHeaders(existingHeaders = {}) {
   const headers = new Headers(existingHeaders)
-  if (API_KEY) {
-    headers.set('X-API-Key', API_KEY)
+  if (apiKey) {
+    headers.set('X-API-Key', apiKey)
   }
   return headers
 }
 
 export async function apiFetch(path, options = {}) {
-  if (!API_KEY) {
-    throw new Error('API anahtarı yapılandırılmadı. VITE_API_KEY env değişkenini ayarlayın.')
+  if (!apiKey) {
+    throw new Error('API anahtarı yapılandırılmadı. Giriş ekranından anahtar girin veya VITE_API_KEY env değişkenini ayarlayın.')
   }
 
   const url = `${API_BASE_URL}${path}`
@@ -28,6 +51,9 @@ export async function apiFetch(path, options = {}) {
 
   const response = await fetch(url, opts)
   if (!response.ok) {
+    if (response.status === 401) {
+      clearApiKey()
+    }
     const text = await response.text()
     throw new Error(`API isteği başarısız oldu (${response.status}): ${text}`)
   }
@@ -35,3 +61,27 @@ export async function apiFetch(path, options = {}) {
 }
 
 export { API_BASE_URL }
+
+export function getApiKey() {
+  return apiKey
+}
+
+export function setApiKey(nextKey, { persist = true } = {}) {
+  apiKey = nextKey || null
+
+  if (typeof window !== 'undefined') {
+    try {
+      if (apiKey && persist) {
+        window.localStorage?.setItem(STORAGE_KEY, apiKey)
+      } else {
+        window.localStorage?.removeItem(STORAGE_KEY)
+      }
+    } catch (error) {
+      console.warn('[apiClient] API anahtarı depolanamadı:', error)
+    }
+  }
+}
+
+export function clearApiKey() {
+  setApiKey(null)
+}

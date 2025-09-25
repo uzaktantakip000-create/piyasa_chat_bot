@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540">
+  <rect width="960" height="540" fill="#f4f6fb" />
+  <rect x="280" y="90" width="400" height="360" rx="24" fill="#ffffff" stroke="#d6d9e5" stroke-width="2" />
+  <text x="480" y="150" text-anchor="middle" font-family="'Inter', sans-serif" font-size="28" fill="#1e293b" font-weight="600">
+    Yönetim Paneli Girişi
+  </text>
+  <text x="480" y="185" text-anchor="middle" font-family="'Inter', sans-serif" font-size="16" fill="#475569">
+    API anahtarı ve (varsa) panel şifresiyle oturum açın
+  </text>
+  <rect x="320" y="220" width="320" height="70" rx="12" fill="#f8fafc" stroke="#cbd5f5" />
+  <text x="340" y="240" font-family="'Inter', sans-serif" font-size="13" fill="#475569" font-weight="600">
+    API Anahtarı
+  </text>
+  <rect x="340" y="250" width="280" height="30" rx="8" fill="#ffffff" stroke="#d0d7ee" />
+  <text x="350" y="270" font-family="'Fira Mono', monospace" font-size="13" fill="#94a3b8">
+    8b1e1f0a-****-****-****-a1c2d3e4f5
+  </text>
+  <rect x="320" y="310" width="320" height="70" rx="12" fill="#f8fafc" stroke="#cbd5f5" />
+  <text x="340" y="330" font-family="'Inter', sans-serif" font-size="13" fill="#475569" font-weight="600">
+    Panel Şifresi (opsiyonel)
+  </text>
+  <rect x="340" y="340" width="280" height="30" rx="8" fill="#ffffff" stroke="#d0d7ee" />
+  <text x="350" y="360" font-family="'Fira Mono', monospace" font-size="13" fill="#94a3b8">
+    ••••••••
+  </text>
+  <rect x="320" y="400" width="320" height="44" rx="10" fill="#111827" />
+  <text x="480" y="427" text-anchor="middle" font-family="'Inter', sans-serif" font-size="16" fill="#f8fafc" font-weight="600">
+    Giriş Yap
+  </text>
+  <text x="480" y="472" text-anchor="middle" font-family="'Inter', sans-serif" font-size="12" fill="#64748b">
+    Yanlış anahtar/şifre durumunda oturum otomatik sıfırlanır.
+  </text>
+</svg>

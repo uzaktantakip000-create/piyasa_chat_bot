@@ -16,3 +16,6 @@ openai==1.43.0           # llm_client.py ile uyumlu (from openai import OpenAI)
 # --- Yardımcılar ---
 python-dotenv==1.0.1
 cryptography==42.0.5
+
+# --- Testing ---
+pytest==8.2.1
