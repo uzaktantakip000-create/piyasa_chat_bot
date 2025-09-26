@@ -6,14 +6,15 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { 
-  Settings as SettingsIcon, 
-  Clock, 
-  MessageSquare, 
+import {
+  Settings as SettingsIcon,
+  Clock,
+  MessageSquare,
   Zap,
   Save,
   RotateCcw
 } from 'lucide-react'
+import { useToast } from '@/components/ui/use-toast'
 
 const API_BASE_URL = process.env.NODE_ENV === 'production' 
   ? '/api' 
@@ -23,21 +24,42 @@ function Settings() {
   const [settings, setSettings] = useState({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const { toast } = useToast()
+
+  const getErrorMessage = async (response) => {
+    try {
+      const data = await response.json()
+      if (typeof data === 'string') {
+        return data
+      }
+      return data?.detail || data?.message || 'Beklenmeyen bir hata oluştu.'
+    } catch (error) {
+      return response.statusText || 'Beklenmeyen bir hata oluştu.'
+    }
+  }
 
   // Fetch settings
   const fetchSettings = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/settings`)
-      if (response.ok) {
-        const data = await response.json()
-        const settingsObj = {}
-        data.forEach(setting => {
-          settingsObj[setting.key] = setting.value
-        })
-        setSettings(settingsObj)
+      if (!response.ok) {
+        const message = await getErrorMessage(response)
+        throw new Error(message)
       }
+
+      const data = await response.json()
+      const settingsObj = {}
+      data.forEach(setting => {
+        settingsObj[setting.key] = setting.value
+      })
+      setSettings(settingsObj)
     } catch (error) {
       console.error('Failed to fetch settings:', error)
+      toast({
+        title: 'Ayarlar yüklenemedi',
+        description: error?.message || 'Beklenmeyen bir hata oluştu.',
+        variant: 'destructive'
+      })
     } finally {
       setLoading(false)
     }
@@ -55,14 +77,26 @@ function Settings() {
         body: JSON.stringify(value),
       })
 
-      if (response.ok) {
-        setSettings(prev => ({
-          ...prev,
-          [key]: value
-        }))
+      if (!response.ok) {
+        const message = await getErrorMessage(response)
+        throw new Error(message)
       }
+
+      setSettings(prev => ({
+        ...prev,
+        [key]: value
+      }))
+      toast({
+        title: 'Ayar güncellendi',
+        description: `${key} ayarı başarıyla kaydedildi.`
+      })
     } catch (error) {
       console.error('Failed to update setting:', error)
+      toast({
+        title: 'Ayar kaydedilemedi',
+        description: error?.message || 'Beklenmeyen bir hata oluştu.',
+        variant: 'destructive'
+      })
     } finally {
       setSaving(false)
     }
@@ -74,12 +108,23 @@ function Settings() {
       const response = await fetch(`${API_BASE_URL}/control/scale?factor=${factor}`, {
         method: 'POST'
       })
-      
-      if (response.ok) {
-        // Update will be reflected in next metrics fetch
+
+      if (!response.ok) {
+        const message = await getErrorMessage(response)
+        throw new Error(message)
       }
+
+      toast({
+        title: 'Simülasyon ölçeklendirildi',
+        description: `Faktör ${factor} ile ölçeklendirme isteği gönderildi.`
+      })
     } catch (error) {
       console.error('Failed to scale simulation:', error)
+      toast({
+        title: 'Ölçeklendirme başarısız',
+        description: error?.message || 'Beklenmeyen bir hata oluştu.',
+        variant: 'destructive'
+      })
     }
   }
 

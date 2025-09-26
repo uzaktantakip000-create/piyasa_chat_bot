@@ -6,16 +6,25 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { 
-  MessageSquare, 
-  Plus, 
-  Edit, 
-  Trash2, 
-  Power,
-  PowerOff,
+import {
+  MessageSquare,
+  Plus,
+  Edit,
+  Trash2,
   Users
 } from 'lucide-react'
+import { useToast } from '@/components/ui/use-toast'
 
 const API_BASE_URL = process.env.NODE_ENV === 'production' 
   ? '/api' 
@@ -26,6 +35,9 @@ function Chats() {
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingChat, setEditingChat] = useState(null)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [chatToDelete, setChatToDelete] = useState(null)
+  const { toast } = useToast()
   const [formData, setFormData] = useState({
     chat_id: '',
     title: '',
@@ -40,18 +52,38 @@ function Chats() {
       if (response.ok) {
         const data = await response.json()
         setChats(data)
+      } else {
+        const message = await getErrorMessage(response)
+        throw new Error(message)
       }
     } catch (error) {
       console.error('Failed to fetch chats:', error)
+      toast({
+        title: 'Sohbetler yüklenemedi',
+        description: error?.message || 'Beklenmeyen bir hata oluştu.',
+        variant: 'destructive'
+      })
     } finally {
       setLoading(false)
+    }
+  }
+
+  const getErrorMessage = async (response) => {
+    try {
+      const data = await response.json()
+      if (typeof data === 'string') {
+        return data
+      }
+      return data?.detail || data?.message || 'Beklenmeyen bir hata oluştu.'
+    } catch (error) {
+      return response.statusText || 'Beklenmeyen bir hata oluştu.'
     }
   }
 
   // Create or update chat
   const saveChat = async () => {
     try {
-      const url = editingChat 
+      const url = editingChat
         ? `${API_BASE_URL}/chats/${editingChat.id}`
         : `${API_BASE_URL}/chats`
       
@@ -73,32 +105,56 @@ function Chats() {
         body: JSON.stringify(chatData),
       })
 
-      if (response.ok) {
-        await fetchChats()
-        setDialogOpen(false)
-        resetForm()
+      if (!response.ok) {
+        const message = await getErrorMessage(response)
+        throw new Error(message)
       }
+
+      await fetchChats()
+      setDialogOpen(false)
+      resetForm()
+      toast({
+        title: editingChat ? 'Sohbet güncellendi' : 'Sohbet oluşturuldu',
+        description: `${chatData.title || editingChat?.title || 'Sohbet'} başarıyla kaydedildi.`
+      })
     } catch (error) {
       console.error('Failed to save chat:', error)
+      toast({
+        title: 'Sohbet kaydedilemedi',
+        description: error?.message || 'Beklenmeyen bir hata oluştu.',
+        variant: 'destructive'
+      })
     }
   }
 
   // Delete chat
-  const deleteChat = async (chatId) => {
-    if (!confirm('Bu sohbeti silmek istediğinizden emin misiniz?')) {
-      return
-    }
-
+  const deleteChat = async () => {
+    if (!chatToDelete) return
     try {
-      const response = await fetch(`${API_BASE_URL}/chats/${chatId}`, {
+      const response = await fetch(`${API_BASE_URL}/chats/${chatToDelete.id}`, {
         method: 'DELETE',
       })
 
-      if (response.ok) {
-        await fetchChats()
+      if (!response.ok) {
+        const message = await getErrorMessage(response)
+        throw new Error(message)
       }
+
+      await fetchChats()
+      toast({
+        title: 'Sohbet silindi',
+        description: `${chatToDelete.title || 'Sohbet'} başarıyla silindi.`
+      })
     } catch (error) {
       console.error('Failed to delete chat:', error)
+      toast({
+        title: 'Sohbet silinemedi',
+        description: error?.message || 'Beklenmeyen bir hata oluştu.',
+        variant: 'destructive'
+      })
+    } finally {
+      setDeleteDialogOpen(false)
+      setChatToDelete(null)
     }
   }
 
@@ -126,6 +182,11 @@ function Chats() {
   const openCreateDialog = () => {
     resetForm()
     setDialogOpen(true)
+  }
+
+  const openDeleteDialog = (chat) => {
+    setChatToDelete(chat)
+    setDeleteDialogOpen(true)
   }
 
   useEffect(() => {
@@ -292,7 +353,7 @@ function Chats() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => deleteChat(chat.id)}
+                          onClick={() => openDeleteDialog(chat)}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -348,6 +409,22 @@ function Chats() {
           </div>
         </CardContent>
       </Card>
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sohbeti silmek istediğinize emin misiniz?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {chatToDelete
+                ? `${chatToDelete.title} adlı sohbet kalıcı olarak silinecektir.`
+                : 'Seçilen sohbet silinecektir.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Vazgeç</AlertDialogCancel>
+            <AlertDialogAction onClick={deleteChat}>Sil</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

@@ -7,16 +7,26 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { 
-  Bot, 
-  Plus, 
-  Edit, 
-  Trash2, 
+import {
+  Bot,
+  Plus,
+  Edit,
+  Trash2,
   Power,
-  PowerOff,
-  Settings
+  PowerOff
 } from 'lucide-react'
+import { useToast } from '@/components/ui/use-toast'
 
 const API_BASE_URL = process.env.NODE_ENV === 'production' 
   ? '/api' 
@@ -27,6 +37,9 @@ function Bots() {
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingBot, setEditingBot] = useState(null)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [botToDelete, setBotToDelete] = useState(null)
+  const { toast } = useToast()
   const [formData, setFormData] = useState({
     name: '',
     token: '',
@@ -38,15 +51,35 @@ function Bots() {
   })
 
   // Fetch bots
+  const getErrorMessage = async (response) => {
+    try {
+      const data = await response.json()
+      if (typeof data === 'string') {
+        return data
+      }
+      return data?.detail || data?.message || 'Beklenmeyen bir hata oluştu.'
+    } catch (error) {
+      return response.statusText || 'Beklenmeyen bir hata oluştu.'
+    }
+  }
+
   const fetchBots = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/bots`)
       if (response.ok) {
         const data = await response.json()
         setBots(data)
+      } else {
+        const message = await getErrorMessage(response)
+        throw new Error(message)
       }
     } catch (error) {
       console.error('Failed to fetch bots:', error)
+      toast({
+        title: 'Botlar yüklenemedi',
+        description: error?.message || 'Beklenmeyen bir hata oluştu.',
+        variant: 'destructive'
+      })
     } finally {
       setLoading(false)
     }
@@ -69,32 +102,56 @@ function Bots() {
         body: JSON.stringify(formData),
       })
 
-      if (response.ok) {
-        await fetchBots()
-        setDialogOpen(false)
-        resetForm()
+      if (!response.ok) {
+        const message = await getErrorMessage(response)
+        throw new Error(message)
       }
+
+      await fetchBots()
+      setDialogOpen(false)
+      resetForm()
+      toast({
+        title: editingBot ? 'Bot güncellendi' : 'Bot oluşturuldu',
+        description: `${formData.name || editingBot?.name || 'Bot'} başarıyla kaydedildi.`
+      })
     } catch (error) {
       console.error('Failed to save bot:', error)
+      toast({
+        title: 'Bot kaydedilemedi',
+        description: error?.message || 'Beklenmeyen bir hata oluştu.',
+        variant: 'destructive'
+      })
     }
   }
 
   // Delete bot
-  const deleteBot = async (botId) => {
-    if (!confirm('Bu botu silmek istediğinizden emin misiniz?')) {
-      return
-    }
-
+  const deleteBot = async () => {
+    if (!botToDelete) return
     try {
-      const response = await fetch(`${API_BASE_URL}/bots/${botId}`, {
+      const response = await fetch(`${API_BASE_URL}/bots/${botToDelete.id}`, {
         method: 'DELETE',
       })
 
-      if (response.ok) {
-        await fetchBots()
+      if (!response.ok) {
+        const message = await getErrorMessage(response)
+        throw new Error(message)
       }
+
+      await fetchBots()
+      toast({
+        title: 'Bot silindi',
+        description: `${botToDelete.name || 'Bot'} başarıyla silindi.`
+      })
     } catch (error) {
       console.error('Failed to delete bot:', error)
+      toast({
+        title: 'Bot silinemedi',
+        description: error?.message || 'Beklenmeyen bir hata oluştu.',
+        variant: 'destructive'
+      })
+    } finally {
+      setDeleteDialogOpen(false)
+      setBotToDelete(null)
     }
   }
 
@@ -111,11 +168,23 @@ function Bots() {
         }),
       })
 
-      if (response.ok) {
-        await fetchBots()
+      if (!response.ok) {
+        const message = await getErrorMessage(response)
+        throw new Error(message)
       }
+
+      await fetchBots()
+      toast({
+        title: 'Bot durumu güncellendi',
+        description: `${bot.name} ${bot.is_enabled ? 'pasif' : 'aktif'} hale getirildi.`
+      })
     } catch (error) {
       console.error('Failed to toggle bot:', error)
+      toast({
+        title: 'Bot durumu değiştirilemedi',
+        description: error?.message || 'Beklenmeyen bir hata oluştu.',
+        variant: 'destructive'
+      })
     }
   }
 
@@ -149,6 +218,11 @@ function Bots() {
   const openCreateDialog = () => {
     resetForm()
     setDialogOpen(true)
+  }
+
+  const openDeleteDialog = (bot) => {
+    setBotToDelete(bot)
+    setDeleteDialogOpen(true)
   }
 
   useEffect(() => {
@@ -331,7 +405,7 @@ function Bots() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => deleteBot(bot.id)}
+                          onClick={() => openDeleteDialog(bot)}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -344,6 +418,22 @@ function Bots() {
           )}
         </CardContent>
       </Card>
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Botu silmek istediğinize emin misiniz?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {botToDelete
+                ? `${botToDelete.name} adlı bot kalıcı olarak silinecektir.`
+                : 'Seçilen bot silinecektir.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Vazgeç</AlertDialogCancel>
+            <AlertDialogAction onClick={deleteBot}>Sil</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
