@@ -8,19 +8,17 @@ import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { 
-  Bot, 
-  Plus, 
-  Edit, 
-  Trash2, 
+import {
+  Bot,
+  Plus,
+  Edit,
+  Trash2,
   Power,
   PowerOff,
   Settings
 } from 'lucide-react'
 
-const API_BASE_URL = process.env.NODE_ENV === 'production' 
-  ? '/api' 
-  : 'http://localhost:8000'
+import { apiFetch } from './apiClient'
 
 function Bots() {
   const [bots, setBots] = useState([])
@@ -40,11 +38,9 @@ function Bots() {
   // Fetch bots
   const fetchBots = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/bots`)
-      if (response.ok) {
-        const data = await response.json()
-        setBots(data)
-      }
+      const response = await apiFetch('/bots')
+      const data = await response.json()
+      setBots(data)
     } catch (error) {
       console.error('Failed to fetch bots:', error)
     } finally {
@@ -55,27 +51,26 @@ function Bots() {
   // Create or update bot
   const saveBot = async () => {
     try {
-      const url = editingBot 
-        ? `${API_BASE_URL}/bots/${editingBot.id}`
-        : `${API_BASE_URL}/bots`
-      
+      const url = editingBot ? `/bots/${editingBot.id}` : '/bots'
       const method = editingBot ? 'PATCH' : 'POST'
-      
-      const response = await fetch(url, {
+      const payload = { ...formData, token: formData.token.trim() }
+
+      if (editingBot && !payload.token) {
+        delete payload.token
+      }
+
+      const response = await apiFetch(url, {
         method,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       })
 
-      if (response.ok) {
-        await fetchBots()
-        setDialogOpen(false)
-        resetForm()
-      }
+      await response.json()
+      await fetchBots()
+      setDialogOpen(false)
+      resetForm()
     } catch (error) {
       console.error('Failed to save bot:', error)
+      alert('Bot kaydedilirken hata oluştu: ' + error.message)
     }
   }
 
@@ -86,36 +81,29 @@ function Bots() {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/bots/${botId}`, {
+      await apiFetch(`/bots/${botId}`, {
         method: 'DELETE',
       })
-
-      if (response.ok) {
-        await fetchBots()
-      }
+      await fetchBots()
     } catch (error) {
       console.error('Failed to delete bot:', error)
+      alert('Bot silinirken hata oluştu: ' + error.message)
     }
   }
 
   // Toggle bot status
   const toggleBot = async (bot) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/bots/${bot.id}`, {
+      await apiFetch(`/bots/${bot.id}`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           is_enabled: !bot.is_enabled
         }),
       })
-
-      if (response.ok) {
-        await fetchBots()
-      }
+      await fetchBots()
     } catch (error) {
       console.error('Failed to toggle bot:', error)
+      alert('Bot durumu değiştirilirken hata oluştu: ' + error.message)
     }
   }
 
@@ -136,7 +124,7 @@ function Bots() {
     setEditingBot(bot)
     setFormData({
       name: bot.name,
-      token: bot.token,
+      token: '',
       username: bot.username,
       is_enabled: bot.is_enabled,
       persona_hint: bot.persona_hint || '',
@@ -224,8 +212,13 @@ function Bots() {
                   value={formData.token}
                   onChange={(e) => setFormData({...formData, token: e.target.value})}
                   className="col-span-3"
-                  placeholder="Bot token"
-                />
+                placeholder={editingBot ? 'Yeni token (opsiyonel)' : 'Bot token'}
+              />
+              {editingBot && (
+                <p className="col-span-4 text-xs text-muted-foreground text-right">
+                  Kayıtlı token: {editingBot.token_masked || 'belirtilmemiş'}
+                </p>
+              )}
               </div>
               
               <div className="grid grid-cols-4 items-center gap-4">
@@ -297,7 +290,7 @@ function Bots() {
                 {bots.map((bot) => (
                   <TableRow key={bot.id}>
                     <TableCell className="font-medium">{bot.name}</TableCell>
-                    <TableCell>@{bot.username}</TableCell>
+                    <TableCell>{bot.username ? `@${bot.username}` : '-'}</TableCell>
                     <TableCell>
                       <Badge variant={bot.is_enabled ? "default" : "secondary"}>
                         {bot.is_enabled ? "Aktif" : "Pasif"}

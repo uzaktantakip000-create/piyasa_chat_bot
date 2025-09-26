@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime
 from typing import Generator, Any, Dict
@@ -9,6 +10,11 @@ from sqlalchemy import (
     JSON, ForeignKey, Float, UniqueConstraint, Index
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker, Session
+
+from security import decrypt_token, encrypt_token, SecurityConfigError
+from settings_utils import DEFAULT_MESSAGE_LENGTH_PROFILE
+
+logger = logging.getLogger("database")
 
 # --------------------------------------------------------------------
 # Engine & Session
@@ -36,7 +42,7 @@ class Bot(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
-    token = Column(String(255), nullable=False)
+    token_encrypted = Column("token", String(255), nullable=False)
     username = Column(String(100), nullable=True)
     is_enabled = Column(Boolean, default=True, nullable=False)
 
@@ -53,6 +59,14 @@ class Bot(Base):
     # Yeni ilişkiler
     stances = relationship("BotStance", back_populates="bot", cascade="all,delete-orphan")
     holdings = relationship("BotHolding", back_populates="bot", cascade="all,delete-orphan")
+
+    @property
+    def token(self) -> str:
+        return decrypt_token(self.token_encrypted)
+
+    @token.setter
+    def token(self, raw_token: str) -> None:
+        self.token_encrypted = encrypt_token(raw_token)
 
 
 class Chat(Base):
@@ -162,6 +176,27 @@ def create_tables() -> None:
     Base.metadata.create_all(bind=engine)
 
 
+def migrate_plain_tokens() -> None:
+    """Encrypt legacy plaintext bot tokens in place."""
+    db = SessionLocal()
+    try:
+        bots = db.query(Bot).all()
+        migrated = 0
+        for bot in bots:
+            raw_value = bot.token_encrypted
+            if raw_value and not raw_value.startswith("gAAAA"):
+                bot.token = raw_value  # setter encrypts
+                migrated += 1
+        if migrated:
+            db.commit()
+            logger.info("Encrypted %d legacy bot tokens", migrated)
+    except SecurityConfigError as exc:
+        logger.warning("Skipping token migration: %s", exc)
+        db.rollback()
+    finally:
+        db.close()
+
+
 def init_default_settings() -> None:
     """
     Varsayılan ayarları (yoksa) ekler.
@@ -183,7 +218,7 @@ def init_default_settings() -> None:
             "new_message_probability": 0.35,
 
             # Uzunluk dağılımı
-            "message_length_profile": {"short": 0.55, "medium": 0.35, "long": 0.10},
+            "message_length_profile": DEFAULT_MESSAGE_LENGTH_PROFILE.copy(),
 
             # Yazma hızı (WPM)
             "typing_speed_wpm": {"min": 2.5, "max": 4.5},

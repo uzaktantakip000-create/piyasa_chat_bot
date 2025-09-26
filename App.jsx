@@ -18,17 +18,15 @@ import {
   TrendingUp,
   Wand2
 } from 'lucide-react'
-import Dashboard from './components/Dashboard'
-import Bots from './components/Bots'
-import Chats from './components/Chats'
-import SettingsPage from './components/Settings'
-import Logs from './components/Logs'
+import Dashboard from './Dashboard'
+import Bots from './Bots'
+import Chats from './Chats'
+import SettingsPage from './Settings'
+import Logs from './Logs'
 import Wizard from './components/Wizard'
+import { apiFetch, getApiKey, setApiKey, clearApiKey } from './apiClient'
 import './App.css'
-
-const API_BASE_URL = process.env.NODE_ENV === 'production' 
-  ? '/api' 
-  : 'http://localhost:8000'
+import LoginPanel from './components/LoginPanel'
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -44,44 +42,123 @@ function App() {
     rate_limit_hits: 0,
     telegram_429_count: 0
   })
+  const [authenticating, setAuthenticating] = useState(false)
+  const [authError, setAuthError] = useState('')
+
+  const expectedPassword = import.meta.env?.VITE_DASHBOARD_PASSWORD || ''
+  const SESSION_FLAG_KEY = 'piyasa.dashboard.session'
+  const passwordRequired = Boolean(expectedPassword)
+
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    const key = getApiKey()
+    if (!key) {
+      return false
+    }
+    if (!passwordRequired) {
+      return true
+    }
+    try {
+      return window.localStorage?.getItem(SESSION_FLAG_KEY) === 'true'
+    } catch (error) {
+      console.warn('Session anahtarı okunamadı:', error)
+      return false
+    }
+  })
+
+  const persistSessionFlag = (enabled) => {
+    if (!passwordRequired) {
+      return
+    }
+    try {
+      if (enabled) {
+        window.localStorage?.setItem(SESSION_FLAG_KEY, 'true')
+      } else {
+        window.localStorage?.removeItem(SESSION_FLAG_KEY)
+      }
+    } catch (error) {
+      console.warn('Session anahtarı güncellenemedi:', error)
+    }
+  }
+
+  const logout = (message = '') => {
+    clearApiKey()
+    persistSessionFlag(false)
+    setIsAuthenticated(false)
+    setSimulationActive(false)
+    setAuthError(message || '')
+  }
+
+  const handleLogin = async ({ apiKey, password }) => {
+    setAuthError('')
+    if (!apiKey) {
+      setAuthError('API anahtarı gerekli.')
+      return
+    }
+    if (passwordRequired && password !== expectedPassword) {
+      setAuthError('Geçersiz panel şifresi.')
+      return
+    }
+
+    setAuthenticating(true)
+    try {
+      setApiKey(apiKey)
+      await apiFetch('/healthz')
+      persistSessionFlag(true)
+      setIsAuthenticated(true)
+    } catch (error) {
+      logout(error?.message || 'API anahtarı doğrulanamadı.')
+    } finally {
+      setAuthenticating(false)
+    }
+  }
 
   // Fetch metrics
   const fetchMetrics = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/metrics`)
-      if (response.ok) {
-        const data = await response.json()
-        setMetrics(data)
-        setSimulationActive(data.simulation_active)
+      if (!isAuthenticated) {
+        return
       }
+      const response = await apiFetch('/metrics')
+      const data = await response.json()
+      setMetrics(data)
+      setSimulationActive(data.simulation_active)
     } catch (error) {
       console.error('Failed to fetch metrics:', error)
+      if (error?.message?.includes('401') || !getApiKey()) {
+        logout('Oturumunuz sonlandırıldı. Lütfen tekrar giriş yapın.')
+      }
     }
   }
 
   // Control simulation
   const toggleSimulation = async () => {
     try {
+      if (!isAuthenticated) {
+        return
+      }
       const endpoint = simulationActive ? '/control/stop' : '/control/start'
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      await apiFetch(endpoint, {
         method: 'POST'
       })
-      
-      if (response.ok) {
-        setSimulationActive(!simulationActive)
-        // Refresh metrics after a short delay
-        setTimeout(fetchMetrics, 1000)
-      }
+
+      setSimulationActive(!simulationActive)
+      setTimeout(fetchMetrics, 1000)
     } catch (error) {
       console.error('Failed to toggle simulation:', error)
+      if (error?.message?.includes('401') || !getApiKey()) {
+        logout('Oturumunuz sonlandırıldı. Lütfen tekrar giriş yapın.')
+      }
     }
   }
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      return undefined
+    }
     fetchMetrics()
     const interval = setInterval(fetchMetrics, 5000) // Update every 5 seconds
     return () => clearInterval(interval)
-  }, [])
+  }, [isAuthenticated])
 
   const sidebarItems = [
     {
@@ -115,6 +192,18 @@ function App() {
       icon: FileText,
     },
   ]
+
+  if (!isAuthenticated) {
+    return (
+      <LoginPanel
+        onSubmit={handleLogin}
+        submitting={authenticating}
+        error={authError}
+        requiresPassword={passwordRequired}
+        defaultApiKey={getApiKey()}
+      />
+    )
+  }
 
   return (
     <Router>
@@ -200,6 +289,13 @@ function App() {
                     </>
                   )}
                 </Button>
+                <Button
+                  onClick={() => logout('')}
+                  variant="secondary"
+                  size="sm"
+                >
+                  Çıkış
+                </Button>
               </div>
             </div>
           </header>
@@ -208,7 +304,7 @@ function App() {
           <main className="flex-1 overflow-auto p-6">
             <Routes>
               <Route path="/" element={<Dashboard metrics={metrics} />} />
-              <Route path="/wizard" element={<Wizard apiBase={API_BASE_URL} onDone={fetchMetrics} />} />
+              <Route path="/wizard" element={<Wizard onDone={fetchMetrics} />} />
               <Route path="/bots" element={<Bots />} />
               <Route path="/chats" element={<Chats />} />
               <Route path="/settings" element={<SettingsPage />} />

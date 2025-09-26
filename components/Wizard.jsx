@@ -4,6 +4,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Play, Pause, Wand2, Plus, Trash2, Gauge } from "lucide-react";
 
+import { apiFetch } from "../apiClient";
+
 function SectionTitle({ icon: Icon, title, desc }) {
   return (
     <div className="flex items-start gap-3 mb-3">
@@ -82,7 +84,7 @@ function toFloatOrNull(v) {
   return Number.isFinite(n) ? n : undefined;
 }
 
-export default function Wizard({ apiBase, onDone }) {
+export default function Wizard({ onDone }) {
   const [simActive, setSimActive] = useState(false);
   const [scale, setScale] = useState(1.0);
 
@@ -128,14 +130,12 @@ export default function Wizard({ apiBase, onDone }) {
 
   async function fetchMetrics() {
     try {
-      const r = await fetch(`${apiBase}/metrics`);
-      if (r.ok) {
-        const m = await r.json();
-        setSimActive(!!m.simulation_active);
-        setScale(Number(m.scale_factor || 1.0));
-      }
-    } catch {
-      /* noop */
+      const r = await apiFetch("/metrics");
+      const m = await r.json();
+      setSimActive(!!m.simulation_active);
+      setScale(Number(m.scale_factor || 1.0));
+    } catch (err) {
+      console.error(err);
     }
   }
 
@@ -146,12 +146,10 @@ export default function Wizard({ apiBase, onDone }) {
   async function toggleSimulation() {
     try {
       const endpoint = simActive ? "/control/stop" : "/control/start";
-      const r = await fetch(`${apiBase}${endpoint}`, { method: "POST" });
-      if (r.ok) {
-        setSimActive(!simActive);
-        setTimeout(fetchMetrics, 800);
-        if (onDone) onDone();
-      }
+      await apiFetch(endpoint, { method: "POST" });
+      setSimActive(!simActive);
+      setTimeout(fetchMetrics, 800);
+      if (onDone) onDone();
     } catch (e) {
       console.error(e);
     }
@@ -159,15 +157,12 @@ export default function Wizard({ apiBase, onDone }) {
 
   async function applyScale() {
     try {
-      const r = await fetch(`${apiBase}/control/scale`, {
+      await apiFetch("/control/scale", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ factor: Number(scale) || 1.0 }),
       });
-      if (r.ok) {
-        setMessage({ type: "success", text: "Ölçek güncellendi." });
-        if (onDone) onDone();
-      }
+      setMessage({ type: "success", text: "Ölçek güncellendi." });
+      if (onDone) onDone();
     } catch (e) {
       console.error(e);
       setMessage({ type: "error", text: "Ölçek güncellenemedi." });
@@ -245,15 +240,11 @@ export default function Wizard({ apiBase, onDone }) {
 
     setSubmitting(true);
     try {
-      const r = await fetch(`${apiBase}/wizard/setup`, {
+      const r = await apiFetch("/wizard/setup", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       const data = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        throw new Error(data?.detail || "Kurulum başarısız.");
-      }
       setMessage({ type: "success", text: "Kurulum tamamlandı 🎉 Bot ve chat oluşturuldu." });
       if (onDone) onDone();
       setTimeout(fetchMetrics, 800);

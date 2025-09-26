@@ -6,18 +6,48 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { 
-  Settings as SettingsIcon, 
-  Clock, 
-  MessageSquare, 
+import {
+  Settings as SettingsIcon,
+  Clock,
+  MessageSquare,
   Zap,
   Save,
   RotateCcw
 } from 'lucide-react'
 
-const API_BASE_URL = process.env.NODE_ENV === 'production' 
-  ? '/api' 
-  : 'http://localhost:8000'
+import { apiFetch } from './apiClient'
+
+const DEFAULT_MESSAGE_LENGTH_PROFILE = { short: 0.55, medium: 0.35, long: 0.10 }
+
+function normalizeMessageLengthProfile(rawProfile) {
+  const base = { ...DEFAULT_MESSAGE_LENGTH_PROFILE }
+  if (rawProfile && typeof rawProfile === 'object') {
+    Object.entries(rawProfile).forEach(([key, value]) => {
+      if (!(key in base)) {
+        return
+      }
+      const parsed = Number.parseFloat(value)
+      if (Number.isFinite(parsed) && parsed >= 0) {
+        base[key] = parsed
+      }
+    })
+  }
+
+  const total = Object.values(base).reduce((sum, val) => sum + val, 0)
+  if (total <= 0) {
+    return { ...DEFAULT_MESSAGE_LENGTH_PROFILE }
+  }
+
+  const normalized = Object.fromEntries(
+    Object.entries(base).map(([key, val]) => [key, val / total])
+  )
+  const sumNormalized = Object.values(normalized).reduce((sum, val) => sum + val, 0)
+  const residue = 1 - sumNormalized
+  const keys = Object.keys(DEFAULT_MESSAGE_LENGTH_PROFILE)
+  const lastKey = keys[keys.length - 1]
+  normalized[lastKey] = Math.max(0, normalized[lastKey] + residue)
+  return normalized
+}
 
 function Settings() {
   const [settings, setSettings] = useState({})
@@ -27,17 +57,20 @@ function Settings() {
   // Fetch settings
   const fetchSettings = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/settings`)
-      if (response.ok) {
-        const data = await response.json()
-        const settingsObj = {}
-        data.forEach(setting => {
-          settingsObj[setting.key] = setting.value
-        })
-        setSettings(settingsObj)
-      }
+      const response = await apiFetch('/settings')
+      const data = await response.json()
+      const settingsObj = {}
+      data.forEach(setting => {
+        let nextValue = setting.value
+        if (setting.key === 'message_length_profile' && setting.value?.value) {
+          nextValue = { value: normalizeMessageLengthProfile(setting.value.value) }
+        }
+        settingsObj[setting.key] = nextValue
+      })
+      setSettings(settingsObj)
     } catch (error) {
       console.error('Failed to fetch settings:', error)
+      alert('Ayarlar yüklenirken hata oluştu: ' + error.message)
     } finally {
       setLoading(false)
     }
@@ -47,22 +80,24 @@ function Settings() {
   const updateSetting = async (key, value) => {
     try {
       setSaving(true)
-      const response = await fetch(`${API_BASE_URL}/settings/${key}`, {
+      let payload = value
+      if (key === 'message_length_profile' && value?.value) {
+        const normalized = normalizeMessageLengthProfile(value.value)
+        payload = { value: normalized }
+      }
+      const response = await apiFetch(`/settings/${key}`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(value),
+        body: JSON.stringify(payload),
       })
 
-      if (response.ok) {
-        setSettings(prev => ({
-          ...prev,
-          [key]: value
-        }))
-      }
+      await response.json()
+      setSettings(prev => ({
+        ...prev,
+        [key]: payload
+      }))
     } catch (error) {
       console.error('Failed to update setting:', error)
+      alert('Ayar güncellenirken hata oluştu: ' + error.message)
     } finally {
       setSaving(false)
     }
@@ -71,21 +106,53 @@ function Settings() {
   // Scale simulation
   const scaleSimulation = async (factor) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/control/scale?factor=${factor}`, {
+      await apiFetch(`/control/scale?factor=${factor}`, {
         method: 'POST'
       })
-      
-      if (response.ok) {
-        // Update will be reflected in next metrics fetch
-      }
     } catch (error) {
       console.error('Failed to scale simulation:', error)
+      alert('Ölçek güncellenirken hata oluştu: ' + error.message)
     }
   }
 
   useEffect(() => {
     fetchSettings()
   }, [])
+
+  const messageLengthProfile = settings.message_length_profile?.value || DEFAULT_MESSAGE_LENGTH_PROFILE
+  const messageLengthTotal = Math.round(
+    ((messageLengthProfile.short ?? 0) + (messageLengthProfile.medium ?? 0) + (messageLengthProfile.long ?? 0)) * 100
+  )
+
+  const handleMessageLengthChange = (field) => ([value]) => {
+    const rawCurrent = settings.message_length_profile?.value || messageLengthProfile
+    const normalizedCurrent = normalizeMessageLengthProfile(rawCurrent)
+    const target = Math.min(1, Math.max(0, value / 100))
+    const remainder = Math.max(0, 1 - target)
+    const keys = Object.keys(DEFAULT_MESSAGE_LENGTH_PROFILE)
+    const otherKeys = keys.filter(key => key !== field)
+    const othersTotal = otherKeys.reduce((sum, key) => sum + (normalizedCurrent[key] ?? 0), 0)
+
+    const next = { ...normalizedCurrent, [field]: target }
+    if (otherKeys.length === 0) {
+      updateSetting('message_length_profile', { value: next })
+      return
+    }
+
+    if (othersTotal <= 0) {
+      const share = remainder / otherKeys.length
+      otherKeys.forEach(key => {
+        next[key] = share
+      })
+    } else {
+      otherKeys.forEach(key => {
+        const weight = normalizedCurrent[key] ?? 0
+        next[key] = remainder * (weight / othersTotal)
+      })
+    }
+
+    updateSetting('message_length_profile', { value: next })
+  }
 
   if (loading) {
     return <div className="flex items-center justify-center h-64">Yükleniyor...</div>
@@ -122,9 +189,9 @@ function Settings() {
             <CardContent className="space-y-6">
               <div className="grid grid-cols-2 gap-6">
                 <div className="space-y-2">
-                  <Label>Reply Olasılığı (%{((settings.reply_probability?.value || 0.65) * 100).toFixed(0)})</Label>
+                  <Label>Reply Olasılığı (%{((settings.reply_probability?.value ?? 0.65) * 100).toFixed(0)})</Label>
                   <Slider
-                    value={[(settings.reply_probability?.value || 0.65) * 100]}
+                    value={[(settings.reply_probability?.value ?? 0.65) * 100]}
                     onValueChange={([value]) => 
                       updateSetting('reply_probability', { value: value / 100 })
                     }
@@ -135,9 +202,9 @@ function Settings() {
                 </div>
                 
                 <div className="space-y-2">
-                  <Label>Mention Olasılığı (%{((settings.mention_probability?.value || 0.35) * 100).toFixed(0)})</Label>
+                  <Label>Mention Olasılığı (%{((settings.mention_probability?.value ?? 0.35) * 100).toFixed(0)})</Label>
                   <Slider
-                    value={[(settings.mention_probability?.value || 0.35) * 100]}
+                    value={[(settings.mention_probability?.value ?? 0.35) * 100]}
                     onValueChange={([value]) => 
                       updateSetting('mention_probability', { value: value / 100 })
                     }
@@ -148,9 +215,9 @@ function Settings() {
                 </div>
                 
                 <div className="space-y-2">
-                  <Label>Kısa Tepki Olasılığı (%{((settings.short_reaction_probability?.value || 0.12) * 100).toFixed(0)})</Label>
+                  <Label>Kısa Tepki Olasılığı (%{((settings.short_reaction_probability?.value ?? 0.12) * 100).toFixed(0)})</Label>
                   <Slider
-                    value={[(settings.short_reaction_probability?.value || 0.12) * 100]}
+                    value={[(settings.short_reaction_probability?.value ?? 0.12) * 100]}
                     onValueChange={([value]) => 
                       updateSetting('short_reaction_probability', { value: value / 100 })
                     }
@@ -161,9 +228,9 @@ function Settings() {
                 </div>
                 
                 <div className="space-y-2">
-                  <Label>Yeni Mesaj Olasılığı (%{((settings.new_message_probability?.value || 0.35) * 100).toFixed(0)})</Label>
+                  <Label>Yeni Mesaj Olasılığı (%{((settings.new_message_probability?.value ?? 0.35) * 100).toFixed(0)})</Label>
                   <Slider
-                    value={[(settings.new_message_probability?.value || 0.35) * 100]}
+                    value={[(settings.new_message_probability?.value ?? 0.35) * 100]}
                     onValueChange={([value]) => 
                       updateSetting('new_message_probability', { value: value / 100 })
                     }
@@ -174,57 +241,51 @@ function Settings() {
                 </div>
               </div>
 
+              <div className="rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
+                💡 Öneri: Reply olasılığını %50-%70, mention oranını %20-%40 aralığında tutmak Telegram spam filtreleri için
+                güvenlidir. Kısa tepki ve yeni mesaj olasılıklarının toplamı %50’yi aşarsa botlar aynı anda çok sık mesaj
+                gönderebilir.
+              </div>
+
               <div className="space-y-4">
                 <h4 className="font-medium">Mesaj Uzunluk Profili</h4>
                 <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-2">
-                    <Label>Kısa (%{((settings.message_length_profile?.value?.short || 0.55) * 100).toFixed(0)})</Label>
+                    <Label>Kısa (%{((messageLengthProfile.short ?? 0.55) * 100).toFixed(0)})</Label>
                     <Slider
-                      value={[(settings.message_length_profile?.value?.short || 0.55) * 100]}
-                      onValueChange={([value]) => {
-                        const current = settings.message_length_profile?.value || {}
-                        updateSetting('message_length_profile', { 
-                          value: { ...current, short: value / 100 }
-                        })
-                      }}
+                      value={[(messageLengthProfile.short ?? 0.55) * 100]}
+                      onValueChange={handleMessageLengthChange('short')}
                       max={100}
                       step={5}
                       className="w-full"
                     />
                   </div>
-                  
+
                   <div className="space-y-2">
-                    <Label>Orta (%{((settings.message_length_profile?.value?.medium || 0.35) * 100).toFixed(0)})</Label>
+                    <Label>Orta (%{((messageLengthProfile.medium ?? 0.35) * 100).toFixed(0)})</Label>
                     <Slider
-                      value={[(settings.message_length_profile?.value?.medium || 0.35) * 100]}
-                      onValueChange={([value]) => {
-                        const current = settings.message_length_profile?.value || {}
-                        updateSetting('message_length_profile', { 
-                          value: { ...current, medium: value / 100 }
-                        })
-                      }}
+                      value={[(messageLengthProfile.medium ?? 0.35) * 100]}
+                      onValueChange={handleMessageLengthChange('medium')}
                       max={100}
                       step={5}
                       className="w-full"
                     />
                   </div>
-                  
+
                   <div className="space-y-2">
-                    <Label>Uzun (%{((settings.message_length_profile?.value?.long || 0.10) * 100).toFixed(0)})</Label>
+                    <Label>Uzun (%{((messageLengthProfile.long ?? 0.10) * 100).toFixed(0)})</Label>
                     <Slider
-                      value={[(settings.message_length_profile?.value?.long || 0.10) * 100]}
-                      onValueChange={([value]) => {
-                        const current = settings.message_length_profile?.value || {}
-                        updateSetting('message_length_profile', { 
-                          value: { ...current, long: value / 100 }
-                        })
-                      }}
+                      value={[(messageLengthProfile.long ?? 0.10) * 100]}
+                      onValueChange={handleMessageLengthChange('long')}
                       max={100}
                       step={5}
                       className="w-full"
                     />
                   </div>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  {`Toplam: %${messageLengthTotal}. Kaydırıcıları değiştirdiğinizde oranlar otomatik olarak %100’e normalize edilir; kısa mesaj ağırlığı yüksek olduğunda Telegram rate-limit’leri daha toleranslıdır.`}
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -248,20 +309,27 @@ function Settings() {
                   <Label>Dakikada Maksimum Mesaj</Label>
                   <Input
                     type="number"
-                    value={settings.max_msgs_per_min?.value || 6}
-                    onChange={(e) => 
-                      updateSetting('max_msgs_per_min', { value: parseInt(e.target.value) })
-                    }
+                    value={settings.max_msgs_per_min?.value ?? 6}
+                    onChange={(e) => {
+                      const parsed = Number.parseInt(e.target.value, 10)
+                      if (Number.isNaN(parsed)) {
+                        return
+                      }
+                      updateSetting('max_msgs_per_min', { value: parsed })
+                    }}
                     min={1}
                     max={20}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    6-8 aralığı doğal sohbet temposu sunar. 10+ değerleri Telegram limitlerine daha hızlı ulaşır.
+                  </p>
                 </div>
-                
+
                 <div className="space-y-2">
                   <Label>Typing Simülasyonu</Label>
                   <Switch
-                    checked={settings.typing_enabled?.value || true}
-                    onCheckedChange={(checked) => 
+                    checked={settings.typing_enabled?.value ?? true}
+                    onCheckedChange={(checked) =>
                       updateSetting('typing_enabled', { value: checked })
                     }
                   />
@@ -271,8 +339,8 @@ function Settings() {
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
                   <Switch
-                    checked={settings.prime_hours_boost?.value || true}
-                    onCheckedChange={(checked) => 
+                    checked={settings.prime_hours_boost?.value ?? true}
+                    onCheckedChange={(checked) =>
                       updateSetting('prime_hours_boost', { value: checked })
                     }
                   />
@@ -282,7 +350,7 @@ function Settings() {
                 <div className="space-y-2">
                   <Label>Prime Hours (virgülle ayırın)</Label>
                   <Input
-                    value={(settings.prime_hours?.value || []).join(', ')}
+                    value={(settings.prime_hours?.value ?? []).join(', ')}
                     onChange={(e) => {
                       const hours = e.target.value.split(',').map(h => h.trim()).filter(h => h)
                       updateSetting('prime_hours', { value: hours })
@@ -299,32 +367,40 @@ function Settings() {
                     <Label>Minimum</Label>
                     <Input
                       type="number"
-                      value={settings.bot_hourly_msg_limit?.value?.min || 6}
-                      onChange={(e) => {
-                        const current = settings.bot_hourly_msg_limit?.value || {}
-                        updateSetting('bot_hourly_msg_limit', { 
-                          value: { ...current, min: parseInt(e.target.value) }
-                        })
-                      }}
-                      min={1}
-                      max={50}
-                    />
+                    value={settings.bot_hourly_msg_limit?.value?.min ?? 6}
+                    onChange={(e) => {
+                      const current = settings.bot_hourly_msg_limit?.value || {}
+                      const parsed = Number.parseInt(e.target.value, 10)
+                      if (Number.isNaN(parsed)) {
+                        return
+                      }
+                      updateSetting('bot_hourly_msg_limit', {
+                        value: { ...current, min: parsed }
+                      })
+                    }}
+                    min={1}
+                    max={50}
+                  />
                   </div>
                   
                   <div className="space-y-2">
                     <Label>Maksimum</Label>
                     <Input
                       type="number"
-                      value={settings.bot_hourly_msg_limit?.value?.max || 12}
-                      onChange={(e) => {
-                        const current = settings.bot_hourly_msg_limit?.value || {}
-                        updateSetting('bot_hourly_msg_limit', { 
-                          value: { ...current, max: parseInt(e.target.value) }
-                        })
-                      }}
-                      min={1}
-                      max={50}
-                    />
+                    value={settings.bot_hourly_msg_limit?.value?.max ?? 12}
+                    onChange={(e) => {
+                      const current = settings.bot_hourly_msg_limit?.value || {}
+                      const parsed = Number.parseInt(e.target.value, 10)
+                      if (Number.isNaN(parsed)) {
+                        return
+                      }
+                      updateSetting('bot_hourly_msg_limit', {
+                        value: { ...current, max: parsed }
+                      })
+                    }}
+                    min={1}
+                    max={50}
+                  />
                   </div>
                 </div>
               </div>
@@ -386,38 +462,56 @@ function Settings() {
 
               <div className="space-y-4">
                 <h4 className="font-medium">Typing Hızı (WPM)</h4>
+                <p className="text-sm text-muted-foreground">
+                  Ortalama kullanıcılar 2-6 WPM aralığında yazıyor. Daha yüksek değerler botların ani tepki vermesine neden
+                  olup gerçekçilik algısını düşürebilir.
+                </p>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Minimum WPM</Label>
                     <Input
                       type="number"
                       step="0.1"
-                      value={settings.typing_speed_wpm?.value?.min || 2.5}
+                      value={settings.typing_speed_wpm?.value?.min ?? 2.5}
                       onChange={(e) => {
+                        const parsed = Number.parseFloat(e.target.value)
+                        if (Number.isNaN(parsed)) {
+                          return
+                        }
+                        const clamped = Math.min(12, Math.max(0.5, parsed))
                         const current = settings.typing_speed_wpm?.value || {}
-                        updateSetting('typing_speed_wpm', { 
-                          value: { ...current, min: parseFloat(e.target.value) }
-                        })
+                        const next = { ...current, min: clamped }
+                        if (typeof next.max === 'number' && next.max < clamped) {
+                          next.max = clamped
+                        }
+                        updateSetting('typing_speed_wpm', { value: next })
                       }}
-                      min={1}
-                      max={10}
+                      min={0.5}
+                      max={12}
                     />
                   </div>
-                  
+
                   <div className="space-y-2">
                     <Label>Maksimum WPM</Label>
                     <Input
                       type="number"
                       step="0.1"
-                      value={settings.typing_speed_wpm?.value?.max || 4.5}
+                      value={settings.typing_speed_wpm?.value?.max ?? 4.5}
                       onChange={(e) => {
+                        const parsed = Number.parseFloat(e.target.value)
+                        if (Number.isNaN(parsed)) {
+                          return
+                        }
+                        const clamped = Math.min(12, Math.max(0.5, parsed))
                         const current = settings.typing_speed_wpm?.value || {}
-                        updateSetting('typing_speed_wpm', { 
-                          value: { ...current, max: parseFloat(e.target.value) }
-                        })
+                        const next = { ...current, max: clamped }
+                        if (typeof next.min === 'number' && next.min > clamped) {
+                          next.min = clamped
+                        }
+                        updateSetting('typing_speed_wpm', { value: next })
                       }}
-                      min={1}
-                      max={10}
+                      min={0.5}
+                      max={12}
                     />
                   </div>
                 </div>

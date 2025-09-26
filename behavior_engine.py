@@ -16,6 +16,10 @@ from database import (
     SessionLocal, Bot, Chat, Message, Setting,
     BotStance, BotHolding,
 )
+from settings_utils import (
+    DEFAULT_MESSAGE_LENGTH_PROFILE,
+    normalize_message_length_profile,
+)
 from llm_client import LLMClient
 from system_prompt import (
     generate_user_prompt,
@@ -108,7 +112,8 @@ def load_settings(db: Session) -> Dict[str, Any]:
     d.setdefault("mention_probability", 0.35)
     d.setdefault("short_reaction_probability", 0.12)
     d.setdefault("new_message_probability", 0.35)
-    d.setdefault("message_length_profile", {"short": 0.55, "medium": 0.35, "long": 0.10})
+    d.setdefault("message_length_profile", DEFAULT_MESSAGE_LENGTH_PROFILE.copy())
+    d["message_length_profile"] = normalize_message_length_profile(d.get("message_length_profile"))
     d.setdefault("typing_speed_wpm", {"min": 2.5, "max": 4.5})
     d.setdefault("bot_hourly_msg_limit", {"min": 6, "max": 12})
     d.setdefault("simulation_active", False)

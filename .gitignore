@@ -1,0 +1,37 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.so
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment & secrets
+.env
+.env.*
+*.env.local
+
+# Databases & state
+app.db
+*.sqlite3
+*.db
+
+# Node / frontend
+node_modules/
+dist/
+build/
+
+# Editor / OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Coverage / test cache
+.coverage
+.pytest_cache/
+
+# Logs
+*.log

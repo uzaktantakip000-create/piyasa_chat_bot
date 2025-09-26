@@ -7,19 +7,17 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { 
-  MessageSquare, 
-  Plus, 
-  Edit, 
-  Trash2, 
+import {
+  MessageSquare,
+  Plus,
+  Edit,
+  Trash2,
   Power,
   PowerOff,
   Users
 } from 'lucide-react'
 
-const API_BASE_URL = process.env.NODE_ENV === 'production' 
-  ? '/api' 
-  : 'http://localhost:8000'
+import { apiFetch } from './apiClient'
 
 function Chats() {
   const [chats, setChats] = useState([])
@@ -36,11 +34,9 @@ function Chats() {
   // Fetch chats
   const fetchChats = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/chats`)
-      if (response.ok) {
-        const data = await response.json()
-        setChats(data)
-      }
+      const response = await apiFetch('/chats')
+      const data = await response.json()
+      setChats(data)
     } catch (error) {
       console.error('Failed to fetch chats:', error)
     } finally {
@@ -51,9 +47,9 @@ function Chats() {
   // Create or update chat
   const saveChat = async () => {
     try {
-      const url = editingChat 
-        ? `${API_BASE_URL}/chats/${editingChat.id}`
-        : `${API_BASE_URL}/chats`
+      const url = editingChat
+        ? `/chats/${editingChat.id}`
+        : '/chats'
       
       const method = editingChat ? 'PATCH' : 'POST'
       
@@ -65,21 +61,17 @@ function Chats() {
           : formData.topics
       }
       
-      const response = await fetch(url, {
+      await apiFetch(url, {
         method,
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify(chatData),
       })
 
-      if (response.ok) {
-        await fetchChats()
-        setDialogOpen(false)
-        resetForm()
-      }
+      await fetchChats()
+      setDialogOpen(false)
+      resetForm()
     } catch (error) {
       console.error('Failed to save chat:', error)
+      alert('Sohbet kaydedilirken hata oluştu: ' + error.message)
     }
   }
 
@@ -90,15 +82,14 @@ function Chats() {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/chats/${chatId}`, {
+      await apiFetch(`/chats/${chatId}`, {
         method: 'DELETE',
       })
 
-      if (response.ok) {
-        await fetchChats()
-      }
+      await fetchChats()
     } catch (error) {
       console.error('Failed to delete chat:', error)
+      alert('Sohbet silinirken hata oluştu: ' + error.message)
     }
   }
 

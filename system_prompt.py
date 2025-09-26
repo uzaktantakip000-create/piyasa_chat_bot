@@ -181,6 +181,18 @@ _MANIPULATIVE_PATTERNS = [
 ]
 _MANIPULATIVE_RE = re.compile("|".join(_MANIPULATIVE_PATTERNS), re.IGNORECASE)
 
+_FINANCIAL_PROMISE_PATTERNS = [
+    r"\bkesin\s+kazanç\b",
+    r"\bkesin\s+getiri\b",
+    r"\bgaranti\s+kazanç\b",
+    r"\bgarantili\s+getiri\b",
+    r"\bbedava\s+para\b",
+    r"\byatırım\s+tavsiyesi\s+veriyorum\b",
+]
+_FINANCIAL_PROMISE_RE = re.compile("|".join(_FINANCIAL_PROMISE_PATTERNS), re.IGNORECASE)
+
+_DISCLAIMER_PHRASE = "yatırım tavsiyesi değildir"
+
 
 def sanitize_model_traces(text: str) -> str:
     t = _AI_TRACE_RE.sub("", text or "")
@@ -201,3 +213,33 @@ def postprocess_output(text: str) -> str:
     if len(t) > 900:
         t = t[:880].rstrip() + "…"
     return t
+
+
+def filter_content(text: str) -> Optional[str]:
+    """Finansal içerik güvenliği filtreleri.
+
+    - Boş veya yalnızca boşluk içeren içerikleri reddeder.
+    - Yüksek riskli / kesin kazanç vaat eden kalıpları engeller.
+    - "yatırım tavsiyesi" ifadesi geçiyorsa dipnotu otomatik ekler.
+    """
+
+    if text is None:
+        return None
+
+    cleaned = text.strip()
+    if not cleaned:
+        return None
+
+    lower = cleaned.lower()
+
+    if _FINANCIAL_PROMISE_RE.search(lower):
+        return None
+
+    # "yatırım tavsiyesi" ifadesi kullanılıyorsa, dipnotu ekle (tek seferlik).
+    if "yatırım tavsiyesi" in lower and _DISCLAIMER_PHRASE not in lower:
+        if cleaned.endswith(('.', '!', '?')):
+            cleaned = f"{cleaned} {_DISCLAIMER_PHRASE.capitalize()}."
+        else:
+            cleaned = f"{cleaned}\n\n(Not: {_DISCLAIMER_PHRASE}.)"
+
+    return cleaned

@@ -11,14 +11,14 @@ load_dotenv()  # .env dosyasını yükler
 
 import redis
 from fastapi import Body, Depends, HTTPException, Query, Response, status
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import (
     Bot, Chat, Setting, Message, get_db, create_tables, init_default_settings,
-    BotStance, BotHolding,
+    BotStance, BotHolding, migrate_plain_tokens,
 )
 from schemas import (
     BotCreate, BotUpdate, BotResponse,
@@ -28,18 +28,26 @@ from schemas import (
     StanceCreate, StanceUpdate, StanceResponse,
     HoldingCreate, HoldingUpdate, HoldingResponse,
 )
+from security import mask_token, require_api_key, SecurityConfigError
+from settings_utils import normalize_message_length_profile
 
 logger = logging.getLogger("api")
 logging.basicConfig(level=os.getenv("LOG_LEVEL","INFO"))
 
-app = FastAPI(title="Telegram Market Simulation API", version="1.3.0")
+app = FastAPI(title="Telegram Market Simulation API", version="1.4.0")
 
 # ----------------------
 # CORS
 # ----------------------
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS")
+if allowed_origins_env:
+    allowed_origins = [origin.strip() for origin in allowed_origins_env.split(",") if origin.strip()]
+else:
+    allowed_origins = ["http://localhost:3000"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # NOT: Güvenlik eklenince sıkılaştırılacak
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -73,7 +81,30 @@ def publish_config_update(r: Optional[redis.Redis], payload: Dict[str, Any]):
 def _startup():
     create_tables()
     init_default_settings()
+    migrate_plain_tokens()
     logger.info("API started. Tables ensured; default settings loaded.")
+
+
+def _bot_to_response(db_bot: Bot) -> BotResponse:
+    try:
+        plain_token = db_bot.token
+    except SecurityConfigError:
+        logger.error("Bot token decrypt failed for bot_id=%s. Check TOKEN_ENCRYPTION_KEY.", db_bot.id)
+        plain_token = ""
+
+    masked = mask_token(plain_token)
+    return BotResponse(
+        id=db_bot.id,
+        name=db_bot.name,
+        token_masked=masked,
+        has_token=bool(db_bot.token_encrypted),
+        username=db_bot.username,
+        is_enabled=db_bot.is_enabled,
+        speed_profile=db_bot.speed_profile or {},
+        active_hours=db_bot.active_hours or [],
+        persona_hint=db_bot.persona_hint,
+        created_at=db_bot.created_at,
+    )
 
 # ----------------------
 # Basic endpoints
@@ -83,7 +114,10 @@ def healthz():
     return {"ok": True, "ts": datetime.utcnow().isoformat()}
 
 # ----- Bots -----
-@app.post("/bots", response_model=BotResponse, status_code=status.HTTP_201_CREATED)
+api_dependencies = [Depends(require_api_key)]
+
+
+@app.post("/bots", response_model=BotResponse, status_code=status.HTTP_201_CREATED, dependencies=api_dependencies)
 def create_bot(bot: BotCreate, db: Session = Depends(get_db)):
     db_bot = Bot(
         name=bot.name,
@@ -98,14 +132,14 @@ def create_bot(bot: BotCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_bot)
     publish_config_update(get_redis(), {"type": "bot_added", "bot_id": db_bot.id})
-    return db_bot
+    return _bot_to_response(db_bot)
 
-@app.get("/bots", response_model=List[BotResponse])
+@app.get("/bots", response_model=List[BotResponse], dependencies=api_dependencies)
 def list_bots(db: Session = Depends(get_db)):
     bots = db.query(Bot).order_by(Bot.id.asc()).all()
-    return bots
+    return [_bot_to_response(bot) for bot in bots]
 
-@app.patch("/bots/{bot_id}", response_model=BotResponse)
+@app.patch("/bots/{bot_id}", response_model=BotResponse, dependencies=api_dependencies)
 def update_bot(bot_id: int, patch: BotUpdate, db: Session = Depends(get_db)):
     db_bot = db.query(Bot).filter(Bot.id == bot_id).first()
     if not db_bot:
@@ -117,9 +151,9 @@ def update_bot(bot_id: int, patch: BotUpdate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_bot)
     publish_config_update(get_redis(), {"type": "bot_updated", "bot_id": db_bot.id})
-    return db_bot
+    return _bot_to_response(db_bot)
 
-@app.delete("/bots/{bot_id}", status_code=status.HTTP_204_NO_CONTENT)
+@app.delete("/bots/{bot_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=api_dependencies)
 def delete_bot(bot_id: int, db: Session = Depends(get_db)):
     db_bot = db.query(Bot).filter(Bot.id == bot_id).first()
     if not db_bot:
@@ -130,7 +164,7 @@ def delete_bot(bot_id: int, db: Session = Depends(get_db)):
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 # ----- Chats -----
-@app.post("/chats", response_model=ChatResponse, status_code=status.HTTP_201_CREATED)
+@app.post("/chats", response_model=ChatResponse, status_code=status.HTTP_201_CREATED, dependencies=api_dependencies)
 def create_chat(chat: ChatCreate, db: Session = Depends(get_db)):
     db_chat = Chat(chat_id=chat.chat_id, title=chat.title, is_enabled=chat.is_enabled, topics=chat.topics)
     db.add(db_chat)
@@ -139,13 +173,13 @@ def create_chat(chat: ChatCreate, db: Session = Depends(get_db)):
     publish_config_update(get_redis(), {"type": "chat_added", "chat_id": db_chat.id})
     return db_chat
 
-@app.get("/chats", response_model=List[ChatResponse])
+@app.get("/chats", response_model=List[ChatResponse], dependencies=api_dependencies)
 def list_chats(db: Session = Depends(get_db)):
     chats = db.query(Chat).order_by(Chat.id.asc()).all()
     return chats
 
 
-@app.patch("/chats/{chat_id}", response_model=ChatResponse)
+@app.patch("/chats/{chat_id}", response_model=ChatResponse, dependencies=api_dependencies)
 def update_chat(chat_id: int, patch: ChatUpdate, db: Session = Depends(get_db)):
     db_chat = db.query(Chat).filter(Chat.id == chat_id).first()
     if not db_chat:
@@ -160,7 +194,7 @@ def update_chat(chat_id: int, patch: ChatUpdate, db: Session = Depends(get_db)):
     return db_chat
 
 
-@app.delete("/chats/{chat_id}", status_code=status.HTTP_204_NO_CONTENT)
+@app.delete("/chats/{chat_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=api_dependencies)
 def delete_chat(chat_id: int, db: Session = Depends(get_db)):
     db_chat = db.query(Chat).filter(Chat.id == chat_id).first()
     if not db_chat:
@@ -171,17 +205,24 @@ def delete_chat(chat_id: int, db: Session = Depends(get_db)):
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 # ----- Settings -----
-def _normalize_setting_value(raw: Any) -> Dict[str, Any]:
+def _normalize_setting_value(key: str, raw: Any) -> Dict[str, Any]:
+    if key == "message_length_profile":
+        normalized = normalize_message_length_profile(raw)
+        return {"value": normalized}
     if isinstance(raw, dict) and "value" in raw and len(raw) == 1:
         return raw
     return {"value": raw}
 
 
 def _setting_to_response(row: Setting) -> SettingResponse:
-    return SettingResponse(key=row.key, value=_normalize_setting_value(row.value), updated_at=row.updated_at)
+    return SettingResponse(
+        key=row.key,
+        value=_normalize_setting_value(row.key, row.value),
+        updated_at=row.updated_at,
+    )
 
 
-@app.get("/settings", response_model=List[SettingResponse])
+@app.get("/settings", response_model=List[SettingResponse], dependencies=api_dependencies)
 def list_settings(db: Session = Depends(get_db)):
     rows = db.query(Setting).order_by(Setting.key.asc()).all()
     return [_setting_to_response(row) for row in rows]
@@ -202,13 +243,15 @@ def _set_setting(db: Session, key: str, value: Any):
 class SettingsBulkUpdate(BaseModel):
     updates: Dict[str, Any] = Field(default_factory=dict)
 
-@app.put("/settings/bulk", response_model=List[SettingResponse])
+@app.put("/settings/bulk", response_model=List[SettingResponse], dependencies=api_dependencies)
 def update_settings_bulk(body: SettingsBulkUpdate, db: Session = Depends(get_db)):
     if not body.updates:
         raise HTTPException(400, "No updates provided")
     changed: List[str] = []
     out: List[Setting] = []
     for k, v in body.updates.items():
+        if k == "message_length_profile":
+            v = normalize_message_length_profile(v)
         row = db.query(Setting).filter(Setting.key == k).first()
         if not row:
             row = Setting(key=k, value=v)
@@ -228,27 +271,30 @@ class SettingUpdate(BaseModel):
     value: Any
 
 
-@app.patch("/settings/{key}", response_model=SettingResponse)
+@app.patch("/settings/{key}", response_model=SettingResponse, dependencies=api_dependencies)
 def update_setting(key: str, payload: SettingUpdate, db: Session = Depends(get_db)):
+    value = payload.value
+    if key == "message_length_profile":
+        value = normalize_message_length_profile(value)
     row = db.query(Setting).filter(Setting.key == key).first()
     if not row:
-        row = Setting(key=key, value=payload.value)
+        row = Setting(key=key, value=value)
         db.add(row)
     else:
-        row.value = payload.value
+        row.value = value
     db.commit()
     db.refresh(row)
     publish_config_update(get_redis(), {"type": "settings_updated", "keys": [key]})
     return _setting_to_response(row)
 
 # Control: start/stop/scale
-@app.post("/control/start")
+@app.post("/control/start", dependencies=api_dependencies)
 def control_start(db: Session = Depends(get_db)):
     _set_setting(db, "simulation_active", True)
     publish_config_update(get_redis(), {"type": "control", "simulation_active": True})
     return {"ok": True}
 
-@app.post("/control/stop")
+@app.post("/control/stop", dependencies=api_dependencies)
 def control_stop(db: Session = Depends(get_db)):
     _set_setting(db, "simulation_active", False)
     publish_config_update(get_redis(), {"type": "control", "simulation_active": False})
@@ -258,7 +304,7 @@ class ScalePayload(BaseModel):
     factor: float = Field(1.0, gt=0)
 
 
-@app.post("/control/scale")
+@app.post("/control/scale", dependencies=api_dependencies)
 def control_scale(
     factor: Optional[float] = Query(default=None, gt=0),
     body: Optional[ScalePayload] = Body(default=None),
@@ -277,7 +323,7 @@ def control_scale(
     return {"ok": True, "factor": factor_value}
 
 # ----- Metrics -----
-@app.get("/metrics", response_model=MetricsResponse)
+@app.get("/metrics", response_model=MetricsResponse, dependencies=api_dependencies)
 def metrics(db: Session = Depends(get_db)):
     total_bots = db.query(Bot).count()
     active_bots = db.query(Bot).filter(Bot.is_enabled.is_(True)).count()
@@ -326,14 +372,14 @@ def _serialize_log(message: Message) -> Dict[str, Any]:
     }
 
 
-@app.get("/logs")
+@app.get("/logs", dependencies=api_dependencies)
 def list_logs(limit: int = 100, db: Session = Depends(get_db)):
     limit = min(max(limit, 1), 1000)
     rows = db.query(Message).order_by(Message.created_at.desc()).limit(limit).all()
     return [_serialize_log(row) for row in rows]
 
 
-@app.get("/logs/recent")
+@app.get("/logs/recent", dependencies=api_dependencies)
 def recent_logs(limit: int = 20, db: Session = Depends(get_db)):
     return list_logs(limit=limit, db=db)
 
@@ -342,14 +388,14 @@ def recent_logs(limit: int = 20, db: Session = Depends(get_db)):
 # ==========================================================
 
 # ----- Persona -----
-@app.get("/bots/{bot_id}/persona")
+@app.get("/bots/{bot_id}/persona", dependencies=api_dependencies)
 def get_persona(bot_id: int, db: Session = Depends(get_db)):
     bot = db.query(Bot).filter(Bot.id == bot_id).first()
     if not bot:
         raise HTTPException(404, "Bot not found")
     return bot.persona_profile or {}
 
-@app.put("/bots/{bot_id}/persona")
+@app.put("/bots/{bot_id}/persona", dependencies=api_dependencies)
 def put_persona(bot_id: int, profile: PersonaProfile, db: Session = Depends(get_db)):
     bot = db.query(Bot).filter(Bot.id == bot_id).first()
     if not bot:
@@ -360,7 +406,7 @@ def put_persona(bot_id: int, profile: PersonaProfile, db: Session = Depends(get_
     return {"ok": True, "bot_id": bot_id, "persona_profile": bot.persona_profile}
 
 # ----- Stances -----
-@app.get("/bots/{bot_id}/stances", response_model=List[StanceResponse])
+@app.get("/bots/{bot_id}/stances", response_model=List[StanceResponse], dependencies=api_dependencies)
 def list_stances(bot_id: int, db: Session = Depends(get_db)):
     bot = db.query(Bot).filter(Bot.id == bot_id).first()
     if not bot:
@@ -373,7 +419,7 @@ def list_stances(bot_id: int, db: Session = Depends(get_db)):
     )
     return rows
 
-@app.post("/bots/{bot_id}/stances", response_model=StanceResponse, status_code=201)
+@app.post("/bots/{bot_id}/stances", response_model=StanceResponse, status_code=201, dependencies=api_dependencies)
 def upsert_stance(bot_id: int, body: StanceCreate, db: Session = Depends(get_db)):
     bot = db.query(Bot).filter(Bot.id == bot_id).first()
     if not bot:
@@ -404,7 +450,7 @@ def upsert_stance(bot_id: int, body: StanceCreate, db: Session = Depends(get_db)
     publish_config_update(get_redis(), {"type": "stance_upserted", "bot_id": bot_id, "stance_id": row.id})
     return row
 
-@app.patch("/stances/{stance_id}", response_model=StanceResponse)
+@app.patch("/stances/{stance_id}", response_model=StanceResponse, dependencies=api_dependencies)
 def update_stance(stance_id: int, patch: StanceUpdate, db: Session = Depends(get_db)):
     row = db.query(BotStance).filter(BotStance.id == stance_id).first()
     if not row:
@@ -417,7 +463,7 @@ def update_stance(stance_id: int, patch: StanceUpdate, db: Session = Depends(get
     publish_config_update(get_redis(), {"type": "stance_updated", "bot_id": row.bot_id, "stance_id": row.id})
     return row
 
-@app.delete("/stances/{stance_id}", status_code=204)
+@app.delete("/stances/{stance_id}", status_code=204, dependencies=api_dependencies)
 def delete_stance(stance_id: int, db: Session = Depends(get_db)):
     row = db.query(BotStance).filter(BotStance.id == stance_id).first()
     if not row:
@@ -429,7 +475,7 @@ def delete_stance(stance_id: int, db: Session = Depends(get_db)):
     return {"ok": True}
 
 # ----- Holdings -----
-@app.get("/bots/{bot_id}/holdings", response_model=List[HoldingResponse])
+@app.get("/bots/{bot_id}/holdings", response_model=List[HoldingResponse], dependencies=api_dependencies)
 def list_holdings(bot_id: int, db: Session = Depends(get_db)):
     bot = db.query(Bot).filter(Bot.id == bot_id).first()
     if not bot:
@@ -442,7 +488,7 @@ def list_holdings(bot_id: int, db: Session = Depends(get_db)):
     )
     return rows
 
-@app.post("/bots/{bot_id}/holdings", response_model=HoldingResponse, status_code=201)
+@app.post("/bots/{bot_id}/holdings", response_model=HoldingResponse, status_code=201, dependencies=api_dependencies)
 def upsert_holding(bot_id: int, body: HoldingCreate, db: Session = Depends(get_db)):
     bot = db.query(Bot).filter(Bot.id == bot_id).first()
     if not bot:
@@ -476,7 +522,7 @@ def upsert_holding(bot_id: int, body: HoldingCreate, db: Session = Depends(get_d
     publish_config_update(get_redis(), {"type": "holding_upserted", "bot_id": bot_id, "holding_id": row.id})
     return row
 
-@app.patch("/holdings/{holding_id}", response_model=HoldingResponse)
+@app.patch("/holdings/{holding_id}", response_model=HoldingResponse, dependencies=api_dependencies)
 def update_holding(holding_id: int, patch: HoldingUpdate, db: Session = Depends(get_db)):
     row = db.query(BotHolding).filter(BotHolding.id == holding_id).first()
     if not row:
@@ -489,7 +535,7 @@ def update_holding(holding_id: int, patch: HoldingUpdate, db: Session = Depends(
     publish_config_update(get_redis(), {"type": "holding_updated", "bot_id": row.bot_id, "holding_id": row.id})
     return row
 
-@app.delete("/holdings/{holding_id}", status_code=204)
+@app.delete("/holdings/{holding_id}", status_code=204, dependencies=api_dependencies)
 def delete_holding(holding_id: int, db: Session = Depends(get_db)):
     row = db.query(BotHolding).filter(BotHolding.id == holding_id).first()
     if not row:
@@ -522,7 +568,7 @@ class WizardSetup(BaseModel):
     holdings: Optional[List[HoldingCreate]] = None
     start_simulation: bool = True
 
-@app.get("/wizard/example")
+@app.get("/wizard/example", dependencies=api_dependencies)
 def wizard_example():
     example = {
         "bot": {
@@ -554,12 +600,21 @@ def wizard_example():
     }
     return example
 
-@app.post("/wizard/setup")
+@app.post("/wizard/setup", dependencies=api_dependencies)
 def wizard_setup(payload: WizardSetup, db: Session = Depends(get_db)):
     r = get_redis()
 
     # --- Bot: token'a göre upsert ---
-    bot = db.query(Bot).filter(Bot.token == payload.bot.token).first()
+    bot = None
+    for candidate in db.query(Bot).all():
+        try:
+            if candidate.token == payload.bot.token:
+                bot = candidate
+                break
+        except SecurityConfigError as exc:
+            logger.error("Bot token decrypt failed during wizard setup: %s", exc)
+            raise HTTPException(status_code=500, detail="Token decrypt failed. Check server TOKEN_ENCRYPTION_KEY.")
+
     if bot:
         bot.name = payload.bot.name
         bot.username = payload.bot.username

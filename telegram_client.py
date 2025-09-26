@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import atexit
 import os
 import logging
+import threading
+import time
+from collections import defaultdict
 from typing import Optional, Dict, Any, List
 
 import httpx
@@ -12,25 +16,60 @@ from database import SessionLocal, Setting
 logger = logging.getLogger("telegram")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 
+_COUNTER_BUFFER: Dict[str, int] = defaultdict(int)
+_COUNTER_LOCK = threading.Lock()
+_LAST_FLUSH = 0.0
+_FLUSH_INTERVAL = float(os.getenv("TELEGRAM_COUNTER_FLUSH_INTERVAL", "5.0"))
+_FLUSH_THRESHOLD = int(os.getenv("TELEGRAM_COUNTER_FLUSH_THRESHOLD", "10"))
 
-def _bump_setting(key: str, inc: int = 1) -> None:
-    """settings.key bir sayaçsa artır (ör. telegram_429_count)."""
+
+def _flush_counters(force: bool = False) -> None:
+    global _LAST_FLUSH
+    with _COUNTER_LOCK:
+        if not _COUNTER_BUFFER:
+            return
+        now = time.time()
+        if not force:
+            if (now - _LAST_FLUSH) < _FLUSH_INTERVAL and all(value < _FLUSH_THRESHOLD for value in _COUNTER_BUFFER.values()):
+                return
+        payload = dict(_COUNTER_BUFFER)
+        _COUNTER_BUFFER.clear()
+        _LAST_FLUSH = now
+
     db = SessionLocal()
     try:
-        row = db.query(Setting).filter(Setting.key == key).first()
-        if row is None:
-            db.add(Setting(key=key, value=int(inc)))
-        else:
+        for key, inc in payload.items():
+            row = db.query(Setting).filter(Setting.key == key).first()
+            if row is None:
+                db.add(Setting(key=key, value=int(inc)))
+                continue
             try:
-                val = int(row.value)
+                current = int(row.value)
             except Exception:
-                val = 0
-            row.value = int(val) + inc
+                current = 0
+            row.value = current + int(inc)
         db.commit()
-    except Exception as e:
-        logger.warning("Setting bump failed for %s: %s", key, e)
+    except Exception as exc:
+        logger.warning("Counter flush failed: %s", exc)
     finally:
         db.close()
+
+
+def _bump_setting(key: str, inc: int = 1) -> None:
+    """Queue a metric increment and flush periodically."""
+    should_flush = False
+    with _COUNTER_LOCK:
+        _COUNTER_BUFFER[key] += inc
+        if _COUNTER_BUFFER[key] >= _FLUSH_THRESHOLD:
+            should_flush = True
+        elif (time.time() - _LAST_FLUSH) >= _FLUSH_INTERVAL:
+            should_flush = True
+
+    if should_flush:
+        _flush_counters()
+
+
+atexit.register(lambda: _flush_counters(force=True))
 
 
 class TelegramClient:
