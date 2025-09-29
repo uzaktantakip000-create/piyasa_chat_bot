@@ -45,7 +45,19 @@ export async function apiFetch(path, options = {}) {
   const url = `${API_BASE_URL}${path}`
   const opts = { ...options }
   opts.headers = buildHeaders(options.headers)
-  if (opts.body && !(opts.headers instanceof Headers && opts.headers.has('Content-Type'))) {
+  const body = opts.body
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData
+  const isBlob = typeof Blob !== 'undefined' && body instanceof Blob
+  const isArrayBuffer = body instanceof ArrayBuffer || ArrayBuffer.isView?.(body)
+  const isURLSearchParams = typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams
+  const isReadableStream = typeof ReadableStream !== 'undefined' && body instanceof ReadableStream
+
+  const shouldStringify = body != null && typeof body === 'object' && !isFormData && !isBlob && !isArrayBuffer && !isURLSearchParams && !isReadableStream
+  if (shouldStringify) {
+    opts.body = JSON.stringify(body)
+  }
+
+  if (opts.body != null && opts.headers instanceof Headers && !opts.headers.has('Content-Type') && (shouldStringify || typeof opts.body === 'string')) {
     opts.headers.set('Content-Type', 'application/json')
   }
 
