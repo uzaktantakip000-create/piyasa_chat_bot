@@ -3,6 +3,8 @@ import { useState } from 'react'
 function LoginPanel({ onSubmit, submitting, error, requiresPassword, defaultApiKey }) {
   const [apiKey, setApiKey] = useState(defaultApiKey || '')
   const [password, setPassword] = useState('')
+  const [apiKeyVisible, setApiKeyVisible] = useState(false)
+  const [passwordVisible, setPasswordVisible] = useState(false)
 
   const handleSubmit = (event) => {
     event.preventDefault()
@@ -26,17 +28,30 @@ function LoginPanel({ onSubmit, submitting, error, requiresPassword, defaultApiK
           <label htmlFor="apiKey" className="text-sm font-medium text-foreground">
             API Anahtarı
           </label>
-          <input
-            id="apiKey"
-            name="apiKey"
-            type="text"
-            autoComplete="off"
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
-            placeholder="XXXXXXXXXXXX"
-            required
-          />
+          <div className="flex items-center gap-2">
+            <input
+              id="apiKey"
+              name="apiKey"
+              type={apiKeyVisible ? 'text' : 'password'}
+              autoComplete="off"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+              placeholder="XXXXXXXXXXXX"
+              required
+            />
+            <button
+              type="button"
+              className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+              onClick={() => setApiKeyVisible((prev) => !prev)}
+              aria-pressed={apiKeyVisible}
+            >
+              {apiKeyVisible ? 'Gizle' : 'Göster'}
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            API anahtarınızı yönetim paneli ayarları bölümünden edinebilirsiniz.
+          </p>
         </div>
 
         {requiresPassword && (
@@ -44,16 +59,29 @@ function LoginPanel({ onSubmit, submitting, error, requiresPassword, defaultApiK
             <label htmlFor="password" className="text-sm font-medium text-foreground">
               Panel Şifresi
             </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="••••••••"
-              required
-            />
+            <div className="flex items-center gap-2">
+              <input
+                id="password"
+                name="password"
+                type={passwordVisible ? 'text' : 'password'}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="••••••••"
+                required
+              />
+              <button
+                type="button"
+                className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                onClick={() => setPasswordVisible((prev) => !prev)}
+                aria-pressed={passwordVisible}
+              >
+                {passwordVisible ? 'Gizle' : 'Göster'}
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Panel şifresi, yetkili yöneticiler tarafından sağlanmaktadır.
+            </p>
           </div>
         )}
 
