@@ -57,7 +57,7 @@ except Exception:  # pragma: no cover - used in constrained environments
                 raise InvalidToken("Token signature mismatch")
             return body[::-1]
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 
 logger = logging.getLogger("security")
 
@@ -145,8 +145,15 @@ def mask_token(token: str) -> str:
     return f"{token[:4]}{'*' * (len(token) - 8)}{token[-4:]}"
 
 
-async def require_api_key(x_api_key: str = Header(None, alias="X-API-Key")) -> None:
+async def require_api_key(
+    request: Request, x_api_key: str = Header(None, alias="X-API-Key")
+) -> None:
     """FastAPI dependency enforcing X-API-Key header."""
+    if request.method == "OPTIONS":
+        # Tarayıcı CORS önişlemlerinde API anahtarı başlığı bulunmaz.
+        # Bu çağrıları doğrulamadan geçmesine izin vermezsek, paneldeki
+        # fetch istekleri `Failed to fetch` hatasıyla sonuçlanır.
+        return
     expected = os.getenv("API_KEY")
     if not expected:
         raise HTTPException(
