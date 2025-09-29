@@ -29,6 +29,7 @@ import QuickStart from './QuickStart'
 import { apiFetch, getApiKey, setApiKey, clearApiKey } from './apiClient'
 import './App.css'
 import LoginPanel from './components/LoginPanel'
+import InlineNotice from './components/InlineNotice'
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -46,6 +47,7 @@ function App() {
   })
   const [authenticating, setAuthenticating] = useState(false)
   const [authError, setAuthError] = useState('')
+  const [globalStatus, setGlobalStatus] = useState(null)
 
   const expectedPassword = import.meta.env?.VITE_DASHBOARD_PASSWORD || ''
   const SESSION_FLAG_KEY = 'piyasa.dashboard.session'
@@ -88,6 +90,7 @@ function App() {
     setIsAuthenticated(false)
     setSimulationActive(false)
     setAuthError(message || '')
+    setGlobalStatus(null)
   }
 
   const handleLogin = async ({ apiKey, password }) => {
@@ -124,11 +127,20 @@ function App() {
       const data = await response.json()
       setMetrics(data)
       setSimulationActive(data.simulation_active)
+      setGlobalStatus(null)
     } catch (error) {
       console.error('Failed to fetch metrics:', error)
       if (error?.message?.includes('401') || !getApiKey()) {
         logout('Oturumunuz sonlandırıldı. Lütfen tekrar giriş yapın.')
+        return
       }
+      setGlobalStatus({
+        type: 'error',
+        message:
+          error?.message
+            ? `Metrikler alınırken hata oluştu: ${error.message}`
+            : 'Metrikler alınırken beklenmeyen bir hata oluştu.'
+      })
     }
   }
 
@@ -145,11 +157,20 @@ function App() {
 
       setSimulationActive(!simulationActive)
       setTimeout(fetchMetrics, 1000)
+      setGlobalStatus(null)
     } catch (error) {
       console.error('Failed to toggle simulation:', error)
       if (error?.message?.includes('401') || !getApiKey()) {
         logout('Oturumunuz sonlandırıldı. Lütfen tekrar giriş yapın.')
+        return
       }
+      setGlobalStatus({
+        type: 'error',
+        message:
+          error?.message
+            ? `Simülasyon kontrol edilirken hata oluştu: ${error.message}`
+            : 'Simülasyon kontrol edilirken beklenmeyen bir hata oluştu.'
+      })
     }
   }
 
@@ -306,6 +327,14 @@ function App() {
               </div>
             </div>
           </header>
+
+          {globalStatus?.message && (
+            <InlineNotice
+              type={globalStatus.type}
+              message={globalStatus.message}
+              className="mx-4 mt-4"
+            />
+          )}
 
           {/* Page Content */}
           <main className="flex-1 overflow-auto p-6">

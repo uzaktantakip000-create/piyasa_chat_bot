@@ -7,15 +7,13 @@ import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
-  Settings as SettingsIcon,
   Clock,
   MessageSquare,
-  Zap,
-  Save,
-  RotateCcw
+  Zap
 } from 'lucide-react'
 
 import { apiFetch } from './apiClient'
+import InlineNotice from './components/InlineNotice'
 
 const DEFAULT_MESSAGE_LENGTH_PROFILE = { short: 0.55, medium: 0.35, long: 0.10 }
 
@@ -53,6 +51,8 @@ function Settings() {
   const [settings, setSettings] = useState({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
 
   // Fetch settings
   const fetchSettings = async () => {
@@ -68,9 +68,16 @@ function Settings() {
         settingsObj[setting.key] = nextValue
       })
       setSettings(settingsObj)
+      setErrorMessage('')
+      setSuccessMessage('')
     } catch (error) {
       console.error('Failed to fetch settings:', error)
-      alert('Ayarlar yüklenirken hata oluştu: ' + error.message)
+      setErrorMessage(
+        error?.message
+          ? `Ayarlar yüklenirken hata oluştu: ${error.message}`
+          : 'Ayarlar yüklenirken beklenmeyen bir hata oluştu.'
+      )
+      setSuccessMessage('')
     } finally {
       setLoading(false)
     }
@@ -80,6 +87,8 @@ function Settings() {
   const updateSetting = async (key, value) => {
     try {
       setSaving(true)
+      setErrorMessage('')
+      setSuccessMessage('')
       let payload = value
       if (key === 'message_length_profile' && value?.value) {
         const normalized = normalizeMessageLengthProfile(value.value)
@@ -95,9 +104,15 @@ function Settings() {
         ...prev,
         [key]: payload
       }))
+      setSuccessMessage('Ayar başarıyla güncellendi.')
     } catch (error) {
       console.error('Failed to update setting:', error)
-      alert('Ayar güncellenirken hata oluştu: ' + error.message)
+      setErrorMessage(
+        error?.message
+          ? `Ayar güncellenirken hata oluştu: ${error.message}`
+          : 'Ayar güncellenirken beklenmeyen bir hata oluştu.'
+      )
+      setSuccessMessage('')
     } finally {
       setSaving(false)
     }
@@ -106,12 +121,20 @@ function Settings() {
   // Scale simulation
   const scaleSimulation = async (factor) => {
     try {
+      setErrorMessage('')
+      setSuccessMessage('')
       await apiFetch(`/control/scale?factor=${factor}`, {
         method: 'POST'
       })
+      setSuccessMessage('Simülasyon ölçeklendirme isteği gönderildi.')
     } catch (error) {
       console.error('Failed to scale simulation:', error)
-      alert('Ölçek güncellenirken hata oluştu: ' + error.message)
+      setErrorMessage(
+        error?.message
+          ? `Ölçek güncellenirken hata oluştu: ${error.message}`
+          : 'Ölçek güncellenirken beklenmeyen bir hata oluştu.'
+      )
+      setSuccessMessage('')
     }
   }
 
@@ -187,6 +210,12 @@ function Settings() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {(errorMessage || successMessage) && (
+                <InlineNotice
+                  type={errorMessage ? 'error' : 'success'}
+                  message={errorMessage || successMessage}
+                />
+              )}
               <div className="grid grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <Label>Reply Olasılığı (%{((settings.reply_probability?.value ?? 0.65) * 100).toFixed(0)})</Label>
@@ -304,6 +333,12 @@ function Settings() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {(errorMessage || successMessage) && (
+                <InlineNotice
+                  type={errorMessage ? 'error' : 'success'}
+                  message={errorMessage || successMessage}
+                />
+              )}
               <div className="grid grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <Label>Dakikada Maksimum Mesaj</Label>
@@ -421,6 +456,12 @@ function Settings() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {(errorMessage || successMessage) && (
+                <InlineNotice
+                  type={errorMessage ? 'error' : 'success'}
+                  message={errorMessage || successMessage}
+                />
+              )}
               <div className="space-y-4">
                 <h4 className="font-medium">Hız Ölçeklendirme</h4>
                 <p className="text-sm text-muted-foreground">
