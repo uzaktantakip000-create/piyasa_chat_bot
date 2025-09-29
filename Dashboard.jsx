@@ -1,10 +1,10 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
-import { 
-  Activity, 
-  Bot, 
-  MessageSquare, 
+import {
+  Activity,
+  Bot,
+  MessageSquare,
   Users,
   TrendingUp,
   AlertTriangle,
@@ -12,12 +12,37 @@ import {
   Zap
 } from 'lucide-react'
 
-function Dashboard({ metrics }) {
+function Dashboard({ metrics, lastUpdatedAt }) {
   const botUtilization = metrics.total_bots > 0 ? (metrics.active_bots / metrics.total_bots) * 100 : 0
   const rateLimit429Rate = metrics.messages_last_hour > 0 ? (metrics.telegram_429_count / metrics.messages_last_hour) * 100 : 0
+  const isStale = lastUpdatedAt ? Date.now() - lastUpdatedAt.getTime() > 10000 : false
+  const formattedLastUpdated = lastUpdatedAt
+    ? lastUpdatedAt.toLocaleTimeString('tr-TR', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      })
+    : 'Veri alınamadı'
 
   return (
     <div className="space-y-6">
+      <Card className={isStale ? 'border-destructive/50 bg-destructive/10' : ''}>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            Veri Durumu
+          </CardTitle>
+          <Badge variant={isStale ? 'destructive' : 'secondary'}>{formattedLastUpdated}</Badge>
+        </CardHeader>
+        <CardContent>
+          <p className={`text-sm ${isStale ? 'text-destructive' : 'text-muted-foreground'}`}>
+            {isStale
+              ? '⚠️ Gösterilen veriler 10 saniyeden daha eski olabilir.'
+              : 'Veriler güncel görünüyor.'}
+          </p>
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* Total Bots */}
         <Card>

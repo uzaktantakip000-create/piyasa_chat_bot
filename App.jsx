@@ -17,7 +17,8 @@ import {
   Users,
   TrendingUp,
   Wand2,
-  LifeBuoy
+  LifeBuoy,
+  Clock
 } from 'lucide-react'
 import Dashboard from './Dashboard'
 import Bots from './Bots'
@@ -48,6 +49,7 @@ function App() {
   const [authenticating, setAuthenticating] = useState(false)
   const [authError, setAuthError] = useState('')
   const [globalStatus, setGlobalStatus] = useState(null)
+  const [lastUpdatedAt, setLastUpdatedAt] = useState(null)
 
   const expectedPassword = import.meta.env?.VITE_DASHBOARD_PASSWORD || ''
   const SESSION_FLAG_KEY = 'piyasa.dashboard.session'
@@ -91,6 +93,7 @@ function App() {
     setSimulationActive(false)
     setAuthError(message || '')
     setGlobalStatus(null)
+    setLastUpdatedAt(null)
   }
 
   const handleLogin = async ({ apiKey, password }) => {
@@ -128,8 +131,10 @@ function App() {
       setMetrics(data)
       setSimulationActive(data.simulation_active)
       setGlobalStatus(null)
+      setLastUpdatedAt(new Date())
     } catch (error) {
       console.error('Failed to fetch metrics:', error)
+      setLastUpdatedAt(null)
       if (error?.message?.includes('401') || !getApiKey()) {
         logout('Oturumunuz sonlandırıldı. Lütfen tekrar giriş yapın.')
         return
@@ -288,18 +293,32 @@ function App() {
                   {simulationActive ? "Aktif" : "Durduruldu"}
                 </Badge>
               </div>
-              
+
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Users className="h-4 w-4" />
                   <span>{metrics.active_bots}/{metrics.total_bots} Bot</span>
                 </div>
-                
+
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <TrendingUp className="h-4 w-4" />
                   <span>{metrics.messages_per_minute.toFixed(1)} msg/dk</span>
                 </div>
-                
+
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Clock className="h-4 w-4" />
+                  <span>
+                    Son güncelleme:{' '}
+                    {lastUpdatedAt
+                      ? lastUpdatedAt.toLocaleTimeString('tr-TR', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit'
+                        })
+                      : '—'}
+                  </span>
+                </div>
+
                 <Button
                   onClick={toggleSimulation}
                   variant={simulationActive ? "destructive" : "default"}
@@ -339,7 +358,7 @@ function App() {
           {/* Page Content */}
           <main className="flex-1 overflow-auto p-6">
             <Routes>
-              <Route path="/" element={<Dashboard metrics={metrics} />} />
+              <Route path="/" element={<Dashboard metrics={metrics} lastUpdatedAt={lastUpdatedAt} />} />
               <Route path="/wizard" element={<Wizard onDone={fetchMetrics} />} />
               <Route path="/bots" element={<Bots />} />
               <Route path="/chats" element={<Chats />} />
