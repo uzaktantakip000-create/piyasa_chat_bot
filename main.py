@@ -31,7 +31,9 @@ from schemas import (
     PersonaProfile,
     StanceCreate, StanceUpdate, StanceResponse,
     HoldingCreate, HoldingUpdate, HoldingResponse,
-    SystemCheckCreate, SystemCheckResponse,
+    HealthCheckStatus,
+    SystemCheckCreate,
+    SystemCheckResponse,
 )
 from security import mask_token, require_api_key, SecurityConfigError
 from settings_utils import normalize_message_length_profile
@@ -222,6 +224,7 @@ def delete_chat(chat_id: int, db: Session = Depends(get_db)):
 def _system_check_to_response(db_obj: SystemCheck) -> SystemCheckResponse:
     details = db_obj.details or {}
     steps = details.get("steps", [])
+    health_checks = details.get("health_checks", [])
     return SystemCheckResponse(
         id=db_obj.id,
         status=db_obj.status,
@@ -231,6 +234,7 @@ def _system_check_to_response(db_obj: SystemCheck) -> SystemCheckResponse:
         duration=db_obj.duration,
         triggered_by=db_obj.triggered_by,
         steps=steps,
+        health_checks=health_checks,
         created_at=db_obj.created_at,
     )
 
@@ -244,7 +248,10 @@ def create_system_check(payload: SystemCheckCreate, db: Session = Depends(get_db
         failed_steps=payload.failed_steps,
         duration=payload.duration,
         triggered_by=payload.triggered_by,
-        details={"steps": [step.dict() for step in payload.steps]},
+        details={
+            "steps": [step.dict() for step in payload.steps],
+            "health_checks": [hc.dict() for hc in payload.health_checks],
+        },
     )
     db.add(db_obj)
     db.commit()
@@ -323,7 +330,7 @@ def run_system_checks(db: Session = Depends(get_db)):
         failed_steps=failed,
         duration=total_duration,
         triggered_by="dashboard",
-        details={"steps": steps},
+        details={"steps": steps, "health_checks": []},
     )
     db.add(db_obj)
     db.commit()

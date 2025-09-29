@@ -28,11 +28,14 @@ import {
   Filter,
   CheckSquare,
   Square,
-  Loader2
+  Loader2,
+  ArrowUpDown
 } from 'lucide-react'
 
 import { apiFetch } from './apiClient'
 import { useToast } from './components/ToastProvider'
+
+const BOT_FILTER_STORAGE_KEY = 'piyasa.bots.filters'
 
 function Bots() {
   const { showToast } = useToast()
@@ -44,8 +47,39 @@ function Bots() {
   const [confirmingBot, setConfirmingBot] = useState(null)
   const [bulkProcessing, setBulkProcessing] = useState(false)
   const [selectedBotIds, setSelectedBotIds] = useState([])
-  const [searchTerm, setSearchTerm] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
+  const [sortConfig, setSortConfig] = useState({ field: 'name', direction: 'asc' })
+  const [searchTerm, setSearchTerm] = useState(() => {
+    if (typeof window === 'undefined') {
+      return ''
+    }
+    try {
+      const stored = localStorage.getItem(BOT_FILTER_STORAGE_KEY)
+      if (!stored) {
+        return ''
+      }
+      const parsed = JSON.parse(stored)
+      return typeof parsed.searchTerm === 'string' ? parsed.searchTerm : ''
+    } catch (error) {
+      console.warn('Bot filtreleri okunamadı:', error)
+      return ''
+    }
+  })
+  const [statusFilter, setStatusFilter] = useState(() => {
+    if (typeof window === 'undefined') {
+      return 'all'
+    }
+    try {
+      const stored = localStorage.getItem(BOT_FILTER_STORAGE_KEY)
+      if (!stored) {
+        return 'all'
+      }
+      const parsed = JSON.parse(stored)
+      return typeof parsed.statusFilter === 'string' ? parsed.statusFilter : 'all'
+    } catch (error) {
+      console.warn('Bot filtreleri okunamadı:', error)
+      return 'all'
+    }
+  })
   const [formErrors, setFormErrors] = useState({})
   const [formData, setFormData] = useState({
     name: '',
@@ -253,9 +287,21 @@ function Bots() {
     fetchBots()
   }, [])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    try {
+      const payload = JSON.stringify({ searchTerm, statusFilter })
+      localStorage.setItem(BOT_FILTER_STORAGE_KEY, payload)
+    } catch (error) {
+      console.warn('Bot filtreleri kaydedilemedi:', error)
+    }
+  }, [searchTerm, statusFilter])
+
   const filteredBots = useMemo(() => {
     const search = searchTerm.trim().toLowerCase()
-    return bots.filter((bot) => {
+    const filtered = bots.filter((bot) => {
       const matchesSearch =
         !search ||
         bot.name.toLowerCase().includes(search) ||
@@ -265,7 +311,58 @@ function Bots() {
         statusFilter === 'all' || (statusFilter === 'active' ? bot.is_enabled : !bot.is_enabled)
       return matchesSearch && matchesStatus
     })
-  }, [bots, searchTerm, statusFilter])
+
+    const sorted = [...filtered].sort((a, b) => {
+      const direction = sortConfig.direction === 'asc' ? 1 : -1
+      switch (sortConfig.field) {
+        case 'username': {
+          const aValue = a.username || ''
+          const bValue = b.username || ''
+          return aValue.localeCompare(bValue, 'tr') * direction
+        }
+        case 'status': {
+          const aValue = a.is_enabled ? 1 : 0
+          const bValue = b.is_enabled ? 1 : 0
+          if (aValue === bValue) {
+            return a.name.localeCompare(b.name, 'tr') * direction
+          }
+          return (aValue - bValue) * direction
+        }
+        case 'persona': {
+          const aValue = a.persona_hint || ''
+          const bValue = b.persona_hint || ''
+          return aValue.localeCompare(bValue, 'tr') * direction
+        }
+        case 'name':
+        default:
+          return a.name.localeCompare(b.name, 'tr') * direction
+      }
+    })
+
+    return sorted
+  }, [bots, searchTerm, statusFilter, sortConfig])
+
+  const toggleSort = (field) => {
+    setSortConfig((prev) => {
+      if (prev.field === field) {
+        return { field, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+      }
+      return { field, direction: 'asc' }
+    })
+  }
+
+  const renderSortIndicator = (field) => {
+    const isActive = sortConfig.field === field
+    const directionClass = isActive && sortConfig.direction === 'asc' ? 'rotate-180' : ''
+    return (
+      <ArrowUpDown
+        className={`ml-1 h-3 w-3 transition-transform ${directionClass} ${
+          isActive ? 'text-primary' : 'text-muted-foreground'
+        }`}
+        aria-hidden="true"
+      />
+    )
+  }
 
   const toggleSelectAllVisible = () => {
     if (filteredBots.length === 0) {
@@ -560,10 +657,46 @@ function Bots() {
                       className="h-4 w-4 rounded border-muted-foreground"
                     />
                   </TableHead>
-                  <TableHead>İsim</TableHead>
-                  <TableHead>Kullanıcı Adı</TableHead>
-                  <TableHead>Durum</TableHead>
-                  <TableHead>Kişilik</TableHead>
+                  <TableHead className="whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort('name')}
+                      className="flex items-center gap-1 font-medium text-left text-foreground hover:text-primary focus:outline-none"
+                    >
+                      İsim
+                      {renderSortIndicator('name')}
+                    </button>
+                  </TableHead>
+                  <TableHead className="whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort('username')}
+                      className="flex items-center gap-1 font-medium text-left text-foreground hover:text-primary focus:outline-none"
+                    >
+                      Kullanıcı Adı
+                      {renderSortIndicator('username')}
+                    </button>
+                  </TableHead>
+                  <TableHead className="whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort('status')}
+                      className="flex items-center gap-1 font-medium text-left text-foreground hover:text-primary focus:outline-none"
+                    >
+                      Durum
+                      {renderSortIndicator('status')}
+                    </button>
+                  </TableHead>
+                  <TableHead className="whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort('persona')}
+                      className="flex items-center gap-1 font-medium text-left text-foreground hover:text-primary focus:outline-none"
+                    >
+                      Kişilik
+                      {renderSortIndicator('persona')}
+                    </button>
+                  </TableHead>
                   <TableHead>İşlemler</TableHead>
                 </TableRow>
               </TableHeader>

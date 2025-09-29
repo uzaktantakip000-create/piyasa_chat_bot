@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import argparse
 import asyncio
 import logging
 import os
 import signal
+import sys
 from contextlib import suppress
 
 from dotenv import load_dotenv
@@ -53,7 +55,19 @@ async def _amain():
     await run_engine_forever()
 
 
-def main():
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Worker service runner")
+    parser.add_argument(
+        "--check-only",
+        action="store_true",
+        help="Yalnızca bağımlılık ve modül kontrolünü yapıp çık",
+    )
+    args, _ = parser.parse_known_args(argv)
+
+    if args.check_only:
+        logger.info("Worker check-only modu: modüller yüklendi, çıkılıyor.")
+        return 0
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     _install_signal_handlers(loop)
@@ -91,7 +105,8 @@ def main():
 
         loop.close()
         logger.info("Worker stopped.")
+        return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main(sys.argv[1:]))

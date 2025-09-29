@@ -13,7 +13,9 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
-import { apiFetch } from './apiClient'
+import { apiFetch, getApiKey } from './apiClient'
+import InlineNotice from './components/InlineNotice'
+import dashboardLogin from './docs/dashboard-login.svg'
 
 function CommandRow({ label, command }) {
   const [copied, setCopied] = useState(false)
@@ -75,6 +77,55 @@ function SectionCard({ icon: Icon, title, description, actionLabel, onAction }) 
   )
 }
 
+const QUICKSTART_PROGRESS_BASE_KEY = 'piyasa.quickstart.progress'
+
+const defaultProgressState = {
+  overrides: {},
+  lastDialog: null
+}
+
+function resolveProgressStorageKey() {
+  const apiKey = typeof getApiKey === 'function' ? getApiKey() : null
+  if (!apiKey) {
+    return QUICKSTART_PROGRESS_BASE_KEY
+  }
+
+  try {
+    const encoder = typeof btoa === 'function' ? btoa : null
+    if (encoder) {
+      const encoded = encoder(apiKey)
+      const suffix = encoded.replace(/=+$/, '').slice(-12)
+      return `${QUICKSTART_PROGRESS_BASE_KEY}.${suffix}`
+    }
+  } catch (error) {
+    console.warn('QuickStart ilerleme anahtarı kodlanamadı:', error)
+  }
+
+  return `${QUICKSTART_PROGRESS_BASE_KEY}.${apiKey.slice(-12)}`
+}
+
+function loadProgressState(storageKey) {
+  if (typeof window === 'undefined') {
+    return { ...defaultProgressState }
+  }
+
+  try {
+    const raw = window.localStorage?.getItem(storageKey)
+    if (!raw) {
+      return { ...defaultProgressState }
+    }
+
+    const parsed = JSON.parse(raw)
+    return {
+      overrides: parsed?.overrides && typeof parsed.overrides === 'object' ? parsed.overrides : {},
+      lastDialog: parsed?.lastDialog || null
+    }
+  } catch (error) {
+    console.warn('QuickStart ilerleme durumu okunamadı:', error)
+    return { ...defaultProgressState }
+  }
+}
+
 export default function QuickStart() {
   const navigate = useNavigate()
   const [dialogKey, setDialogKey] = useState(null)
@@ -88,16 +139,31 @@ export default function QuickStart() {
     messages_per_minute: 0,
     scale_factor: 1
   })
+  const progressStorageKey = useMemo(() => resolveProgressStorageKey(), [])
+  const [progressState, setProgressState] = useState(() => loadProgressState(progressStorageKey))
 
-  const openDialog = (key) => {
+  const openDialog = useCallback((key) => {
     setDialogKey(key)
     setDialogOpen(true)
-  }
+    setProgressState((prev) => ({ ...prev, lastDialog: key }))
+  }, [])
 
-  const closeDialog = () => {
+  const closeDialog = useCallback(() => {
     setDialogOpen(false)
     setDialogKey(null)
-  }
+  }, [])
+
+  const toggleManualCompletion = useCallback((key, nextValue) => {
+    setProgressState((prev) => {
+      const nextOverrides = { ...(prev?.overrides || {}) }
+      if (nextValue) {
+        nextOverrides[key] = true
+      } else {
+        delete nextOverrides[key]
+      }
+      return { ...prev, overrides: nextOverrides }
+    })
+  }, [])
 
   const refreshMetrics = useCallback(async () => {
     try {
@@ -119,6 +185,47 @@ export default function QuickStart() {
   useEffect(() => {
     refreshMetrics()
   }, [refreshMetrics])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    try {
+      window.localStorage?.setItem(progressStorageKey, JSON.stringify(progressState))
+    } catch (error) {
+      console.warn('QuickStart ilerleme durumu kaydedilemedi:', error)
+    }
+  }, [progressStorageKey, progressState])
+
+  const metricsCompletion = useMemo(
+    () => ({
+      bots: metrics.total_bots > 0,
+      chats: metrics.total_chats > 0,
+      simulation: metrics.simulation_active
+    }),
+    [metrics.total_bots, metrics.total_chats, metrics.simulation_active]
+  )
+
+  useEffect(() => {
+    setProgressState((prev) => {
+      const prevOverrides = prev?.overrides || {}
+      let changed = false
+      const nextOverrides = { ...prevOverrides }
+
+      Object.entries(metricsCompletion).forEach(([key, done]) => {
+        if (done && nextOverrides[key]) {
+          delete nextOverrides[key]
+          changed = true
+        }
+      })
+
+      if (!changed) {
+        return prev
+      }
+
+      return { ...prev, overrides: nextOverrides }
+    })
+  }, [metricsCompletion])
 
   const runSimulationAction = useCallback(
     async (action) => {
@@ -243,17 +350,67 @@ export default function QuickStart() {
             </div>
           </div>
         )
+      },
+      {
+        key: 'support',
+        icon: LifeBuoy,
+        title: 'Sorun Giderme Akışı',
+        description: 'Kurulumda takılırsan görsel rehber ve destek bağlantıları burada.',
+        actionLabel: 'Destek adımlarını aç',
+        content: (
+          <div className="space-y-4 text-sm text-muted-foreground">
+            <p>
+              Kurulum veya giriş ekranında hata alırsan aşağıdaki akışı takip et. Her adımın yanında ilgili ekran
+              görüntülerini ve kontrol etmen gereken ayarları bulacaksın.
+            </p>
+            <div className="rounded-lg border border-border/60 bg-card/40 p-3">
+              <img
+                src={dashboardLogin}
+                alt="Dashboard giriş ekranı"
+                className="w-full rounded-md border border-border/40"
+              />
+              <p className="mt-2 text-xs text-muted-foreground">
+                Giriş formunda API anahtarı ve isteğe bağlı panel şifresinin doğru olduğundan emin ol.
+              </p>
+            </div>
+            <ol className="list-decimal space-y-2 pl-5">
+              <li>
+                <strong>API anahtarı 401 döndürüyorsa:</strong> `.env` dosyasındaki <code>API_KEY</code> ve{' '}
+                <code>VITE_API_KEY</code> değerlerinin eşleştiğini kontrol et.
+              </li>
+              <li>
+                <strong>Panel yüklenmiyorsa:</strong> Terminalde <code>npm run dev</code> çıktısında hata var mı bak; gerekirse{' '}
+                <code>npm install</code> komutunu tekrar çalıştır.
+              </li>
+              <li>
+                <strong>Metrikler boşsa:</strong> `python preflight.py` ve <code>pytest</code> komutlarını çalıştırıp sonuçları
+                Dashboard&apos;daki "Son test" kartıyla karşılaştır.
+              </li>
+            </ol>
+            <InlineNotice
+              type="info"
+              message="Ek rehber için README içindeki 'Log ve alarm yönetimi' bölümünü ziyaret edebilir veya destek ekibine ulaşabilirsin."
+              withSupportLinks
+              supportHref="/help"
+              supportLabel="QuickStart rehberini aç"
+              contactHref="mailto:destek@piyasa-sim.dev"
+              contactLabel="destek ekibine e-posta gönder"
+            />
+          </div>
+        )
       }
     ],
     []
   )
 
-  const checklistItems = useMemo(
-    () => [
+  const checklistItems = useMemo(() => {
+    const overrides = progressState?.overrides || {}
+
+    const baseItems = [
       {
         key: 'bots',
         label: 'En az bir bot ekle',
-        completed: metrics.total_bots > 0,
+        metricsComplete: metricsCompletion.bots,
         cta: 'Botlara Git',
         onAction: () => navigate('/bots'),
         disabled: false
@@ -261,7 +418,7 @@ export default function QuickStart() {
       {
         key: 'chats',
         label: 'Sohbet grubu bağla',
-        completed: metrics.total_chats > 0,
+        metricsComplete: metricsCompletion.chats,
         cta: 'Sohbetlere Git',
         onAction: () => navigate('/chats'),
         disabled: false
@@ -269,14 +426,42 @@ export default function QuickStart() {
       {
         key: 'simulation',
         label: 'Simülasyonu başlat',
-        completed: metrics.simulation_active,
-        cta: metrics.simulation_active ? 'Simülasyon Açık' : 'Simülasyonu Başlat',
+        metricsComplete: metricsCompletion.simulation,
+        cta: metricsCompletion.simulation ? 'Simülasyon Açık' : 'Simülasyonu Başlat',
         onAction: () => runSimulationAction('start'),
-        disabled: metrics.simulation_active || loadingAction !== ''
+        disabled: metricsCompletion.simulation || loadingAction !== ''
       }
-    ],
-    [metrics.total_bots, metrics.total_chats, metrics.simulation_active, navigate, runSimulationAction, loadingAction]
-  )
+    ]
+
+    return baseItems.map((item) => {
+      const overrideComplete = Boolean(overrides[item.key])
+      return {
+        ...item,
+        overrideComplete,
+        completed: item.metricsComplete || overrideComplete
+      }
+    })
+  }, [
+    metricsCompletion,
+    navigate,
+    runSimulationAction,
+    loadingAction,
+    progressState.overrides
+  ])
+
+  const nextStep = useMemo(() => {
+    const pending = checklistItems.find((item) => !item.completed)
+    if (!pending) {
+      return null
+    }
+    return { key: pending.key, label: pending.label }
+  }, [checklistItems])
+
+  const handleResume = useCallback(() => {
+    if (nextStep) {
+      openDialog(nextStep.key)
+    }
+  }, [nextStep, openDialog])
 
   const completedSteps = checklistItems.filter((item) => item.completed).length
   const progressValue = Math.round((completedSteps / checklistItems.length) * 100)
@@ -300,13 +485,33 @@ export default function QuickStart() {
         </Badge>
       </div>
 
+      {nextStep && (
+        <InlineNotice type="info" className="text-sm">
+          <div className="flex flex-wrap items-center gap-3">
+            <span>Kaldığınız yer: {nextStep.label}</span>
+            <Button size="xs" variant="outline" onClick={handleResume}>
+              Devam Et
+            </Button>
+          </div>
+        </InlineNotice>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <ClipboardCheck className="h-5 w-5 text-primary" />
             Onboarding İlerlemesi
           </CardTitle>
-          <CardDescription>{completedSteps} / {checklistItems.length} adım tamamlandı</CardDescription>
+          <CardDescription>
+            {completedSteps} / {checklistItems.length} adım tamamlandı
+            {nextStep ? (
+              <span className="mt-1 block text-xs text-muted-foreground">
+                Sıradaki önerilen adım: {nextStep.label}
+              </span>
+            ) : (
+              <span className="mt-1 block text-xs text-emerald-600">Harika! Tüm adımlar tamamlandı.</span>
+            )}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
@@ -316,25 +521,48 @@ export default function QuickStart() {
           <Progress value={progressValue} className="h-2" />
           <ul className="mt-4 space-y-3">
             {checklistItems.map((item) => (
-              <li key={item.key} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-2 text-sm">
+              <li
+                key={item.key}
+                className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+              >
+                <div className="flex items-start gap-2 text-sm">
                   {item.completed ? (
                     <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                   ) : (
                     <Circle className="h-4 w-4 text-muted-foreground" />
                   )}
-                  <span className={item.completed ? 'text-emerald-700' : 'text-foreground'}>{item.label}</span>
+                  <div>
+                    <span className={`block ${item.completed ? 'text-emerald-700' : 'text-foreground'}`}>
+                      {item.label}
+                    </span>
+                    {item.overrideComplete && !item.metricsComplete ? (
+                      <span className="text-[0.7rem] uppercase tracking-wide text-amber-600">
+                        Manuel tamamlandı
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
-                {!item.completed && (
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    onClick={item.onAction}
-                    disabled={item.disabled}
-                  >
-                    {item.cta}
-                  </Button>
-                )}
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+                  {!item.completed && (
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      onClick={item.onAction}
+                      disabled={item.disabled}
+                    >
+                      {item.cta}
+                    </Button>
+                  )}
+                  {!item.metricsComplete && (
+                    <Button
+                      size="xs"
+                      variant={item.overrideComplete ? 'secondary' : 'ghost'}
+                      onClick={() => toggleManualCompletion(item.key, !item.overrideComplete)}
+                    >
+                      {item.overrideComplete ? 'İşareti kaldır' : 'Tamamlandı işaretle'}
+                    </Button>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
@@ -407,15 +635,11 @@ export default function QuickStart() {
           </div>
 
           {statusMessage && (
-            <div
-              className={`rounded-md border p-3 text-sm ${
-                statusMessage.type === 'success'
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                  : 'border-destructive/40 bg-destructive/10 text-destructive'
-              }`}
-            >
-              {statusMessage.text}
-            </div>
+            <InlineNotice
+              type={statusMessage.type}
+              message={statusMessage.text}
+              className="text-sm"
+            />
           )}
         </CardContent>
       </Card>
