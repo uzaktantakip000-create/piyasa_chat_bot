@@ -5,18 +5,19 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { 
-  Activity, 
-  Bot, 
-  MessageSquare, 
-  Settings, 
-  FileText, 
-  Play, 
-  Pause, 
+import {
+  Activity,
+  Bot,
+  MessageSquare,
+  Settings,
+  FileText,
+  Play,
+  Pause,
   BarChart3,
   Users,
   TrendingUp,
-  Wand2
+  Wand2,
+  LifeBuoy
 } from 'lucide-react'
 import Dashboard from './Dashboard'
 import Bots from './Bots'
@@ -24,6 +25,7 @@ import Chats from './Chats'
 import SettingsPage from './Settings'
 import Logs from './Logs'
 import Wizard from './components/Wizard'
+import QuickStart from './QuickStart'
 import { apiFetch, getApiKey, setApiKey, clearApiKey } from './apiClient'
 import './App.css'
 import LoginPanel from './components/LoginPanel'
@@ -191,6 +193,11 @@ function App() {
       url: "/logs",
       icon: FileText,
     },
+    {
+      title: "Yardım",
+      url: "/help",
+      icon: LifeBuoy,
+    },
   ]
 
   if (!isAuthenticated) {
@@ -309,6 +316,7 @@ function App() {
               <Route path="/chats" element={<Chats />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/logs" element={<Logs />} />
+              <Route path="/help" element={<QuickStart />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </main>
