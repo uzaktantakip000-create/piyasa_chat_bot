@@ -186,6 +186,11 @@ Aşağıdaki `.env` anahtarları sistemi çalıştırmak için zorunlu değildir
 - Çok sayıda bot ekledikten sonra sistemi yeniden başlatmak (API + worker) yapılandırmayı temizler.
 - Uzun süreli çalışmalarda Docker konteynerlerinin loglarını arada bir kontrol edin: `docker compose logs -f api` gibi.
 
+## Test ve doğrulama adımları
+- **Ön koşul:** `npm install` komutunun daha önce çalıştırılmış olması gerekir.
+- Yönetim panelinin derleme aşamasını sınamak için proje kök dizininde `npm run build` komutunu çalıştırın. Bu işlem Vite üretim derlemesini oluşturur ve Tailwind yapılandırmasının bütünlüğünü doğrular.
+- Derleme başarılı olduğunda `dist/` klasörü altındaki çıktı dosyalarını yeni bir dağıtım için kullanabilir veya `npm run preview` komutuyla yerelde test edebilirsiniz.
+
 ## Sorun giderme
 | Belirti | Muhtemel sebep | Çözüm |
 | --- | --- | --- |
