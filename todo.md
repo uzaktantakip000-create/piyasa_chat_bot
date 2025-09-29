@@ -49,6 +49,14 @@
 - [x] Olasılık kaydırıcıları ve hız kontrolleri için kullanıcıya önerilen değerleri anlatan yardım metinleri ekleme
 
 ### Yapılabilecekler
+- [ ] **P1:** Kurulum sürecini uçtan uca otomatikleştiren ve bağımlılık kontrollerini yapan `setup_all` sihirbazını CI'da doğrula, README talimatlarını bu akışla uyumlu hale getir.
+- [ ] **P1:** Docker Compose + one-click senaryosu için ilk çalıştırma smoke testini genişleterek tüm servislerin healthcheck sonuçlarını raporla.
+- [ ] **P2:** QuickStart ve README kullanım senaryolarını kapsayan uçtan uca entegrasyon testlerini yazıp `scripts/oneclick.py` sonrası otomatik koştur.
+- [ ] **P2:** API, worker ve UI loglarını merkezileştiren ve kritik hatalar için alarm eşikleri tanımlayan hata yönetimi stratejisi tasarla.
+- [ ] **P2:** UI'da beklenmedik hatalarda gösterilen geri bildirim bileşenlerini standartlaştırıp gerekli destek bağlantılarıyla güncelle.
+- [ ] **P3:** Dashboard ve ayarlar akışları için ayar değişikliklerini kapsayan regresyon test paketleri oluştur.
+- [ ] **P3:** README ve QuickStart rehberlerini görsel sorun giderme akışlarıyla zenginleştirerek kullanıcı onboarding'ini iyileştir.
+- [ ] **P4:** Test sonuçları ve sistem sağlığı trendlerini gösteren raporlama/grafik modülü için kapsam ve roadmap planı hazırla.
 - [x] Mesaj uzunluk profili değerlerini API katmanında otomatik normalize ederek toplamın %100 olmasını garanti altına alma.
 - [x] Ayarlar panelindeki mesaj uzunluk kaydırıcılarını normalize eden ve toplam yüzdelik göstergesi sunan kullanıcı dostu arayüz geliştirmesi.
 
