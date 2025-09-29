@@ -128,7 +128,7 @@ class BotStance(Base):
     topic = Column(String(64), nullable=False)           # örn: "Bankacılık", "Kripto", "Makro"
     stance_text = Column(Text, nullable=False)           # kısa tutum metni / kanaat özeti
     confidence = Column(Float, nullable=True)            # 0.0–1.0 arası güven
-    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     cooldown_until = Column(DateTime, nullable=True)     # bu tarihe kadar keskin fikir değişikliği yapma
 
     bot = relationship("Bot", back_populates="stances")
@@ -149,7 +149,7 @@ class BotHolding(Base):
     avg_price = Column(Float, nullable=True)             # ortalama maliyet
     size = Column(Float, nullable=True)                  # adet/lot (sadece hikâye için)
     note = Column(Text, nullable=True)                   # açıklama (örn. "uzun vade", "kısa vade deneme")
-    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     bot = relationship("Bot", back_populates="holdings")
 
