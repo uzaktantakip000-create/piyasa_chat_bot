@@ -1,4 +1,4 @@
-import base64
+import base64  # Required so _generate_key can use base64.urlsafe_b64encode
 import importlib
 import os
 
