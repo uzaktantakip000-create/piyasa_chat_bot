@@ -2,6 +2,8 @@ import base64  # Required so _generate_key can use base64.urlsafe_b64encode
 import importlib
 import os
 
+from datetime import datetime
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -141,3 +143,79 @@ def test_message_length_profile_normalization(api_client):
     assert stored["short"] == pytest.approx(profile["short"])
     assert stored["medium"] == pytest.approx(profile["medium"])
     assert stored["long"] == pytest.approx(profile["long"])
+
+
+def _create_bot(api_client):
+    payload = {
+        "name": "Stance Bot",
+        "token": "98765:ABCDE",
+        "username": "stance_bot",
+        "is_enabled": True,
+    }
+    response = api_client.post("/bots", json=payload, headers=auth_headers())
+    assert response.status_code == 201
+    return response.json()["id"]
+
+
+def test_stance_updated_at_refreshes(api_client):
+    bot_id = _create_bot(api_client)
+    payload = {
+        "topic": "Kripto",
+        "stance_text": "Pozitif",
+        "confidence": 0.7,
+    }
+
+    create_resp = api_client.post(
+        f"/bots/{bot_id}/stances", json=payload, headers=auth_headers()
+    )
+    assert create_resp.status_code == 201
+    stance_first = create_resp.json()
+    first_updated_at = datetime.fromisoformat(stance_first["updated_at"])
+
+    update_payload = {
+        "topic": "Kripto",
+        "stance_text": "Daha temkinli",  # triggers upsert update
+        "confidence": 0.5,
+    }
+
+    update_resp = api_client.post(
+        f"/bots/{bot_id}/stances", json=update_payload, headers=auth_headers()
+    )
+    assert update_resp.status_code == 201
+    stance_updated = update_resp.json()
+    second_updated_at = datetime.fromisoformat(stance_updated["updated_at"])
+
+    assert second_updated_at > first_updated_at
+
+
+def test_holding_updated_at_refreshes(api_client):
+    bot_id = _create_bot(api_client)
+    payload = {
+        "symbol": "BIST:AKBNK",
+        "avg_price": 12.5,
+        "size": 100,
+        "note": "Uzun vade",
+    }
+
+    create_resp = api_client.post(
+        f"/bots/{bot_id}/holdings", json=payload, headers=auth_headers()
+    )
+    assert create_resp.status_code == 201
+    holding_first = create_resp.json()
+    first_updated_at = datetime.fromisoformat(holding_first["updated_at"])
+
+    update_payload = {
+        "symbol": "BIST:AKBNK",
+        "avg_price": 13.0,
+        "size": 120,
+        "note": "Pozisyon artırıldı",
+    }
+
+    update_resp = api_client.post(
+        f"/bots/{bot_id}/holdings", json=update_payload, headers=auth_headers()
+    )
+    assert update_resp.status_code == 201
+    holding_updated = update_resp.json()
+    second_updated_at = datetime.fromisoformat(holding_updated["updated_at"])
+
+    assert second_updated_at > first_updated_at
