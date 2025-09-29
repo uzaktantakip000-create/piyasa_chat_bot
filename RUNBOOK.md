@@ -60,3 +60,11 @@ Geliştirme için SQLite kullanılabilir; üretimde PostgreSQL veya benzeri çok
 - **Yük testi**: `python scripts/stress_test.py --duration 1800 --concurrency 6 --api-key $API_KEY`
 
 `scripts/stress_test.py` aracı FastAPI uygulamasını bellekte çalıştırıp eşzamanlı isteklerle `/metrics`, `/bots`, `/control/*` uçlarını zorlar. Yerelde hızlı doğrulama için `--duration 30` parametresi yeterlidir.
+
+---
+
+## 3) Log ve alarm yönetimi
+
+- Ayrıntılı log toplama ve alarm eşikleri için [`docs/error_management.md`](docs/error_management.md) dokümanını takip edin.
+- Dashboard'daki "Servis Sağlık Durumu" kartı ile `system_checks` verilerini çapraz kontrol edin.
+- Alarm tetiklenirse `scripts/check_alerts.py --window 60` komutu ile son hataları yeniden değerlendirin.

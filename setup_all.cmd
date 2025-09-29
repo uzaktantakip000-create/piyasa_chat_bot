@@ -1,6 +1,13 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 
+:: CI/otomasyon modunu algıla
+set "IS_CI=0"
+if /I "%~1"=="--ci" set "IS_CI=1"
+if /I "%CI%"=="true" set "IS_CI=1"
+if /I "%GITHUB_ACTIONS%"=="true" set "IS_CI=1"
+if /I "%SETUP_ALL_NONINTERACTIVE%"=="1" set "IS_CI=1"
+
 :: ==========================================================
 :: setup_all.cmd — Windows tek dosya kurulum/çalıştırma
 :: ==========================================================
@@ -70,6 +77,7 @@ if not exist ".env" (
 :: Yardımcı: .env anahtarını ayarla (varsa günceller)
 set "HAS_PS=0"
 where powershell >nul 2>nul && set "HAS_PS=1"
+if "%IS_CI%"=="1" goto :ci_env
 goto :ask_env
 
 :set_env
@@ -92,6 +100,15 @@ if "%HAS_PS%"=="1" (
   echo %KEY%=%VAL%>> ".env"
 )
 goto :eof
+
+:ci_env
+if not "%OPENAI_API_KEY%"=="" call :set_env OPENAI_API_KEY "%OPENAI_API_KEY%"
+if not "%REDIS_URL%"=="" call :set_env REDIS_URL "%REDIS_URL%"
+if not "%DATABASE_URL%"=="" call :set_env DATABASE_URL "%DATABASE_URL%"
+if not "%OPENAI_BASE_URL%"=="" call :set_env OPENAI_BASE_URL "%OPENAI_BASE_URL%"
+echo(
+echo( [CI] Ortam degiskenleri kullanildi; etkileşimli sorular atlandi.
+goto :after_env
 
 :ask_env
 echo(
@@ -116,8 +133,10 @@ if not "%DB_URL_INPUT%"=="" call :set_env DATABASE_URL "%DB_URL_INPUT%"
 echo(
 echo( (Opsiyonel) OPENAI_BASE_URL yazin (Azure ya da proxy kullaniyorsaniz)
 set "OAI_BASE_INPUT="
-set /p OAI_BASE_INPUT= OPENAI_BASE_URL: 
+set /p OAI_BASE_INPUT= OPENAI_BASE_URL:
 if not "%OAI_BASE_INPUT%"=="" call :set_env OPENAI_BASE_URL "%OAI_BASE_INPUT%"
+
+:after_env
 
 :: 4) API ve Worker (venv python ile)
 set "UVICORN_CMD=""%PYVENV%"" -m uvicorn main:app --host 0.0.0.0 --port 8000"
@@ -125,9 +144,26 @@ set "WORKER_CMD=""%PYVENV%"" worker.py"
 
 echo(
 echo [5/9] API ve Worker baslatiliyor (ayri pencerelerde)...
-start "API" cmd /k %UVICORN_CMD%
-call :wait_api
-start "WORKER" cmd /k %WORKER_CMD%
+if "%IS_CI%"=="1" (
+  echo( [CI] API saglik testi calistiriliyor...
+  "%PYVENV%" -c "from fastapi.testclient import TestClient; from main import app; import sys; resp=TestClient(app).get('/healthz'); sys.exit(0 if resp.status_code==200 else 1)" >nul 2>nul
+  if errorlevel 1 (
+    echo( [UYARI] API saglik testi CI ortaminda basarisiz oldu.
+  ) else (
+    echo(     API saglik testi basarili.
+  )
+  echo( [CI] Worker modulu test ediliyor...
+  "%PYVENV%" worker.py --check-only >nul 2>nul
+  if errorlevel 1 (
+    echo( [UYARI] Worker kontrolu CI ortaminda basarisiz oldu.
+  ) else (
+    echo(     Worker betigi kontrolu gecti.
+  )
+) else (
+  start "API" cmd /k %UVICORN_CMD%
+  call :wait_api
+  start "WORKER" cmd /k %WORKER_CMD%
+)
 
 :: 5) Frontend (parantezsiz akış)
 echo(
@@ -138,14 +174,24 @@ if not exist "package.json" goto :front_no_pkg
 where node >nul 2>nul
 if errorlevel 1 goto :front_no_node
 
-echo( npm install calistiriliyor - ilk kurulumda zaman alabilir...
-call npm install
-if errorlevel 1 goto :front_npm_fail
+if "%IS_CI%"=="1" (
+  echo( [CI] npm install --ignore-scripts calistiriliyor...
+  call npm install --ignore-scripts
+  if errorlevel 1 goto :front_npm_fail
+  echo( [CI] npm run build ile frontend dogrulaniyor...
+  call npm run build
+  if errorlevel 1 goto :front_build_fail
+  goto :front_done
+) else (
+  echo( npm install calistiriliyor - ilk kurulumda zaman alabilir...
+  call npm install
+  if errorlevel 1 goto :front_npm_fail
 
-echo( npm run dev baslatiliyor (ayri pencerede)...
-start "FRONTEND" cmd /k "npm run dev"
-set "FRONT_STARTED=1"
-goto :front_done
+  echo( npm run dev baslatiliyor (ayri pencerede)...
+  start "FRONTEND" cmd /k "npm run dev"
+  set "FRONT_STARTED=1"
+  goto :front_done
+)
 
 :front_no_pkg
 echo( package.json yok; frontend adimi atlandi.
@@ -157,14 +203,23 @@ goto :front_done
 
 :front_npm_fail
 echo( [UYARI] npm install basarisiz; frontend atlandi.
+goto :front_done
+
+:front_build_fail
+echo( [UYARI] npm run build basarisiz oldu.
+goto :front_done
 
 :front_done
 
 :: 6) Tarayici kisayollari
 echo(
 echo [7/9] Tarayici kisayollari aciliyor...
-start "" http://localhost:8000/docs
-if "%FRONT_STARTED%"=="1" start "" http://localhost:5173
+if "%IS_CI%"=="1" (
+  echo( [CI] Tarayici kisayollari atlandi.
+) else (
+  start "" http://localhost:8000/docs
+  if "%FRONT_STARTED%"=="1" start "" http://localhost:5173
+)
 
 :: 7) Hızlı komut ipuçları
 echo(

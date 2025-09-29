@@ -27,11 +27,14 @@ import {
   Filter,
   CheckSquare,
   Square,
-  Loader2
+  Loader2,
+  ArrowUpDown
 } from 'lucide-react'
 
 import { apiFetch } from './apiClient'
 import { useToast } from './components/ToastProvider'
+
+const CHAT_FILTER_STORAGE_KEY = 'piyasa.chats.filters'
 
 function Chats() {
   const { showToast } = useToast()
@@ -43,8 +46,39 @@ function Chats() {
   const [confirmingChat, setConfirmingChat] = useState(null)
   const [bulkProcessing, setBulkProcessing] = useState(false)
   const [selectedChatIds, setSelectedChatIds] = useState([])
-  const [searchTerm, setSearchTerm] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
+  const [sortConfig, setSortConfig] = useState({ field: 'title', direction: 'asc' })
+  const [searchTerm, setSearchTerm] = useState(() => {
+    if (typeof window === 'undefined') {
+      return ''
+    }
+    try {
+      const stored = localStorage.getItem(CHAT_FILTER_STORAGE_KEY)
+      if (!stored) {
+        return ''
+      }
+      const parsed = JSON.parse(stored)
+      return typeof parsed.searchTerm === 'string' ? parsed.searchTerm : ''
+    } catch (error) {
+      console.warn('Sohbet filtreleri okunamadı:', error)
+      return ''
+    }
+  })
+  const [statusFilter, setStatusFilter] = useState(() => {
+    if (typeof window === 'undefined') {
+      return 'all'
+    }
+    try {
+      const stored = localStorage.getItem(CHAT_FILTER_STORAGE_KEY)
+      if (!stored) {
+        return 'all'
+      }
+      const parsed = JSON.parse(stored)
+      return typeof parsed.statusFilter === 'string' ? parsed.statusFilter : 'all'
+    } catch (error) {
+      console.warn('Sohbet filtreleri okunamadı:', error)
+      return 'all'
+    }
+  })
   const [formErrors, setFormErrors] = useState({})
   const [formData, setFormData] = useState({
     chat_id: '',
@@ -231,9 +265,21 @@ function Chats() {
     fetchChats()
   }, [])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    try {
+      const payload = JSON.stringify({ searchTerm, statusFilter })
+      localStorage.setItem(CHAT_FILTER_STORAGE_KEY, payload)
+    } catch (error) {
+      console.warn('Sohbet filtreleri kaydedilemedi:', error)
+    }
+  }, [searchTerm, statusFilter])
+
   const filteredChats = useMemo(() => {
     const search = searchTerm.trim().toLowerCase()
-    return chats.filter((chat) => {
+    const filtered = chats.filter((chat) => {
       const topicsText = Array.isArray(chat.topics) ? chat.topics.join(', ') : chat.topics || ''
       const matchesSearch =
         !search ||
@@ -244,7 +290,58 @@ function Chats() {
         statusFilter === 'all' || (statusFilter === 'active' ? chat.is_enabled : !chat.is_enabled)
       return matchesSearch && matchesStatus
     })
-  }, [chats, searchTerm, statusFilter])
+
+    const sorted = [...filtered].sort((a, b) => {
+      const direction = sortConfig.direction === 'asc' ? 1 : -1
+      switch (sortConfig.field) {
+        case 'chat_id': {
+          const aValue = a.chat_id || ''
+          const bValue = b.chat_id || ''
+          return aValue.localeCompare(bValue, 'tr') * direction
+        }
+        case 'status': {
+          const aValue = a.is_enabled ? 1 : 0
+          const bValue = b.is_enabled ? 1 : 0
+          if (aValue === bValue) {
+            return a.title.localeCompare(b.title, 'tr') * direction
+          }
+          return (aValue - bValue) * direction
+        }
+        case 'topics': {
+          const aValue = Array.isArray(a.topics) ? a.topics.join(', ') : a.topics || ''
+          const bValue = Array.isArray(b.topics) ? b.topics.join(', ') : b.topics || ''
+          return aValue.localeCompare(bValue, 'tr') * direction
+        }
+        case 'title':
+        default:
+          return a.title.localeCompare(b.title, 'tr') * direction
+      }
+    })
+
+    return sorted
+  }, [chats, searchTerm, statusFilter, sortConfig])
+
+  const toggleSort = (field) => {
+    setSortConfig((prev) => {
+      if (prev.field === field) {
+        return { field, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+      }
+      return { field, direction: 'asc' }
+    })
+  }
+
+  const renderSortIndicator = (field) => {
+    const isActive = sortConfig.field === field
+    const directionClass = isActive && sortConfig.direction === 'asc' ? 'rotate-180' : ''
+    return (
+      <ArrowUpDown
+        className={`ml-1 h-3 w-3 transition-transform ${directionClass} ${
+          isActive ? 'text-primary' : 'text-muted-foreground'
+        }`}
+        aria-hidden="true"
+      />
+    )
+  }
 
   const toggleSelectAllVisible = () => {
     if (filteredChats.length === 0) {
@@ -515,10 +612,46 @@ function Chats() {
                       className="h-4 w-4 rounded border-muted-foreground"
                     />
                   </TableHead>
-                  <TableHead>Başlık</TableHead>
-                  <TableHead>Chat ID</TableHead>
-                  <TableHead>Durum</TableHead>
-                  <TableHead>Konular</TableHead>
+                  <TableHead className="whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort('title')}
+                      className="flex items-center gap-1 font-medium text-left text-foreground hover:text-primary focus:outline-none"
+                    >
+                      Başlık
+                      {renderSortIndicator('title')}
+                    </button>
+                  </TableHead>
+                  <TableHead className="whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort('chat_id')}
+                      className="flex items-center gap-1 font-medium text-left text-foreground hover:text-primary focus:outline-none"
+                    >
+                      Chat ID
+                      {renderSortIndicator('chat_id')}
+                    </button>
+                  </TableHead>
+                  <TableHead className="whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort('status')}
+                      className="flex items-center gap-1 font-medium text-left text-foreground hover:text-primary focus:outline-none"
+                    >
+                      Durum
+                      {renderSortIndicator('status')}
+                    </button>
+                  </TableHead>
+                  <TableHead className="whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort('topics')}
+                      className="flex items-center gap-1 font-medium text-left text-foreground hover:text-primary focus:outline-none"
+                    >
+                      Konular
+                      {renderSortIndicator('topics')}
+                    </button>
+                  </TableHead>
                   <TableHead>İşlemler</TableHead>
                 </TableRow>
               </TableHeader>

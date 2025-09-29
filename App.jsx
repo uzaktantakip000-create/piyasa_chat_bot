@@ -303,6 +303,56 @@ function AppShell() {
     fetchMetrics({ manual: true })
   }
 
+  useEffect(() => {
+    if (!isAuthenticated) {
+      return undefined
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.defaultPrevented) {
+        return
+      }
+
+      const target = event.target
+      if (target) {
+        const tagName = target.tagName ? target.tagName.toLowerCase() : ''
+        if (['input', 'textarea', 'select'].includes(tagName) || target.isContentEditable) {
+          return
+        }
+      }
+
+      if (!(event.ctrlKey && event.altKey)) {
+        return
+      }
+
+      const key = event.key.toLowerCase()
+      if (key === 'r') {
+        event.preventDefault()
+        if (!manualRefreshing) {
+          fetchMetrics({ manual: true })
+        }
+      } else if (key === 's') {
+        event.preventDefault()
+        toggleSimulation()
+      } else if (key === 'c') {
+        event.preventDefault()
+        if (checksPhase !== 'running') {
+          runSystemChecks()
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [
+    isAuthenticated,
+    manualRefreshing,
+    fetchMetrics,
+    toggleSimulation,
+    runSystemChecks,
+    checksPhase
+  ])
+
   const metricsStale = useMemo(() => {
     if (!firstMetricsLoaded || !lastUpdatedAt) {
       return false
@@ -468,6 +518,8 @@ function AppShell() {
                   size="sm"
                   disabled={manualRefreshing}
                   className="flex items-center gap-2"
+                  title="Kısayol: Ctrl+Alt+R"
+                  aria-label="Manuel yenile (Ctrl+Alt+R)"
                 >
                   {manualRefreshing ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -476,11 +528,18 @@ function AppShell() {
                   )}
                   Yenile
                 </Button>
+                <span className="hidden text-xs text-muted-foreground xl:inline">Ctrl+Alt+R</span>
 
                 <Button
                   onClick={toggleSimulation}
                   variant={simulationActive ? 'destructive' : 'default'}
                   size="sm"
+                  title="Kısayol: Ctrl+Alt+S"
+                  aria-label={
+                    simulationActive
+                      ? 'Simülasyonu durdur (Ctrl+Alt+S)'
+                      : 'Simülasyonu başlat (Ctrl+Alt+S)'
+                  }
                 >
                   {simulationActive ? (
                     <>
@@ -494,6 +553,7 @@ function AppShell() {
                     </>
                   )}
                 </Button>
+                <span className="hidden text-xs text-muted-foreground xl:inline">Ctrl+Alt+S</span>
                 <Button
                   onClick={() => logout('')}
                   variant="secondary"

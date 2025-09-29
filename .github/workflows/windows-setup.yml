@@ -1,0 +1,38 @@
+name: Windows setup wizard
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  setup-all:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run setup_all.cmd in CI mode
+        shell: cmd
+        env:
+          SETUP_ALL_NONINTERACTIVE: "1"
+          OPENAI_API_KEY: "test-key"
+          REDIS_URL: "redis://localhost:6379/0"
+          DATABASE_URL: "sqlite:///./app.db"
+        run: |
+          setup_all.cmd --ci
+
+      - name: Pip check
+        shell: pwsh
+        run: |
+          .\.venv\Scripts\python.exe -m pip check
+
+      - name: Backend smoke test
+        shell: pwsh
+        run: |
+          .\.venv\Scripts\python.exe -m pytest tests/test_api_flows.py::test_health -q
+
+      - name: Frontend build cache warmup
+        shell: pwsh
+        run: |
+          npm run build -- --mode production

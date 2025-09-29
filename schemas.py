@@ -183,6 +183,12 @@ class HoldingResponse(BaseModel):
 # ---------------------------------------------------------
 # SYSTEM CHECKS
 # ---------------------------------------------------------
+class HealthCheckStatus(BaseModel):
+    name: str
+    status: str
+    detail: Optional[str] = None
+
+
 class SystemCheckStep(BaseModel):
     name: str
     success: bool
@@ -199,6 +205,10 @@ class SystemCheckCreate(BaseModel):
     duration: Optional[float] = Field(None, description="Toplam süre (saniye)")
     triggered_by: Optional[str] = Field(None, description="Tetikleyen süreç (örn. oneclick)")
     steps: List[SystemCheckStep]
+    health_checks: List[HealthCheckStatus] = Field(
+        default_factory=list,
+        description="Servis bazlı sağlık kontrollerinin özeti",
+    )
 
 
 class SystemCheckResponse(SystemCheckCreate):

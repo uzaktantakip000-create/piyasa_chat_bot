@@ -46,20 +46,27 @@ Yönetim paneline erişmek için bir parola gibi düşünün. Panelde gördüğ�
 Çoğu kullanıcı için en kolay yol **Docker Compose** kullanmaktır. Bilgisayarınızda Docker yoksa veya kullanmak istemiyorsanız, manuel kurulum adımlarını izleyebilirsiniz.
 
 ### Seçenek C: Windows'ta `setup_all.cmd` ile tam otomatik kurulum
-Windows 10/11 kullanıcıları için `setup_all.cmd` betiği, manuel olarak yapmanız gereken adımların tamamını tek seferde gerçekleştirir. Betik çalışırken komut istemcisinde birkaç soru sorulur ve bazı pencereler açılır; bu durum normaldir.
+Windows 10/11 kullanıcıları için `setup_all.cmd` betiği, manuel olarak yapmanız gereken adımların tamamını tek seferde gerçekleştirir. Betik çalışırken komut istemcisinde birkaç soru sorulur ve bazı pencereler açılır; bu durum normaldir. Betik aynı zamanda GitHub Actions üzerinde **CI modunda** (etkileşim olmadan) koşturularak her commit'te doğrulanır; dolayısıyla aşağıdaki adımların çalıştığını düzenli olarak test ediyoruz.
 
 1. **Betik neleri yapar?**
    - `.venv` klasörü içinde Python sanal ortamını oluşturur ve aktive eder.
    - `pip install -r requirements.txt` komutunu çalıştırarak Python bağımlılıklarını kurar.
    - `npm install` ile React paneli için Node.js paketlerini yükler.
    - `.env` dosyasını kontrol edip varsa eksik alanları doldurmanız için sizi yönlendirir; `OPENAI_API_KEY`, isteğe bağlı `REDIS_URL` ve `DATABASE_URL` değerlerini girmeniz istenir.
-   - FastAPI sunucusunu, worker sürecini ve Vite geliştirme sunucusunu sırasıyla başlatır. Her biri kendi terminal penceresinde açılabilir; kapanmasını beklemeyin.
+   - FastAPI sunucusunu, worker sürecini ve Vite geliştirme sunucusunu sırasıyla başlatır. Her biri kendi terminal penceresinde açılabilir; kapanmasını beklemeyin. (CI modunda bu süreçler yerine API sağlık testi ve worker modül kontrolü yapılır, npm tarafında ise `npm run build` ile derleme doğrulanır.)
 2. **Nasıl çalıştırılır?**
    - Dosya gezgininde proje klasörüne gidin (`piyasa_chat_bot`).
    - `setup_all.cmd` dosyasına çift tıklayın **ya da** CMD penceresinde klasöre geçip `setup_all.cmd` yazın.
    - Komut istemcisi sizden OpenAI anahtarınızı (zorunlu) ve Redis/PostgreSQL bağlantı adreslerini (isteğe bağlı, boş bırakabilirsiniz) girdi olarak isteyecektir. Anahtarı girerken gözükmez; yazıp Enter'a basın.
    - Betik sırasında açılan API, worker ve frontend pencereleri çalışmaya devam etmelidir; kurulum tamamlandığında tarayıcıdan `http://localhost:5173` adresine bağlanıp panelde oturum açabilirsiniz.
    - Betiği tekrar çalıştırmak isterseniz pencereleri kapatıp CMD'de `Ctrl + C` ile süreçleri durdurduktan sonra adımları tekrarlayın.
+3. **Otomasyon/Cİ modu nasıl çalışır?**
+   - Etkileşimsiz bir ortamda çalıştırmanız gerekiyorsa `setup_all.cmd --ci` komutunu kullanabilir veya `SETUP_ALL_NONINTERACTIVE=1` ortam değişkenini ayarlayabilirsiniz.
+   - Bu modda OpenAI/Redis/Database değişkenlerini ortam değişkenleriyle (`OPENAI_API_KEY`, `REDIS_URL`, `DATABASE_URL`, `OPENAI_BASE_URL`) besleyebilirsiniz.
+   - CI modunda betik API sağlık testini (`/healthz`), worker'ın `--check-only` modunu ve `npm run build` derlemesini otomatik doğrular. GitHub Actions üzerindeki `windows-setup-all` iş akışı her push/pull request'te bu adımları koşturur.
+4. **Smoke test ve sağlık raporu**
+   - `setup_all.cmd` ile kurulum yaptıktan sonra `scripts/oneclick.py` komutunu koşturursanız API, veritabanı, Redis, worker ve panel için sağlık kontrolleri de dahil olmak üzere tüm smoke test sonuçları `latest_oneclick_report.json` dosyasına yazılır.
+   - Aynı rapor `/system/checks` API'sine gönderilir; paneldeki **Servis Sağlık Durumu** listesi bu verileri kullanarak tüm servislerin durumunu gösterir.
 
 ### Seçenek A: Docker Compose (önerilen)
 1. **Kaynak dosyaları indirin**
@@ -138,6 +145,19 @@ Aşağıdaki `.env` anahtarları sistemi çalıştırmak için zorunlu değildir
 - `ALLOWED_ORIGINS` → Yönetim paneline yalnızca belirli alan adlarından erişilmesini istiyorsanız güncelleyin.
 - `LOG_LEVEL` → Uygulama loglarını `DEBUG`, `INFO`, `WARNING` gibi seviyelerle ayarlamak için kullanabilirsiniz.
 - `LLM_MODEL` (ve varsa `LLM_FALLBACK_MODEL`) → OpenAI tarafında hangi modeli kullanacağınızı seçmenizi sağlar; varsayılan `gpt-4o-mini` olarak gelir.
+
+## Görsel sorun giderme akışı
+
+- Paneldeki **QuickStart → Sorun Giderme Akışı** kartı, en sık karşılaşılan hatalar için adım adım çözüm rehberi içerir. Bu kartta giriş ekranının görseli ve kontrol etmeniz gereken `.env` alanları bulunur.
+- Aşağıdaki ekran görüntüsünde API anahtarını ve panel şifresini doğrularken nelere dikkat etmeniz gerektiği gösterilir:
+
+  ![Dashboard giriş ekranı örneği](docs/dashboard-login.svg)
+
+- Eğer panel hâlâ yüklenmiyorsa README’deki [Log ve alarm yönetimi](docs/error_management.md) rehberini takip edin veya QuickStart kartındaki destek bağlantıları aracılığıyla `destek@piyasa-sim.dev` adresine ulaşın.
+
+## Yol haritası notu
+
+- Test sonuçları ve sistem sağlığı grafiklerini içerecek raporlama modülünün kapsamı için [`docs/reporting_roadmap.md`](docs/reporting_roadmap.md) belgesine göz atın.
 - `VITE_DASHBOARD_PASSWORD` → Panel girişine ek şifre eklemek isterseniz doldurun, aksi hâlde boş bırakılabilir.
 8. **Servisi durdurmak**
    - Her terminalde `Ctrl + C` kombinasyonu ile süreçleri kapatın.

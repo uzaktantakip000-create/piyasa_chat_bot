@@ -1,43 +1,11 @@
 import base64  # Required so _generate_key can use base64.urlsafe_b64encode
-import importlib
 import os
-from types import SimpleNamespace
-
 from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
 
-from .patched_testclient import PatchedTestClient
-
-
-def _generate_key() -> str:
-    return base64.urlsafe_b64encode(os.urandom(32)).decode()
-
-
-@pytest.fixture()
-def api_client(tmp_path, monkeypatch):
-    db_path = tmp_path / "test.db"
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
-    monkeypatch.setenv("TOKEN_ENCRYPTION_KEY", _generate_key())
-    monkeypatch.setenv("API_KEY", "test-key")
-
-    # Reload modules so they pick up the temporary configuration.
-    import security
-    import database
-    import main
-
-    importlib.reload(security)
-    importlib.reload(database)
-    importlib.reload(main)
-
-    from main import app
-
-    with PatchedTestClient(app) as client:
-        yield client
-
-
-def auth_headers():
-    return {"X-API-Key": "test-key"}
+from .conftest import auth_headers
 
 
 def test_create_and_toggle_bot(api_client):
@@ -203,6 +171,10 @@ def test_system_check_flow(api_client):
             {"name": "pytest", "success": True, "duration": 4.1, "stdout": "", "stderr": ""},
             {"name": "stress-test", "success": True, "duration": 5.2, "stdout": "stress ok", "stderr": ""},
         ],
+        "health_checks": [
+            {"name": "api", "status": "healthy", "detail": "200 OK"},
+            {"name": "redis", "status": "skipped", "detail": "ci"},
+        ],
     }
 
     create_resp = api_client.post("/system/checks", json=payload, headers=auth_headers())
@@ -211,12 +183,14 @@ def test_system_check_flow(api_client):
     assert created["status"] == "passed"
     assert created["total_steps"] == 3
     assert len(created["steps"]) == 3
+    assert created["health_checks"][0]["name"] == "api"
 
     latest = api_client.get("/system/checks/latest", headers=auth_headers())
     assert latest.status_code == 200
     latest_body = latest.json()
     assert latest_body["id"] == created["id"]
     assert latest_body["steps"][0]["name"] == "preflight"
+    assert latest_body["health_checks"][0]["name"] == "api"
 
 
 def test_run_system_checks_endpoint(api_client, monkeypatch):

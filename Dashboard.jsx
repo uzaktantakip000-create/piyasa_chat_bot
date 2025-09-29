@@ -273,9 +273,18 @@ function Dashboard({
               </CardTitle>
               <CardDescription>
                 Preflight, smoke test ve stres test sonuçları
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  Kısayol: Ctrl+Alt+C
+                </span>
               </CardDescription>
             </div>
-            <Button onClick={onRunChecks} disabled={isRunningChecks} variant="outline">
+            <Button
+              onClick={onRunChecks}
+              disabled={isRunningChecks}
+              variant="outline"
+              title="Kısayol: Ctrl+Alt+C"
+              aria-label="Otomasyon testlerini çalıştır (Ctrl+Alt+C)"
+            >
               {isRunningChecks ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
@@ -346,6 +355,43 @@ function Dashboard({
                     )
                   })}
                 </div>
+
+                {systemCheck.health_checks?.length ? (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium flex items-center gap-2">
+                      <ShieldCheck className="h-4 w-4 text-primary" />
+                      Servis Sağlık Durumu
+                    </p>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {systemCheck.health_checks.map((hc) => {
+                        const isHealthy = hc.status === 'healthy'
+                        const isSkipped = hc.status === 'skipped'
+                        const accent = isHealthy
+                          ? 'text-emerald-600'
+                          : isSkipped
+                            ? 'text-amber-600'
+                            : 'text-rose-600'
+                        const Icon = isHealthy ? CheckCircle : isSkipped ? AlertTriangle : XCircle
+                        const statusLabel = isSkipped ? 'Atlandı' : isHealthy ? 'Sağlıklı' : 'Sorun'
+                        return (
+                          <div
+                            key={hc.name}
+                            className="flex items-start gap-3 rounded-lg border border-border/60 bg-card/40 p-3"
+                          >
+                            <Icon className={`mt-0.5 h-4 w-4 ${accent}`} />
+                            <div>
+                              <p className="text-sm font-medium capitalize">{hc.name}</p>
+                              <p className={`text-xs ${accent}`}>
+                                {statusLabel}
+                                {hc.detail ? ` • ${hc.detail}` : ''}
+                              </p>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : null}
               </>
             ) : (
               <div className="flex items-center justify-between rounded-lg border border-dashed border-border p-4">
