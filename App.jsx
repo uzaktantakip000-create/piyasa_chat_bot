@@ -48,6 +48,7 @@ function AppShell() {
     rate_limit_hits: 0,
     telegram_429_count: 0
   })
+  const [systemCheck, setSystemCheck] = useState(null)
   const [authenticating, setAuthenticating] = useState(false)
   const [authError, setAuthError] = useState('')
   const [globalStatus, setGlobalStatus] = useState(null)
@@ -55,13 +56,13 @@ function AppShell() {
   const [metricsPhase, setMetricsPhase] = useState('idle')
   const [firstMetricsLoaded, setFirstMetricsLoaded] = useState(false)
   const [manualRefreshing, setManualRefreshing] = useState(false)
+  const [checksPhase, setChecksPhase] = useState('idle')
 
 
   const safeMessagesPerMinute = useMemo(() => {
     const value = Number(metrics?.messages_per_minute ?? 0)
     return Number.isFinite(value) ? value : 0
   }, [metrics])
-=======
 
   const expectedPassword = import.meta.env?.VITE_DASHBOARD_PASSWORD || ''
   const SESSION_FLAG_KEY = 'piyasa.dashboard.session'
@@ -112,6 +113,8 @@ function AppShell() {
       setLastUpdatedAt(null)
       setMetricsPhase('idle')
       setFirstMetricsLoaded(false)
+      setSystemCheck(null)
+      setChecksPhase('idle')
     },
     [persistSessionFlag]
   )
@@ -140,6 +143,22 @@ function AppShell() {
     }
   }
 
+  const fetchLatestSystemCheck = useCallback(
+    async () => {
+      if (!isAuthenticated) {
+        return
+      }
+      try {
+        const response = await apiFetch('/system/checks/latest')
+        const data = await response.json()
+        setSystemCheck(data)
+      } catch (error) {
+        console.warn('System check kaydı alınamadı:', error)
+      }
+    },
+    [isAuthenticated]
+  )
+
   const fetchMetrics = useCallback(
     async ({ manual = false } = {}) => {
       try {
@@ -166,6 +185,7 @@ function AppShell() {
           setFirstMetricsLoaded(true)
         }
         setMetricsPhase('ready')
+        await fetchLatestSystemCheck()
         if (manual) {
           showToast({
             type: 'success',
@@ -201,7 +221,7 @@ function AppShell() {
         }
       }
     },
-    [firstMetricsLoaded, isAuthenticated, logout, showToast]
+    [fetchLatestSystemCheck, firstMetricsLoaded, isAuthenticated, logout, showToast]
   )
 
   const toggleSimulation = async () => {
@@ -232,6 +252,38 @@ function AppShell() {
       })
     }
   }
+
+  const runSystemChecks = useCallback(
+    async () => {
+      if (!isAuthenticated || checksPhase === 'running') {
+        return
+      }
+      setChecksPhase('running')
+      try {
+        const response = await apiFetch('/system/checks/run', { method: 'POST' })
+        const data = await response.json()
+        setSystemCheck(data)
+        showToast({
+          type: data.status === 'passed' ? 'success' : 'warning',
+          title: 'Testler tamamlandı',
+          description:
+            data.status === 'passed'
+              ? 'Tüm kontroller başarıyla geçti.'
+              : 'Bazı adımlarda hata oluştu, detayları inceleyin.'
+        })
+      } catch (error) {
+        console.error('Testler çalıştırılırken hata:', error)
+        showToast({
+          type: 'error',
+          title: 'Testler başarısız',
+          description: error?.message || 'Testler çalıştırılırken beklenmeyen bir hata oluştu.'
+        })
+      } finally {
+        setChecksPhase('idle')
+      }
+    },
+    [checksPhase, isAuthenticated, showToast]
+  )
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -380,7 +432,6 @@ function AppShell() {
                   <TrendingUp className="h-4 w-4" />
                   {firstMetricsLoaded ? (
                     <span>{safeMessagesPerMinute.toFixed(1)} msg/dk</span>
-                    <span>{metrics.messages_per_minute.toFixed(1)} msg/dk</span>
                   ) : (
                     <span className="flex h-4 w-20 animate-pulse items-center rounded bg-muted/60" aria-hidden="true" />
                   )}
@@ -476,6 +527,9 @@ function AppShell() {
                     lastUpdatedAt={lastUpdatedAt}
                     isLoading={!firstMetricsLoaded && metricsPhase === 'loading'}
                     isRefreshing={isFetchingMetrics}
+                    systemCheck={systemCheck}
+                    onRunChecks={runSystemChecks}
+                    isRunningChecks={checksPhase === 'running'}
                   />
                 }
               />

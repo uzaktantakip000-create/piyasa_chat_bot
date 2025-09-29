@@ -178,3 +178,32 @@ class HoldingResponse(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+# ---------------------------------------------------------
+# SYSTEM CHECKS
+# ---------------------------------------------------------
+class SystemCheckStep(BaseModel):
+    name: str
+    success: bool
+    duration: float
+    stdout: Optional[str] = None
+    stderr: Optional[str] = None
+
+
+class SystemCheckCreate(BaseModel):
+    status: str = Field(..., description="passed/failed gibi durum")
+    total_steps: int
+    passed_steps: int
+    failed_steps: int
+    duration: Optional[float] = Field(None, description="Toplam süre (saniye)")
+    triggered_by: Optional[str] = Field(None, description="Tetikleyen süreç (örn. oneclick)")
+    steps: List[SystemCheckStep]
+
+
+class SystemCheckResponse(SystemCheckCreate):
+    id: int
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
