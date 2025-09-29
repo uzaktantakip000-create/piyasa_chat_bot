@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { BookOpen, ClipboardCheck, LifeBuoy, PlayCircle, Rocket, TestTube, Zap, Loader2 } from 'lucide-react'
+import { Progress } from '@/components/ui/progress'
+import { BookOpen, ClipboardCheck, LifeBuoy, PlayCircle, Rocket, TestTube, Zap, Loader2, CheckCircle2, Circle } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -28,7 +29,7 @@ function CommandRow({ label, command }) {
     try {
       await navigator.clipboard.writeText(command)
       setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      setTimeout(() => setCopied(false), 3000)
     } catch (err) {
       console.error('Kopyalama başarısız oldu:', err)
       setError('Kopyalama başarısız. Lütfen komutu elle kopyalayın.')
@@ -40,10 +41,17 @@ function CommandRow({ label, command }) {
       <div className="flex items-center justify-between gap-3">
         <code className="flex-1 rounded bg-muted px-3 py-2 text-sm">{command}</code>
         <Button onClick={copyToClipboard} size="sm" variant="secondary">
-          {copied ? 'Kopyalandı!' : label}
+          {copied ? 'Tekrar Kopyala' : label}
         </Button>
       </div>
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      <div className="min-h-[1.25rem]" aria-live="polite">
+        {copied && !error && (
+          <p className="flex items-center gap-1 text-xs text-emerald-600">
+            <CheckCircle2 className="h-3 w-3" /> Panoya kopyalandı.
+          </p>
+        )}
+        {error && <p className="text-xs text-destructive">{error}</p>}
+      </div>
     </div>
   )
 }
@@ -91,7 +99,7 @@ export default function QuickStart() {
     setDialogKey(null)
   }
 
-  const refreshMetrics = async () => {
+  const refreshMetrics = useCallback(async () => {
     try {
       const response = await apiFetch('/metrics')
       const data = await response.json()
@@ -106,30 +114,33 @@ export default function QuickStart() {
       console.error('Metrikler alınamadı:', error)
       setStatusMessage({ type: 'error', text: 'Metrikler alınamadı. API anahtarınızı kontrol edin.' })
     }
-  }
+  }, [])
 
   useEffect(() => {
     refreshMetrics()
-  }, [])
+  }, [refreshMetrics])
 
-  const runSimulationAction = async (action) => {
-    setLoadingAction(action)
-    setStatusMessage(null)
-    try {
-      const endpoint = action === 'start' ? '/control/start' : '/control/stop'
-      await apiFetch(endpoint, { method: 'POST' })
-      await refreshMetrics()
-      setStatusMessage({
-        type: 'success',
-        text: action === 'start' ? 'Simülasyon başlatıldı.' : 'Simülasyon durduruldu.'
-      })
-    } catch (error) {
-      console.error('Simülasyon eylemi başarısız oldu:', error)
-      setStatusMessage({ type: 'error', text: error.message || 'İşlem başarısız oldu.' })
-    } finally {
-      setLoadingAction('')
-    }
-  }
+  const runSimulationAction = useCallback(
+    async (action) => {
+      setLoadingAction(action)
+      setStatusMessage(null)
+      try {
+        const endpoint = action === 'start' ? '/control/start' : '/control/stop'
+        await apiFetch(endpoint, { method: 'POST' })
+        await refreshMetrics()
+        setStatusMessage({
+          type: 'success',
+          text: action === 'start' ? 'Simülasyon başlatıldı.' : 'Simülasyon durduruldu.'
+        })
+      } catch (error) {
+        console.error('Simülasyon eylemi başarısız oldu:', error)
+        setStatusMessage({ type: 'error', text: error.message || 'İşlem başarısız oldu.' })
+      } finally {
+        setLoadingAction('')
+      }
+    },
+    [refreshMetrics]
+  )
 
   const sections = useMemo(
     () => [
@@ -163,6 +174,11 @@ export default function QuickStart() {
             <CommandRow label="Kopyala" command="uvicorn main:app --reload" />
             <CommandRow label="Kopyala" command="python worker.py" />
             <CommandRow label="Kopyala" command="npm run dev" />
+            <div className="flex flex-wrap gap-2 pt-2">
+              <Button size="sm" variant="outline" onClick={() => navigate('/settings')}>
+                Ayarlar sayfasını aç
+              </Button>
+            </div>
           </div>
         )
       },
@@ -186,6 +202,11 @@ export default function QuickStart() {
             <p>
               Bir komut hata verirse mesajı aynen not et; paneldeki Loglar sekmesiyle aynı hatayı takip edebilirsin.
             </p>
+            <div className="flex flex-wrap gap-2 pt-2">
+              <Button size="sm" variant="outline" onClick={() => navigate('/logs')}>
+                Logları Görüntüle
+              </Button>
+            </div>
           </div>
         )
       },
@@ -212,12 +233,53 @@ export default function QuickStart() {
               <strong>4. Durumu izle:</strong> Dashboard kartları bot sayısı, mesaj hızı ve hata oranlarını gösterir. Loglar sekmesinden
               olası uyarıları takip edebilirsin.
             </p>
+            <div className="flex flex-wrap gap-2 pt-2">
+              <Button size="sm" variant="outline" onClick={() => navigate('/bots')}>
+                Bot listesine git
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => navigate('/chats')}>
+                Sohbet listesine git
+              </Button>
+            </div>
           </div>
         )
       }
     ],
     []
   )
+
+  const checklistItems = useMemo(
+    () => [
+      {
+        key: 'bots',
+        label: 'En az bir bot ekle',
+        completed: metrics.total_bots > 0,
+        cta: 'Botlara Git',
+        onAction: () => navigate('/bots'),
+        disabled: false
+      },
+      {
+        key: 'chats',
+        label: 'Sohbet grubu bağla',
+        completed: metrics.total_chats > 0,
+        cta: 'Sohbetlere Git',
+        onAction: () => navigate('/chats'),
+        disabled: false
+      },
+      {
+        key: 'simulation',
+        label: 'Simülasyonu başlat',
+        completed: metrics.simulation_active,
+        cta: metrics.simulation_active ? 'Simülasyon Açık' : 'Simülasyonu Başlat',
+        onAction: () => runSimulationAction('start'),
+        disabled: metrics.simulation_active || loadingAction !== ''
+      }
+    ],
+    [metrics.total_bots, metrics.total_chats, metrics.simulation_active, navigate, runSimulationAction, loadingAction]
+  )
+
+  const completedSteps = checklistItems.filter((item) => item.completed).length
+  const progressValue = Math.round((completedSteps / checklistItems.length) * 100)
 
   const activeSection = sections.find((section) => section.key === dialogKey)
 
@@ -237,6 +299,47 @@ export default function QuickStart() {
           Simülasyon {metrics.simulation_active ? 'Aktif' : 'Kapalı'}
         </Badge>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ClipboardCheck className="h-5 w-5 text-primary" />
+            Onboarding İlerlemesi
+          </CardTitle>
+          <CardDescription>{completedSteps} / {checklistItems.length} adım tamamlandı</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
+            <span>Kurulum ilerleme seviyesi</span>
+            <Badge variant={progressValue === 100 ? 'default' : 'secondary'}>{progressValue}%</Badge>
+          </div>
+          <Progress value={progressValue} className="h-2" />
+          <ul className="mt-4 space-y-3">
+            {checklistItems.map((item) => (
+              <li key={item.key} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2 text-sm">
+                  {item.completed ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                  ) : (
+                    <Circle className="h-4 w-4 text-muted-foreground" />
+                  )}
+                  <span className={item.completed ? 'text-emerald-700' : 'text-foreground'}>{item.label}</span>
+                </div>
+                {!item.completed && (
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    onClick={item.onAction}
+                    disabled={item.disabled}
+                  >
+                    {item.cta}
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

@@ -12,9 +12,16 @@ import {
   Zap
 } from 'lucide-react'
 
-function Dashboard({ metrics, lastUpdatedAt }) {
-  const botUtilization = metrics.total_bots > 0 ? (metrics.active_bots / metrics.total_bots) * 100 : 0
-  const rateLimit429Rate = metrics.messages_last_hour > 0 ? (metrics.telegram_429_count / metrics.messages_last_hour) * 100 : 0
+const placeholder = (width = 'w-20') => (
+  <div className={`h-6 rounded bg-muted/60 ${width} animate-pulse`} aria-hidden="true" />
+)
+
+function Dashboard({ metrics, lastUpdatedAt, isLoading = false, isRefreshing = false }) {
+  const safeMetrics = metrics || {}
+  const botUtilization = safeMetrics.total_bots > 0 ? (safeMetrics.active_bots / safeMetrics.total_bots) * 100 : 0
+  const rateLimit429Rate = safeMetrics.messages_last_hour > 0
+    ? (safeMetrics.telegram_429_count / safeMetrics.messages_last_hour) * 100
+    : 0
   const isStale = lastUpdatedAt ? Date.now() - lastUpdatedAt.getTime() > 10000 : false
   const formattedLastUpdated = lastUpdatedAt
     ? lastUpdatedAt.toLocaleTimeString('tr-TR', {
@@ -24,90 +31,122 @@ function Dashboard({ metrics, lastUpdatedAt }) {
       })
     : 'Veri alınamadı'
 
+  const messageRateStatus = botUtilization >= 85 || rateLimit429Rate >= 5 ? 'destructive' : botUtilization >= 70 ? 'warning' : 'info'
+  const utilisationAccent =
+    messageRateStatus === 'destructive'
+      ? 'text-destructive'
+      : messageRateStatus === 'warning'
+        ? 'text-amber-600'
+        : 'text-emerald-600'
+  const rateLimitAccent = rateLimit429Rate >= 10 ? 'text-destructive' : rateLimit429Rate >= 5 ? 'text-amber-600' : 'text-muted-foreground'
+
+  const renderValue = (value, width) => {
+    if (isLoading) {
+      return placeholder(width)
+    }
+    return value
+  }
+
+  const renderSubtle = (value, width = 'w-24') => {
+    if (isLoading) {
+      return <div className={`h-4 rounded bg-muted/40 ${width} animate-pulse`} aria-hidden="true" />
+    }
+    return value
+  }
+
   return (
     <div className="space-y-6">
-      <Card className={isStale ? 'border-destructive/50 bg-destructive/10' : ''}>
+      <Card className={`${isStale ? 'border-destructive/50 bg-destructive/10' : ''}`}>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <Clock className="h-4 w-4" />
+            <Clock className={`h-4 w-4 ${isRefreshing ? 'text-primary' : ''}`} />
             Veri Durumu
           </CardTitle>
-          <Badge variant={isStale ? 'destructive' : 'secondary'}>{formattedLastUpdated}</Badge>
+          <Badge variant={isRefreshing ? 'default' : isStale ? 'destructive' : 'secondary'}>
+            {isRefreshing ? 'Güncelleniyor…' : formattedLastUpdated}
+          </Badge>
         </CardHeader>
         <CardContent>
           <p className={`text-sm ${isStale ? 'text-destructive' : 'text-muted-foreground'}`}>
             {isStale
               ? '⚠️ Gösterilen veriler 10 saniyeden daha eski olabilir.'
-              : 'Veriler güncel görünüyor.'}
+              : isRefreshing
+                ? 'Son metrikler yükleniyor, değerler bir süre önceki hali gösterebilir.'
+                : 'Veriler güncel görünüyor.'}
           </p>
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* Total Bots */}
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Toplam Bot</CardTitle>
-            <Bot className="h-4 w-4 text-muted-foreground" />
+            <Bot className={`h-4 w-4 ${isLoading ? 'text-muted-foreground' : utilisationAccent}`} />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{metrics.total_bots}</div>
+            <div className="text-2xl font-bold">
+              {renderValue(safeMetrics.total_bots, 'w-16')}
+            </div>
             <p className="text-xs text-muted-foreground">
-              {metrics.active_bots} aktif
+              {renderSubtle(`${safeMetrics.active_bots} aktif`, 'w-20')}
             </p>
-            <Progress value={botUtilization} className="mt-2" />
+            <div className="mt-2">
+              <Progress value={botUtilization} />
+            </div>
           </CardContent>
         </Card>
 
-        {/* Messages per Hour */}
-        <Card>
+        <Card className={messageRateStatus === 'destructive' ? 'border-destructive/40 bg-destructive/5' : messageRateStatus === 'warning' ? 'border-amber-200/70 bg-amber-50/60' : ''}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Saatlik Mesaj</CardTitle>
-            <MessageSquare className="h-4 w-4 text-muted-foreground" />
+            <MessageSquare className={`h-4 w-4 ${messageRateStatus === 'destructive' ? 'text-destructive' : messageRateStatus === 'warning' ? 'text-amber-600' : 'text-muted-foreground'}`} />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{metrics.messages_last_hour}</div>
-            <p className="text-xs text-muted-foreground">
-              {metrics.messages_per_minute.toFixed(1)} msg/dk
+            <div className="text-2xl font-bold">
+              {renderValue(safeMetrics.messages_last_hour, 'w-20')}
+            </div>
+            <p className={`text-xs ${messageRateStatus === 'destructive' ? 'text-destructive' : messageRateStatus === 'warning' ? 'text-amber-700' : 'text-muted-foreground'}`}>
+              {renderSubtle(`${safeMetrics.messages_per_minute?.toFixed?.(1) ?? '0.0'} msg/dk`, 'w-24')}
             </p>
           </CardContent>
         </Card>
 
-        {/* Active Chats */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Aktif Sohbet</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{metrics.total_chats}</div>
+            <div className="text-2xl font-bold">
+              {renderValue(safeMetrics.total_chats, 'w-16')}
+            </div>
             <p className="text-xs text-muted-foreground">
-              Toplam sohbet sayısı
+              {renderSubtle('Toplam sohbet sayısı', 'w-28')}
             </p>
           </CardContent>
         </Card>
 
-        {/* Scale Factor */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Ölçek Faktörü</CardTitle>
-            <Zap className="h-4 w-4 text-muted-foreground" />
+            <Zap className={`h-4 w-4 ${safeMetrics.scale_factor > 1.5 ? 'text-primary' : 'text-muted-foreground'}`} />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{metrics.scale_factor}x</div>
+            <div className="text-2xl font-bold">
+              {renderValue(`${safeMetrics.scale_factor}x`, 'w-16')}
+            </div>
             <p className="text-xs text-muted-foreground">
-              Hız çarpanı
+              {renderSubtle('Hız çarpanı', 'w-20')}
             </p>
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* System Status */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Activity className="h-5 w-5" />
+              <Activity className={`h-5 w-5 ${safeMetrics.simulation_active ? 'text-emerald-600' : 'text-muted-foreground'}`} />
               Sistem Durumu
             </CardTitle>
             <CardDescription>
@@ -117,39 +156,38 @@ function Dashboard({ metrics, lastUpdatedAt }) {
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Simülasyon Durumu</span>
-              <Badge variant={metrics.simulation_active ? "default" : "secondary"}>
-                {metrics.simulation_active ? "Çalışıyor" : "Durduruldu"}
+              <Badge variant={safeMetrics.simulation_active ? 'default' : 'secondary'}>
+                {safeMetrics.simulation_active ? 'Çalışıyor' : 'Durduruldu'}
               </Badge>
             </div>
-            
+
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Bot Kullanımı</span>
-              <span className="text-sm text-muted-foreground">
-                {botUtilization.toFixed(1)}%
+              <span className={`text-sm ${utilisationAccent}`}>
+                {renderSubtle(`${botUtilization.toFixed(1)}%`, 'w-16')}
               </span>
             </div>
-            
+
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Mesaj Hızı</span>
-              <span className="text-sm text-muted-foreground">
-                {metrics.messages_per_minute.toFixed(1)} msg/dk
+              <span className={`text-sm ${messageRateStatus === 'destructive' ? 'text-destructive' : messageRateStatus === 'warning' ? 'text-amber-700' : 'text-muted-foreground'}`}>
+                {renderSubtle(`${safeMetrics.messages_per_minute?.toFixed?.(1) ?? '0.0'} msg/dk`, 'w-20')}
               </span>
             </div>
-            
+
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Ölçek Faktörü</span>
               <span className="text-sm text-muted-foreground">
-                {metrics.scale_factor}x
+                {renderSubtle(`${safeMetrics.scale_factor}x`, 'w-16')}
               </span>
             </div>
           </CardContent>
         </Card>
 
-        {/* Rate Limiting & Errors */}
-        <Card>
+        <Card className={rateLimit429Rate >= 5 ? 'border-destructive/40 bg-destructive/5' : ''}>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5" />
+              <AlertTriangle className={`h-5 w-5 ${rateLimitAccent}`} />
               Hız Sınırları & Hatalar
             </CardTitle>
             <CardDescription>
@@ -159,41 +197,38 @@ function Dashboard({ metrics, lastUpdatedAt }) {
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Rate Limit Hits</span>
-              <Badge variant={metrics.rate_limit_hits > 0 ? "destructive" : "secondary"}>
-                {metrics.rate_limit_hits}
+              <Badge variant={safeMetrics.rate_limit_hits > 0 ? 'destructive' : 'secondary'}>
+                {renderValue(safeMetrics.rate_limit_hits, 'w-12')}
               </Badge>
             </div>
-            
+
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Telegram 429 Errors</span>
-              <Badge variant={metrics.telegram_429_count > 0 ? "destructive" : "secondary"}>
-                {metrics.telegram_429_count}
+              <Badge variant={safeMetrics.telegram_429_count > 0 ? 'destructive' : 'secondary'}>
+                {renderValue(safeMetrics.telegram_429_count, 'w-12')}
               </Badge>
             </div>
-            
+
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">429 Hata Oranı</span>
-              <span className="text-sm text-muted-foreground">
-                {rateLimit429Rate.toFixed(2)}%
+              <span className={`text-sm ${rateLimitAccent}`}>
+                {renderSubtle(`${rateLimit429Rate.toFixed(2)}%`, 'w-16')}
               </span>
             </div>
-            
-            {(metrics.rate_limit_hits > 0 || metrics.telegram_429_count > 0) && (
-              <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
-                <p className="text-sm text-destructive">
-                  ⚠️ Yüksek hata oranı tespit edildi. Hız ayarlarını kontrol edin.
-                </p>
+
+            {(safeMetrics.rate_limit_hits > 0 || safeMetrics.telegram_429_count > 0) && (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                ⚠️ Yüksek hata oranı tespit edildi. Hız ayarlarını kontrol edin.
               </div>
             )}
           </CardContent>
         </Card>
       </div>
 
-      {/* Performance Recommendations */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <TrendingUp className="h-5 w-5" />
+            <TrendingUp className="h-5 w-5 text-primary" />
             Performans Önerileri
           </CardTitle>
           <CardDescription>
@@ -202,35 +237,27 @@ function Dashboard({ metrics, lastUpdatedAt }) {
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {metrics.telegram_429_count > 10 && (
-              <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                <p className="text-sm text-yellow-800">
-                  📊 Çok fazla 429 hatası alınıyor. Mesaj hızını düşürmeyi düşünün.
-                </p>
+            {safeMetrics.telegram_429_count > 10 && (
+              <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">
+                📊 Çok fazla 429 hatası alınıyor. Mesaj hızını düşürmeyi düşünün.
               </div>
             )}
-            
-            {metrics.messages_per_minute < 1 && metrics.simulation_active && (
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-sm text-blue-800">
-                  🚀 Mesaj hızı düşük. Ölçek faktörünü artırabilirsiniz.
-                </p>
+
+            {safeMetrics.messages_per_minute < 1 && safeMetrics.simulation_active && (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+                🚀 Mesaj hızı düşük. Ölçek faktörünü artırabilirsiniz.
               </div>
             )}
-            
-            {botUtilization < 50 && metrics.total_bots > 0 && (
-              <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                <p className="text-sm text-green-800">
-                  ✅ Bot kullanımı optimal seviyede. Daha fazla bot ekleyebilirsiniz.
-                </p>
+
+            {botUtilization < 50 && safeMetrics.total_bots > 0 && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+                ✅ Bot kullanımı optimal seviyede. Daha fazla bot ekleyebilirsiniz.
               </div>
             )}
-            
-            {metrics.total_bots === 0 && (
-              <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                <p className="text-sm text-gray-800">
-                  🤖 Henüz bot eklenmemiş. Simülasyonu başlatmak için bot ekleyin.
-                </p>
+
+            {safeMetrics.total_bots === 0 && (
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-800">
+                🤖 Henüz bot eklenmemiş. Simülasyonu başlatmak için bot ekleyin.
               </div>
             )}
           </div>
