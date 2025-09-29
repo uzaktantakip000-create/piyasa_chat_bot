@@ -72,9 +72,9 @@ Windows 10/11 kullanıcıları için `setup_all.cmd` betiği, manuel olarak yapm
        - `API_KEY=...` → Panel girişinde kullanılacak güçlü bir cümle yazın. (Örnek: `API_KEY=Benim-Cok-Gizli-Anahtarim`)
        - `TOKEN_ENCRYPTION_KEY=...` → Tek satırda uzun bir anahtar olmalı. Terminaliniz varsa `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` komutunu kullanabilirsiniz. Terminal yoksa [online Fernet key generator](https://asecuritysite.com/encryption/fernet) gibi bir araçtan kopyalayabilirsiniz.
        - `OPENAI_API_KEY=...` → Sohbet mesajlarının üretilebilmesi için [OpenAI hesap panelinden](https://platform.openai.com/account/api-keys) oluşturduğunuz anahtarı girin. Gerekirse `LLM_MODEL=` satırını `gpt-4o-mini` dışındaki bir modelle güncelleyebilirsiniz.
-       - `DATABASE_URL=` → Varsayılan değeri (`sqlite:///./app.db`) bırakabilirsiniz. PostgreSQL kullanmak istiyorsanız burada bağlantı adresini yazın.
-       - `ALLOWED_ORIGINS=` → Yönetim paneline hangi web adreslerinden erişileceğini yazın. Yerel kullanım için `http://localhost:5173` yeterlidir.
-       - `VITE_API_KEY=` ve `VITE_DASHBOARD_PASSWORD=` → Panelin tarayıcı tarafında hatırlayacağı değerlerdir. `VITE_API_KEY`, az önce belirlediğiniz `API_KEY` ile aynı olmalıdır. İsterseniz panel için ayrıca bir şifre (`VITE_DASHBOARD_PASSWORD`) tanımlayabilirsiniz.
+      - `DATABASE_URL=` → Varsayılan değeri (`sqlite:///./app.db`) bırakabilirsiniz. PostgreSQL kullanmak istiyorsanız burada bağlantı adresini yazın; boş bırakırsanız uygulama proje klasöründeki `app.db` dosyasını kullanır.
+      - `ALLOWED_ORIGINS=` → Yönetim paneline hangi web adreslerinden erişileceğini yazın. Yerel kullanım için `http://localhost:5173` yeterlidir.
+      - `VITE_API_KEY=` ve `VITE_DASHBOARD_PASSWORD=` → Panelin tarayıcı tarafında hatırlayacağı değerlerdir. `VITE_API_KEY`, az önce belirlediğiniz `API_KEY` ile aynı olmalıdır. `VITE_DASHBOARD_PASSWORD` boş bırakılırsa (varsayılan) panel yalnızca API anahtarı ister; ekstra güvenlik istiyorsanız güçlü bir parola girin.
 3. **Docker'ı başlatın**
    - Terminal (PowerShell, CMD, macOS Terminal vb.) açın.
    - Proje klasörüne geçin. Örnek: `cd C:\Users\kullanici\Downloads\piyasa_chat_bot`
@@ -84,8 +84,8 @@ Windows 10/11 kullanıcıları için `setup_all.cmd` betiği, manuel olarak yapm
      ```
    - İlk kurulum birkaç dakika sürebilir. İşlem bittiğinde FastAPI, worker, PostgreSQL ve Redis servisleri hazır olacaktır.
 4. **Yönetim paneline bağlanın**
-   - Tarayıcıdan `http://localhost:3000` (veya Vite geliştirme sunucusu kullanıyorsanız `http://localhost:5173`) adresine gidin.
-   - Açılan giriş ekranında `.env` dosyasında tanımladığınız `API_KEY` (ve varsa `VITE_DASHBOARD_PASSWORD`) değerlerini girin.
+  - Tarayıcıdan `http://localhost:3000` (veya Vite geliştirme sunucusu kullanıyorsanız `http://localhost:5173`) adresine gidin.
+  - Açılan giriş ekranında `.env` dosyasında tanımladığınız `API_KEY` (ve varsa `VITE_DASHBOARD_PASSWORD`) değerlerini girin. Panel şifresi boşsa yalnızca API anahtarını yazmanız yeterlidir.
    - Başarılı girişten sonra dashboard yüklenir.
 5. **Servisi kapatmak**
    - Terminalde `Ctrl + C` ile komutu durdurabilir veya başka bir terminalde `docker compose down` çalıştırabilirsiniz.
@@ -118,7 +118,27 @@ Windows 10/11 kullanıcıları için `setup_all.cmd` betiği, manuel olarak yapm
    npm run dev
    ```
 7. **Tarayıcıdan giriş yapın**
-   - `http://localhost:5173` adresine gidin ve `API_KEY` + panel şifrenizle giriş yapın.
+  - `http://localhost:5173` adresine gidin ve `API_KEY` + panel şifrenizle giriş yapın. Panel şifresi tanımlamadıysanız yalnızca `API_KEY` alanını doldurmanız yeterlidir.
+
+### Sık Sorulan Yapılandırma Soruları
+- **Varsayılan panel şifresi nedir?**
+  Panel şifresi varsayılan olarak **boştur**. `.env` dosyasındaki `VITE_DASHBOARD_PASSWORD` alanını boş bırakırsanız giriş ekranı yalnızca `API_KEY` ister. Ek bir parola kullanmak istiyorsanız aynı dosyada güçlü bir değer belirleyip servisleri yeniden başlatın.
+
+- **`REDIS_URL` nedir? Nasıl kullanılır?**
+  Redis, bot davranış motoruna gerçek zamanlı ayar değişikliklerini iletmek için kullanılan bir mesaj kuyruğudur. Yerel kurulumda Redis şart değildir; `.env` içinde `REDIS_URL` satırını boş bırakırsanız worker, bellek içi kuyruğu kullanarak çalışmaya devam eder. Eğer ayrı bir Redis sunucunuz varsa bağlantı adresini (ör. `redis://kullanici:sifre@sunucu-adresi:6379/0`) bu alana yazıp API ve worker süreçlerini yeniden başlatın.
+
+- **`DATABASE_URL` nedir? Nasıl kullanılır?**
+  Bot ve sohbet kayıtları varsayılan olarak proje klasöründeki `app.db` SQLite dosyasında saklanır. `.env` içindeki `DATABASE_URL` alanını değiştirmediğiniz sürece ek kurulum gerekmez. Kurumsal ortamda PostgreSQL gibi harici bir veritabanı kullanacaksanız bağlantı cümlenizi (ör. `postgresql+psycopg://kullanici:sifre@sunucu:5432/veritabani`) bu satıra yazıp API ve worker süreçlerini yeniden başlatmanız yeterlidir.
+
+### Opsiyonel Olarak Doldurabileceğiniz Alanlar
+Aşağıdaki `.env` anahtarları sistemi çalıştırmak için zorunlu değildir; ihtiyacınıza göre güncelleyebilirsiniz:
+
+- `REDIS_URL` → Redis altyapısı kullanmak istiyorsanız bağlantı adresini girin; aksi hâlde boş bırakabilirsiniz.
+- `DATABASE_URL` → Varsayılan SQLite yerine farklı bir veritabanı kullanacaksanız değiştirin.
+- `ALLOWED_ORIGINS` → Yönetim paneline yalnızca belirli alan adlarından erişilmesini istiyorsanız güncelleyin.
+- `LOG_LEVEL` → Uygulama loglarını `DEBUG`, `INFO`, `WARNING` gibi seviyelerle ayarlamak için kullanabilirsiniz.
+- `LLM_MODEL` (ve varsa `LLM_FALLBACK_MODEL`) → OpenAI tarafında hangi modeli kullanacağınızı seçmenizi sağlar; varsayılan `gpt-4o-mini` olarak gelir.
+- `VITE_DASHBOARD_PASSWORD` → Panel girişine ek şifre eklemek isterseniz doldurun, aksi hâlde boş bırakılabilir.
 8. **Servisi durdurmak**
    - Her terminalde `Ctrl + C` kombinasyonu ile süreçleri kapatın.
 
