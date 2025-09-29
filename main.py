@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import os
+import sys
 import json
 import logging
+import subprocess
+import time
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import List, Optional, Dict, Any
 
 from dotenv import load_dotenv
@@ -17,7 +21,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import (
-    Bot, Chat, Setting, Message, get_db, create_tables, init_default_settings,
+    Bot, Chat, Setting, Message, SystemCheck, get_db, create_tables, init_default_settings,
     BotStance, BotHolding, migrate_plain_tokens,
 )
 from schemas import (
@@ -27,6 +31,7 @@ from schemas import (
     PersonaProfile,
     StanceCreate, StanceUpdate, StanceResponse,
     HoldingCreate, HoldingUpdate, HoldingResponse,
+    SystemCheckCreate, SystemCheckResponse,
 )
 from security import mask_token, require_api_key, SecurityConfigError
 from settings_utils import normalize_message_length_profile
@@ -34,7 +39,9 @@ from settings_utils import normalize_message_length_profile
 logger = logging.getLogger("api")
 logging.basicConfig(level=os.getenv("LOG_LEVEL","INFO"))
 
-app = FastAPI(title="Telegram Market Simulation API", version="1.4.0")
+APP_ROOT = Path(__file__).resolve().parent
+
+app = FastAPI(title="Telegram Market Simulation API", version="1.5.0")
 
 # ----------------------
 # CORS
@@ -203,6 +210,120 @@ def delete_chat(chat_id: int, db: Session = Depends(get_db)):
     db.commit()
     publish_config_update(get_redis(), {"type": "chat_deleted", "chat_id": chat_id})
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ----- System Checks -----
+def _system_check_to_response(db_obj: SystemCheck) -> SystemCheckResponse:
+    details = db_obj.details or {}
+    steps = details.get("steps", [])
+    return SystemCheckResponse(
+        id=db_obj.id,
+        status=db_obj.status,
+        total_steps=db_obj.total_steps,
+        passed_steps=db_obj.passed_steps,
+        failed_steps=db_obj.failed_steps,
+        duration=db_obj.duration,
+        triggered_by=db_obj.triggered_by,
+        steps=steps,
+        created_at=db_obj.created_at,
+    )
+
+
+@app.post("/system/checks", response_model=SystemCheckResponse, status_code=status.HTTP_201_CREATED, dependencies=api_dependencies)
+def create_system_check(payload: SystemCheckCreate, db: Session = Depends(get_db)):
+    db_obj = SystemCheck(
+        status=payload.status,
+        total_steps=payload.total_steps,
+        passed_steps=payload.passed_steps,
+        failed_steps=payload.failed_steps,
+        duration=payload.duration,
+        triggered_by=payload.triggered_by,
+        details={"steps": [step.dict() for step in payload.steps]},
+    )
+    db.add(db_obj)
+    db.commit()
+    db.refresh(db_obj)
+    return _system_check_to_response(db_obj)
+
+
+@app.get("/system/checks/latest", response_model=Optional[SystemCheckResponse], dependencies=api_dependencies)
+def get_latest_system_check(db: Session = Depends(get_db)):
+    obj = (
+        db.query(SystemCheck)
+        .order_by(SystemCheck.created_at.desc())
+        .first()
+    )
+    if not obj:
+        return None
+    return _system_check_to_response(obj)
+
+
+def _run_step(name: str, cmd: List[str], env: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    started = time.time()
+    proc = subprocess.run(
+        cmd,
+        cwd=str(APP_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    duration = time.time() - started
+    return {
+        "name": name,
+        "success": proc.returncode == 0,
+        "duration": duration,
+        "stdout": proc.stdout,
+        "stderr": proc.stderr,
+    }
+
+
+@app.post("/system/checks/run", response_model=SystemCheckResponse, status_code=status.HTTP_202_ACCEPTED, dependencies=api_dependencies)
+def run_system_checks(db: Session = Depends(get_db)):
+    env = os.environ.copy()
+    env.setdefault("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
+    env.setdefault("API_BASE", os.getenv("API_BASE", "http://localhost:8000"))
+
+    steps = [
+        _run_step("preflight", [sys.executable, "preflight.py"], env=env),
+        _run_step(
+            "pytest",
+            [sys.executable, "-m", "pytest", "-q", "tests/test_api_flows.py", "tests/test_content_filters.py"],
+            env=env,
+        ),
+        _run_step(
+            "stress-test",
+            [
+                sys.executable,
+                "scripts/stress_test.py",
+                "--duration",
+                os.getenv("SYSTEM_CHECK_STRESS_DURATION", "15"),
+                "--concurrency",
+                os.getenv("SYSTEM_CHECK_STRESS_CONCURRENCY", "2"),
+            ],
+            env=env,
+        ),
+    ]
+
+    total = len(steps)
+    passed = sum(1 for step in steps if step["success"])
+    failed = total - passed
+    total_duration = sum(step["duration"] for step in steps)
+    status_value = "passed" if failed == 0 else "failed"
+
+    db_obj = SystemCheck(
+        status=status_value,
+        total_steps=total,
+        passed_steps=passed,
+        failed_steps=failed,
+        duration=total_duration,
+        triggered_by="dashboard",
+        details={"steps": steps},
+    )
+    db.add(db_obj)
+    db.commit()
+    db.refresh(db_obj)
+
+    return _system_check_to_response(db_obj)
 
 # ----- Settings -----
 def _normalize_setting_value(key: str, raw: Any) -> Dict[str, Any]:

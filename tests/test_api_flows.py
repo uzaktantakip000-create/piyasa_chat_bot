@@ -1,6 +1,7 @@
 import base64  # Required so _generate_key can use base64.urlsafe_b64encode
 import importlib
 import os
+from types import SimpleNamespace
 
 from datetime import datetime
 
@@ -187,6 +188,52 @@ def test_stance_updated_at_refreshes(api_client):
     second_updated_at = datetime.fromisoformat(stance_updated["updated_at"])
 
     assert second_updated_at > first_updated_at
+
+
+def test_system_check_flow(api_client):
+    payload = {
+        "status": "passed",
+        "total_steps": 3,
+        "passed_steps": 3,
+        "failed_steps": 0,
+        "duration": 12.5,
+        "triggered_by": "unit-test",
+        "steps": [
+            {"name": "preflight", "success": True, "duration": 3.2, "stdout": "ok", "stderr": ""},
+            {"name": "pytest", "success": True, "duration": 4.1, "stdout": "", "stderr": ""},
+            {"name": "stress-test", "success": True, "duration": 5.2, "stdout": "stress ok", "stderr": ""},
+        ],
+    }
+
+    create_resp = api_client.post("/system/checks", json=payload, headers=auth_headers())
+    assert create_resp.status_code == 201
+    created = create_resp.json()
+    assert created["status"] == "passed"
+    assert created["total_steps"] == 3
+    assert len(created["steps"]) == 3
+
+    latest = api_client.get("/system/checks/latest", headers=auth_headers())
+    assert latest.status_code == 200
+    latest_body = latest.json()
+    assert latest_body["id"] == created["id"]
+    assert latest_body["steps"][0]["name"] == "preflight"
+
+
+def test_run_system_checks_endpoint(api_client, monkeypatch):
+    import main
+
+    dummy_result = SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    def fake_run(cmd, cwd=None, env=None, capture_output=None, text=None):
+        return dummy_result
+
+    monkeypatch.setattr(main, "subprocess", SimpleNamespace(run=fake_run))
+
+    resp = api_client.post("/system/checks/run", headers=auth_headers())
+    assert resp.status_code == 202
+    data = resp.json()
+    assert data["status"] == "passed"
+    assert data["total_steps"] == 3
 
 
 def test_holding_updated_at_refreshes(api_client):
