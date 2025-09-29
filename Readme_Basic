@@ -1,0 +1,115 @@
+# Kolay Kurulum ve Kullanım Rehberi
+
+Bu dosya, bilgisayarında yazılım kurulumuna alışkın olmayan herkes için hazırlandı. Aşağıdaki adımları takip ederek Telegram'da otomatik konuşan botlardan oluşan piyasa sohbeti sistemini dakikalar içinde çalıştırabilirsiniz.
+
+## 1. Sistem ne yapar?
+- Telegram'da bir grup sohbeti varmış gibi botların otomatik mesajlaşmasını sağlar.
+- Botların konuşma stili, hızı ve hangi haberleri takip ettiği sizin verdiğiniz ayarlara göre değişir.
+- Tüm kontrolleri tarayıcıdan ulaşabildiğiniz bir yönetim panelinden yaparsınız.
+
+## 2. Başlamadan önce bilmeniz gerekenler
+- Bir Telegram hesabınız olmalı. `@BotFather` üzerinden bot oluşturup size verilen **token** değerini saklayın.
+- OpenAI hesabınız olmalı. https://platform.openai.com/account/api-keys adresinden bir **API anahtarı** oluşturun ve saklayın. Bu anahtar botların mesaj yazmasını sağlar.
+- Bilgisayarınızda en azından aşağıdakilerden biri bulunmalı:
+  - **Windows 10/11** (en kolay kurulum için)
+  - **Docker Desktop** (Windows, macOS veya Linux'ta çalışır)
+  - Veya hem **Python 3.11** hem de **Node.js 18** kurulu olmalı (manuel yöntem için)
+
+## 3. En kolay kurulum seçenekleri
+### Seçenek A – Windows kullanıcıları için tek tık (önerilen)
+1. Proje klasörünü açın ve `setup_all.cmd` dosyasına çift tıklayın.
+2. Komut penceresi sizden şu bilgileri isteyecek:
+   - **OpenAI API anahtarı** (zorunlu). Yazarken ekranda görünmez, bu normaldir.
+   - **Redis URL** ve **Database URL** (isteğe bağlı). Bilmiyorsanız boş bırakıp Enter'a basın.
+3. Betik otomatik olarak gerekli programları indirir, ayarları yapar ve 3 ayrı pencere açar: API, worker ve panel.
+4. Pencereleri kapatmayın. Tarayıcıda `http://localhost:5173` adresine gidin ve panelde oturum açın.
+5. Kapatmak isterseniz her pencerede `Ctrl + C` tuşlarına basın ve ardından komut pencerelerini kapatın.
+
+### Seçenek B – Docker kullanarak (Windows/macOS/Linux)
+1. Proje klasöründeki `.env.example` dosyasını kopyalayıp adını `.env` yapın.
+2. `.env` dosyasını bir metin düzenleyicide açın ve aşağıdaki alanları doldurun:
+   - `API_KEY=` → Panel girişinde kullanılacak cümle. Örneğin `API_KEY=SüperGizliParola2024`.
+   - `TOKEN_ENCRYPTION_KEY=` → Uzun ve karışık bir anahtar. Bilmiyorsanız Windows'ta PowerShell açıp şu komutu çalıştırın:
+     ```powershell
+     python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+     ```
+   - `OPENAI_API_KEY=` → OpenAI hesabınızdan aldığınız anahtar.
+   - `VITE_API_KEY=` ve varsa `VITE_DASHBOARD_PASSWORD=` → Tarayıcıdaki panelin hatırlayacağı değerler. `VITE_API_KEY` değeri `API_KEY` ile aynı olmalı.
+3. Terminal açın ve proje klasörüne gidin. Ardından şu komutu yazın:
+   ```bash
+   docker compose up --build
+   ```
+4. İlk kurulum birkaç dakika sürebilir. Terminalde “Ready” mesajlarını gördüğünüzde tarayıcıdan `http://localhost:3000` veya `http://localhost:5173` adresine gidin.
+5. Giriş ekranında `API_KEY` ve varsa panel şifresini yazarak oturum açın.
+6. Sistemi durdurmak için terminalde `Ctrl + C` tuşlarına basın. Tekrar başlatmak için aynı komutu yeniden çalıştırın.
+
+### Seçenek C – Manuel kurulum (Docker yoksa)
+1. Terminal açın ve proje klasörüne gidin.
+2. Python sanal ortamı oluşturup bağımlılıkları yükleyin:
+   ```bash
+   python -m venv .venv
+   # Windows: .venv\Scripts\activate
+   # macOS/Linux: source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+3. Node.js paketlerini yükleyin:
+   ```bash
+   npm install
+   ```
+4. `.env` dosyasını Seçenek B'deki gibi doldurun.
+5. Üç farklı terminal penceresi açın:
+   - **Terminal 1:** `uvicorn main:app --host 0.0.0.0 --port 8000`
+   - **Terminal 2:** (aynı sanal ortam açıkken) `python worker.py`
+   - **Terminal 3:** `npm run dev`
+6. Tarayıcıda `http://localhost:5173` adresine giderek giriş yapın.
+7. Kapatmak için her terminalde `Ctrl + C` tuşlarına basın.
+
+## 4. İlk kez giriş yaptıktan sonra ne yapmalısınız?
+1. **Panelde giriş yapın.** `API_KEY` ve varsa panel şifrenizi girin.
+2. Sol menüdeki **Wizard (Kurulum Sihirbazı)** adımını açın. Bu ekran sizi sırayla bot ekleme, sohbet seçme ve ayar belirleme sürecinde yönlendirir.
+3. İsterseniz menüden **Bots**, **Chats** ve **Settings** sayfalarına tek tek giderek aynı işlemleri ayrıntılı şekilde yapabilirsiniz.
+
+### Bot ekleme (Bots sayfası)
+- `Add bot` butonuna basın.
+- BotFather'dan aldığınız tokenı “Token” alanına yapıştırın.
+- Botun görünen adını ve isteğe bağlı kişilik açıklamasını yazın.
+- Kaydedince bot listesinde yıldızlarla maskelenmiş tokenı görürsünüz.
+
+### Sohbet ekleme (Chats sayfası)
+- `Add chat` butonuna basın.
+- Telegram grup kimliğini (örneğin `-1001234567890`) yazın.
+- Hangi botların bu sohbette konuşacağını seçin.
+
+### Ayarları düzenleme (Settings sayfası)
+- Mesaj yazma hızı, botların aktif olduğu saatler ve diğer ince ayarları burada belirleyebilirsiniz.
+- Her değişikliği kaydettikten birkaç saniye sonra worker süreci yeni ayarları otomatik olarak uygular.
+
+### Simülasyonu başlatma
+- Dashboard sayfasında "Başlat" veya "Durdur" butonlarını kullanarak tüm botların mesajlaşmasını kontrol edebilirsiniz.
+- Hız çok yüksekse Telegram hatası alabilirsiniz; "Scale" butonlarından hız ayarını düşürün.
+
+## 5. Günlük kullanımda işinize yarayacak kontroller
+- **Logs (Kayıtlar)** sekmesi, sistemde hata olup olmadığını gösterir. "429" hatası görürseniz botlar çok hızlı mesaj gönderiyordur, ayarları yavaşlatın.
+- `python preflight.py` komutu (terminalden çalıştırılır) sistemin API, veritabanı, OpenAI ve Telegram bağlantılarını tek seferde test eder. Başarılı mesajlar görüyorsanız her şey yolunda demektir.
+- Çok sayıda botu tek seferde eklemek için şu komutu kullanabilirsiniz:
+  ```bash
+  python bootstrap.py --chat-id -1001234567890 --tokens-file tokens.json --start
+  ```
+  `tokens.json` dosyasında bot tokenlarını şöyle listeleyin:
+  ```json
+  ["123456789:AAA", "987654321:BBB"]
+  ```
+
+## 6. Sorun yaşarsanız ne yapmalısınız?
+- **Panel açılmıyorsa**: Terminalde çalışan süreçlerin kapatılmadığından emin olun. Yanlışlıkla kapattıysanız ilgili komutları yeniden çalıştırın.
+- **Botlar mesaj atmıyorsa**: `OPENAI_API_KEY` değerinin doğru yazıldığını ve `python worker.py` sürecinin açık olduğunu kontrol edin.
+- **Şifreyi unuttuysanız**: `.env` dosyasındaki `API_KEY` ve `VITE_DASHBOARD_PASSWORD` satırlarını kontrol edip gerekirse yeni değerler girin. Dosyayı kaydedip çalışan servisleri yeniden başlatın.
+- **Telegram tokenınız yanlışsa**: Bots sayfasında ilgili botu silip doğru tokenla yeniden ekleyin.
+
+## 7. Özet
+- Windows'ta `setup_all.cmd`, diğer sistemlerde Docker Compose ile kurulum en hızlı çözümdür.
+- `.env` dosyasını doğru doldurmak (özellikle `OPENAI_API_KEY` alanını) botların çalışması için şarttır.
+- Panel üzerinden botları ekleyip sohbetleri ayarladıktan sonra sistem otomatik mesajlaşmayı kendi yönetir.
+- Herhangi bir sorun gördüğünüzde logları kontrol edin ve `preflight.py` komutuyla sağlık testi yapın.
+
+Bu adımları izlediğinizde teknik detaylarla uğraşmadan sistemi rahatça kurup yönetebilirsiniz. İyi sohbetler!
