@@ -14,7 +14,7 @@ services:
 
       # LLM ve Telegram
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
       - TELEGRAM_API_BASE=${TELEGRAM_API_BASE:-https://api.telegram.org}
       - TELEGRAM_TIMEOUT=${TELEGRAM_TIMEOUT:-20}
 
@@ -39,7 +39,7 @@ services:
       - DATABASE_URL=postgresql+psycopg://app:app@db:5432/app
       - REDIS_URL=redis://redis:6379/0
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
       - TELEGRAM_API_BASE=${TELEGRAM_API_BASE:-https://api.telegram.org}
       - TELEGRAM_TIMEOUT=${TELEGRAM_TIMEOUT:-20}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}

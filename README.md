@@ -52,12 +52,13 @@ Yönetim paneline erişmek için bir parola gibi düşünün. Panelde gördüğ�
 2. **Ortam dosyasını hazırlayın**
    - `piyasa_chat_bot` klasörü içinde `.env.example` dosyasını bulun.
    - Dosyayı kopyalayıp yeni adını `.env` yapın. (Windows'ta dosya adı başına nokta koymak için "Farklı Kaydet" kısmında "`.env`" yazabilirsiniz.)
-   - `.env` dosyasını bir metin editöründe açın ve şu alanları düzenleyin:
-     - `API_KEY=...` → Panel girişinde kullanılacak güçlü bir cümle yazın. (Örnek: `API_KEY=Benim-Cok-Gizli-Anahtarim`)
-     - `TOKEN_ENCRYPTION_KEY=...` → Tek satırda uzun bir anahtar olmalı. Terminaliniz varsa `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` komutunu kullanabilirsiniz. Terminal yoksa [online Fernet key generator](https://asecuritysite.com/encryption/fernet) gibi bir araçtan kopyalayabilirsiniz.
-     - `DATABASE_URL=` → Varsayılan değeri (`sqlite:///./app.db`) bırakabilirsiniz. PostgreSQL kullanmak istiyorsanız burada bağlantı adresini yazın.
-     - `ALLOWED_ORIGINS=` → Yönetim paneline hangi web adreslerinden erişileceğini yazın. Yerel kullanım için `http://localhost:5173` yeterlidir.
-     - `VITE_API_KEY=` ve `VITE_DASHBOARD_PASSWORD=` → Panelin tarayıcı tarafında hatırlayacağı değerlerdir. `VITE_API_KEY`, az önce belirlediğiniz `API_KEY` ile aynı olmalıdır. İsterseniz panel için ayrıca bir şifre (`VITE_DASHBOARD_PASSWORD`) tanımlayabilirsiniz.
+     - `.env` dosyasını bir metin editöründe açın ve şu alanları düzenleyin:
+       - `API_KEY=...` → Panel girişinde kullanılacak güçlü bir cümle yazın. (Örnek: `API_KEY=Benim-Cok-Gizli-Anahtarim`)
+       - `TOKEN_ENCRYPTION_KEY=...` → Tek satırda uzun bir anahtar olmalı. Terminaliniz varsa `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` komutunu kullanabilirsiniz. Terminal yoksa [online Fernet key generator](https://asecuritysite.com/encryption/fernet) gibi bir araçtan kopyalayabilirsiniz.
+       - `OPENAI_API_KEY=...` → Sohbet mesajlarının üretilebilmesi için [OpenAI hesap panelinden](https://platform.openai.com/account/api-keys) oluşturduğunuz anahtarı girin. Gerekirse `LLM_MODEL=` satırını `gpt-4o-mini` dışındaki bir modelle güncelleyebilirsiniz.
+       - `DATABASE_URL=` → Varsayılan değeri (`sqlite:///./app.db`) bırakabilirsiniz. PostgreSQL kullanmak istiyorsanız burada bağlantı adresini yazın.
+       - `ALLOWED_ORIGINS=` → Yönetim paneline hangi web adreslerinden erişileceğini yazın. Yerel kullanım için `http://localhost:5173` yeterlidir.
+       - `VITE_API_KEY=` ve `VITE_DASHBOARD_PASSWORD=` → Panelin tarayıcı tarafında hatırlayacağı değerlerdir. `VITE_API_KEY`, az önce belirlediğiniz `API_KEY` ile aynı olmalıdır. İsterseniz panel için ayrıca bir şifre (`VITE_DASHBOARD_PASSWORD`) tanımlayabilirsiniz.
 3. **Docker'ı başlatın**
    - Terminal (PowerShell, CMD, macOS Terminal vb.) açın.
    - Proje klasörüne geçin. Örnek: `cd C:\Users\kullanici\Downloads\piyasa_chat_bot`
@@ -87,6 +88,7 @@ Yönetim paneline erişmek için bir parola gibi düşünün. Panelde gördüğ�
    ```
 3. **.env dosyasını hazırlayın**
    - Docker adımlarındaki aynı ayarları buraya da uygulayın.
+   - Özellikle `OPENAI_API_KEY=sk-...` satırını doldurmayı unutmayın; aksi halde LLM tabanlı mesaj üretimi çalışmaz. Modeli değiştirmek isterseniz `.env` içinde `LLM_MODEL=` değerini güncelleyebilirsiniz.
 4. **API'yi başlatın**
    ```bash
    uvicorn main:app --reload

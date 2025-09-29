@@ -83,7 +83,7 @@ def check_llm():
     try:
         from openai import OpenAI
         client = OpenAI(api_key=key, base_url=os.getenv("OPENAI_API_BASE"))
-        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        model = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
         r = client.chat.completions.create(
             model=model,
             messages=[{"role": "system", "content": "ok: kısa yanıt ver"}, {"role": "user", "content": "ping"}],
