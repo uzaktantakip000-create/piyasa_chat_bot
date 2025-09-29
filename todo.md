@@ -52,3 +52,14 @@
 - [x] Mesaj uzunluk profili değerlerini API katmanında otomatik normalize ederek toplamın %100 olmasını garanti altına alma.
 - [x] Ayarlar panelindeki mesaj uzunluk kaydırıcılarını normalize eden ve toplam yüzdelik göstergesi sunan kullanıcı dostu arayüz geliştirmesi.
 
+### UX İyileştirme Görevleri
+- [x] Dashboard metrikleri yüklenene kadar görsel geri bildirim ve "güncelleniyor" durumu ekle.
+- [x] Dashboard başlığına manuel yenile düğmesi ekle ve veri gecikmelerini InlineNotice ile bildir.
+- [x] Bot ve sohbet CRUD akışlarında tarayıcı uyarıları yerine panel içi toast/diyalog geri bildirimi kullan.
+- [x] Bot ve sohbet listelerine arama, durum filtresi ve toplu işlem yetenekleri ekle.
+- [x] Bot ve sohbet formlarında alan doğrulaması ve yardım metinleri ekle.
+- [x] QuickStart rehberine ilerleme göstergesi ekle.
+- [x] QuickStart kopyalama aksiyonlarını geliştirilmiş hata/başarı bildirimleri ve bağlamsal CTA'larla güçlendir.
+- [x] Giriş panelinde oturum durumu ve parola gereksinimleri hakkında açıklayıcı içerik sun.
+- [x] Dashboard kartlarında eşik temelli tema/ikon göstergeleri ile anlam katmanı oluştur.
+

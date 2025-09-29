@@ -17,11 +17,20 @@ function LoginPanel({ onSubmit, submitting, error, requiresPassword, defaultApiK
         onSubmit={handleSubmit}
         className="w-full max-w-md rounded-xl border border-border bg-card shadow-sm p-8 space-y-6"
       >
-        <div className="space-y-2 text-center">
+        <div className="space-y-3 text-center">
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Yönetim Paneli Girişi</h1>
           <p className="text-sm text-muted-foreground">
-            API anahtarını ve (tanımlıysa) panel şifresini girerek devam edin.
+            API anahtarını ve (tanımlıysa) panel şifresini girerek devam edin. Oturumunuz tarayıcınızda saklanan bir anahtar ile
+            korunur.
           </p>
+          <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-left text-xs leading-relaxed text-blue-800">
+            <p className="font-semibold text-blue-900">Güvenlik ipuçları</p>
+            <ul className="mt-1 list-disc space-y-1 pl-4">
+              <li>API anahtarınız yalnızca bu cihazdaki yerel depoda tutulur ve "Çıkış" yaptığınızda otomatik olarak temizlenir.</li>
+              <li>Panel şifreniz en az 12 karakter olmalı ve büyük/küçük harf, rakam ve özel karakter içermelidir.</li>
+              <li>Paylaşımlı cihazlarda işi bitince tarayıcı sekmesini kapatıp yeniden giriş yaparak oturumu doğrulayın.</li>
+            </ul>
+          </div>
         </div>
 
         <div className="space-y-1">
@@ -50,7 +59,7 @@ function LoginPanel({ onSubmit, submitting, error, requiresPassword, defaultApiK
             </button>
           </div>
           <p className="text-xs text-muted-foreground">
-            API anahtarınızı yönetim paneli ayarları bölümünden edinebilirsiniz.
+            Anahtar, arka uç API’si ile tüm çağrılarınızı imzalamak için kullanılır; anahtarınızı kimseyle paylaşmayın.
           </p>
         </div>
 
@@ -80,7 +89,7 @@ function LoginPanel({ onSubmit, submitting, error, requiresPassword, defaultApiK
               </button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Panel şifresi, yetkili yöneticiler tarafından sağlanmaktadır.
+              Panel şifresi yalnızca doğrulama için kullanılır; giriş yaptıktan sonra istemcide saklanmaz.
             </p>
           </div>
         )}
