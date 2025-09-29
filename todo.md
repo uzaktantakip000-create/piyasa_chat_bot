@@ -57,6 +57,7 @@
 - [ ] Dashboard manuel yenileme ve kritik aksiyonları için klavye kısayolları tanımlayarak güç kullanıcılarına daha hızlı erişim sun.
 - [ ] QuickStart ilerleme durumunu kullanıcı bazında hatırlayarak onboarding rehberine kaldığı yerden devam etme deneyimi sağla.
 
+=======
 ### UX İyileştirme Görevleri
 - [x] Dashboard metrikleri yüklenene kadar görsel geri bildirim ve "güncelleniyor" durumu ekle.
 - [x] Dashboard başlığına manuel yenile düğmesi ekle ve veri gecikmelerini InlineNotice ile bildir.
