@@ -56,8 +56,11 @@
 - [ ] Liste tablolarında sütun başlıklarına göre sıralama özelliği ekleyerek kalabalık veri setlerinde aranan kaydı hızla bulmayı kolaylaştır.
 - [ ] Dashboard manuel yenileme ve kritik aksiyonları için klavye kısayolları tanımlayarak güç kullanıcılarına daha hızlı erişim sun.
 - [ ] QuickStart ilerleme durumunu kullanıcı bazında hatırlayarak onboarding rehberine kaldığı yerden devam etme deneyimi sağla.
+- [x] Tek komutla API, worker ve paneli ayağa kaldırıp sağlık kontrollerini yürüten `scripts/oneclick.py` komutunu hazırla.
+- [x] One-click başlatma sonrasında smoke test ve stres testi sırayla koşturan otomasyon akışını uygula.
+- [x] Test sonuçlarını veritabanında saklayıp `/system/checks/latest` uç noktasıyla panele servis et.
+- [x] Dashboard'da son test özetini ve stres testi kontrollerini gösteren yeni kart ekle.
 
-=======
 ### UX İyileştirme Görevleri
 - [x] Dashboard metrikleri yüklenene kadar görsel geri bildirim ve "güncelleniyor" durumu ekle.
 - [x] Dashboard başlığına manuel yenile düğmesi ekle ve veri gecikmelerini InlineNotice ile bildir.

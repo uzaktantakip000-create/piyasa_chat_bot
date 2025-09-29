@@ -159,6 +159,24 @@ class BotHolding(Base):
     )
 
 
+class SystemCheck(Base):
+    __tablename__ = "system_checks"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    status = Column(String(32), nullable=False)
+    total_steps = Column(Integer, nullable=False)
+    passed_steps = Column(Integer, nullable=False)
+    failed_steps = Column(Integer, nullable=False)
+    duration = Column(Float, nullable=True)
+    triggered_by = Column(String(64), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    details = Column(JSON, default=dict)
+
+    __table_args__ = (
+        Index("ix_system_checks_created", "created_at"),
+    )
+
+
 # --------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------
