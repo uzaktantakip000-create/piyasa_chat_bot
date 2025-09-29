@@ -56,6 +56,13 @@ function AppShell() {
   const [firstMetricsLoaded, setFirstMetricsLoaded] = useState(false)
   const [manualRefreshing, setManualRefreshing] = useState(false)
 
+
+  const safeMessagesPerMinute = useMemo(() => {
+    const value = Number(metrics?.messages_per_minute ?? 0)
+    return Number.isFinite(value) ? value : 0
+  }, [metrics])
+=======
+
   const expectedPassword = import.meta.env?.VITE_DASHBOARD_PASSWORD || ''
   const SESSION_FLAG_KEY = 'piyasa.dashboard.session'
   const passwordRequired = Boolean(expectedPassword)
@@ -372,6 +379,7 @@ function AppShell() {
                 <div className="flex items-center gap-2">
                   <TrendingUp className="h-4 w-4" />
                   {firstMetricsLoaded ? (
+                    <span>{safeMessagesPerMinute.toFixed(1)} msg/dk</span>
                     <span>{metrics.messages_per_minute.toFixed(1)} msg/dk</span>
                   ) : (
                     <span className="flex h-4 w-20 animate-pulse items-center rounded bg-muted/60" aria-hidden="true" />

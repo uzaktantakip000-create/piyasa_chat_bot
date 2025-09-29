@@ -1,3 +1,5 @@
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+=======
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 
@@ -54,6 +56,20 @@ export function ToastProvider({ children }) {
     [showToast, dismissToast]
   )
 
+  useEffect(() => {
+    return () => {
+      Object.values(timeoutsRef.current).forEach((timeoutId) => {
+        if (typeof window !== 'undefined') {
+          window.clearTimeout(timeoutId)
+        } else {
+          clearTimeout(timeoutId)
+        }
+      })
+      timeoutsRef.current = {}
+    }
+  }, [])
+
+=======
   return (
     <ToastContext.Provider value={value}>
       {children}
