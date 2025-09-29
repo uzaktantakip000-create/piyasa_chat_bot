@@ -5,7 +5,8 @@ import os
 from datetime import datetime
 
 import pytest
-from fastapi.testclient import TestClient
+
+from .patched_testclient import PatchedTestClient
 
 
 def _generate_key() -> str:
@@ -30,7 +31,7 @@ def api_client(tmp_path, monkeypatch):
 
     from main import app
 
-    with TestClient(app) as client:
+    with PatchedTestClient(app) as client:
         yield client
 
 
