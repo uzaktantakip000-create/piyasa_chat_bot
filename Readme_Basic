@@ -37,12 +37,26 @@ Bu dosya, bilgisayarında yazılım kurulumuna alışkın olmayan herkes için h
    - `VITE_API_KEY=` ve varsa `VITE_DASHBOARD_PASSWORD=` → Tarayıcıdaki panelin hatırlayacağı değerler. `VITE_API_KEY` değeri `API_KEY` ile aynı olmalı. `VITE_DASHBOARD_PASSWORD` boş kalırsa (varsayılan durum) panel sizden ekstra şifre istemez; isterseniz buraya güçlü bir şifre yazıp paneli daha da koruyabilirsiniz.
    - `DATABASE_URL=` → Varsayılan değer (`sqlite:///./app.db`) yerel klasördeki `app.db` dosyasını kullanır. Hazır bir PostgreSQL veritabanınız varsa bağlantı adresini buraya yazabilirsiniz.
    - `REDIS_URL=` → Redis sunucunuz yoksa bu alanı boş bırakabilirsiniz. Redis kullanıyorsanız adresi (ör. `redis://kullanici:sifre@sunucu:6379/0`) buraya yazın.
+=======
+
+   - `VITE_API_KEY=` ve varsa `VITE_DASHBOARD_PASSWORD=` → Tarayıcıdaki panelin hatırlayacağı değerler. `VITE_API_KEY` değeri `API_KEY` ile aynı olmalı. `VITE_DASHBOARD_PASSWORD` boş kalırsa (varsayılan durum) panel sizden ekstra şifre istemez; isterseniz buraya güçlü bir şifre yazıp paneli daha da koruyabilirsiniz.
+   - `DATABASE_URL=` → Varsayılan değer (`sqlite:///./app.db`) yerel klasördeki `app.db` dosyasını kullanır. Hazır bir PostgreSQL veritabanınız varsa bağlantı adresini buraya yazabilirsiniz.
+   - `REDIS_URL=` → Redis sunucunuz yoksa bu alanı boş bırakabilirsiniz. Redis kullanıyorsanız adresi (ör. `redis://kullanici:sifre@sunucu:6379/0`) buraya yazın.
+=======
+   - `VITE_API_KEY=` ve varsa `VITE_DASHBOARD_PASSWORD=` → Tarayıcıdaki panelin hatırlayacağı değerler. `VITE_API_KEY` değeri `API_KEY` ile aynı olmalı.
+
 3. Terminal açın ve proje klasörüne gidin. Ardından şu komutu yazın:
    ```bash
    docker compose up --build
    ```
 4. İlk kurulum birkaç dakika sürebilir. Terminalde “Ready” mesajlarını gördüğünüzde tarayıcıdan `http://localhost:3000` veya `http://localhost:5173` adresine gidin.
 5. Giriş ekranında `API_KEY` ve varsa panel şifresini yazarak oturum açın. Panel şifresi girmediyseniz sadece `API_KEY` yeterlidir.
+=======
+
+5. Giriş ekranında `API_KEY` ve varsa panel şifresini yazarak oturum açın. Panel şifresi girmediyseniz sadece `API_KEY` yeterlidir.
+=======
+5. Giriş ekranında `API_KEY` ve varsa panel şifresini yazarak oturum açın.
+
 6. Sistemi durdurmak için terminalde `Ctrl + C` tuşlarına basın. Tekrar başlatmak için aynı komutu yeniden çalıştırın.
 
 ### Seçenek C – Manuel kurulum (Docker yoksa)
@@ -64,6 +78,12 @@ Bu dosya, bilgisayarında yazılım kurulumuna alışkın olmayan herkes için h
    - **Terminal 2:** (aynı sanal ortam açıkken) `python worker.py`
    - **Terminal 3:** `npm run dev`
 6. Tarayıcıda `http://localhost:5173` adresine giderek giriş yapın. Panel şifresi tanımlamadıysanız yalnızca `API_KEY` alanını doldurun.
+=======
+
+6. Tarayıcıda `http://localhost:5173` adresine giderek giriş yapın. Panel şifresi tanımlamadıysanız yalnızca `API_KEY` alanını doldurun.
+=======
+6. Tarayıcıda `http://localhost:5173` adresine giderek giriş yapın.
+
 7. Kapatmak için her terminalde `Ctrl + C` tuşlarına basın.
 
 ## 4. İlk kez giriş yaptıktan sonra ne yapmalısınız?
@@ -113,7 +133,7 @@ Bu dosya, bilgisayarında yazılım kurulumuna alışkın olmayan herkes için h
 - `.env` dosyasını doğru doldurmak (özellikle `OPENAI_API_KEY` alanını) botların çalışması için şarttır.
 - Panel üzerinden botları ekleyip sohbetleri ayarladıktan sonra sistem otomatik mesajlaşmayı kendi yönetir.
 - Herhangi bir sorun gördüğünüzde logları kontrol edin ve `preflight.py` komutuyla sağlık testi yapın.
-
+=======
 ### Opsiyonel Ayarlar (Bilginiz yoksa boş bırakın)
 - `REDIS_URL` → Redis kurulumunuz yoksa dokunmayın. Varsa bağlantı adresini yazın.
 - `DATABASE_URL` → Varsayılan SQLite dosyası işinizi görüyorsa değiştirmeyin. Harici veritabanı kullanmak isterseniz buraya yazın.
@@ -121,5 +141,5 @@ Bu dosya, bilgisayarında yazılım kurulumuna alışkın olmayan herkes için h
 - `LOG_LEVEL` → Logların detay seviyesini değiştirmek için `INFO`, `DEBUG` gibi değerler girebilirsiniz.
 - `LLM_MODEL` → OpenAI tarafında farklı bir model kullanmak istiyorsanız değerini değiştirin.
 - `VITE_DASHBOARD_PASSWORD` → Panel girişine ekstra şifre koymak isterseniz doldurun; boşsa sistem sadece `API_KEY` sorar.
-
+=======
 Bu adımları izlediğinizde teknik detaylarla uğraşmadan sistemi rahatça kurup yönetebilirsiniz. İyi sohbetler!
