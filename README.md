@@ -141,8 +141,25 @@ Windows 10/11 kullanıcıları için `setup_all.cmd` betiği, manuel olarak yapm
    - Dashboard ana sayfasında yer alan kontrol butonları ile tüm botları durdurup yeniden başlatabilirsiniz.
    - `Scale` butonları ile hız çarpanını değiştirebilirsiniz.
 5. **Logları inceleme**
-   - **Logs** sekmesi, API ve worker tarafından yakalanan hataları gösterir.
-   - Telegram rate limit uyarıları (ör. `429 Too Many Requests`) görürseniz mesaj hızını azaltın.
+- **Logs** sekmesi, API ve worker tarafından yakalanan hataları gösterir.
+  - Telegram rate limit uyarıları (ör. `429 Too Many Requests`) görürseniz mesaj hızını azaltın.
+
+### Toplu bot eklemek için komut satırı
+- Aşağıdaki komut, yönetim paneline girmeden birden fazla botu aynı anda eklemenin en hızlı yoludur:
+  ```bash
+  python bootstrap.py --chat-id -1001234567890 --tokens-file tokens.json --start
+  ```
+- Betik çalışırken sırasıyla şu adımları uygular:
+  - API'nin hazır olduğunu doğrulamak için `http://localhost:8000/healthz` uç noktasına istek atar.
+  - Belirttiğiniz `--chat-id` değerine sahip sohbet kayıtlı değilse otomatik olarak oluşturur.
+  - `tokens.json` dosyasındaki listeyi okuyup her token için bot kaydı açar.
+  - `--start` parametresini verdiyseniz simülasyonu başlatmak için API'ye kontrol isteği gönderir.
+- `tokens.json` dosyası basit bir JSON dizisidir. Örnek:
+  ```json
+  ["111:AAA", "222:BBB"]
+  ```
+- `bootstrap.py` dosyasının başarılı şekilde bot ekleyebilmesi için arka planda `python worker.py` komutuyla çalışan bir worker sürecinin açık olması gerekir.
+- Betik, işlemler sırasında oluşan hata ve durum mesajlarını doğrudan terminale yazdırır; sorun yaşarsanız çıktıyı inceleyerek hangi adımda takıldığınızı görebilirsiniz.
 
 ## Günlük kullanım önerileri
 - Önemli değişikliklerden önce `.env` dosyasının ve `app.db` veritabanının yedeğini alın.
