@@ -45,6 +45,22 @@ Yönetim paneline erişmek için bir parola gibi düşünün. Panelde gördüğ�
 ## Kurulum için iki seçenek
 Çoğu kullanıcı için en kolay yol **Docker Compose** kullanmaktır. Bilgisayarınızda Docker yoksa veya kullanmak istemiyorsanız, manuel kurulum adımlarını izleyebilirsiniz.
 
+### Seçenek C: Windows'ta `setup_all.cmd` ile tam otomatik kurulum
+Windows 10/11 kullanıcıları için `setup_all.cmd` betiği, manuel olarak yapmanız gereken adımların tamamını tek seferde gerçekleştirir. Betik çalışırken komut istemcisinde birkaç soru sorulur ve bazı pencereler açılır; bu durum normaldir.
+
+1. **Betik neleri yapar?**
+   - `.venv` klasörü içinde Python sanal ortamını oluşturur ve aktive eder.
+   - `pip install -r requirements.txt` komutunu çalıştırarak Python bağımlılıklarını kurar.
+   - `npm install` ile React paneli için Node.js paketlerini yükler.
+   - `.env` dosyasını kontrol edip varsa eksik alanları doldurmanız için sizi yönlendirir; `OPENAI_API_KEY`, isteğe bağlı `REDIS_URL` ve `DATABASE_URL` değerlerini girmeniz istenir.
+   - FastAPI sunucusunu, worker sürecini ve Vite geliştirme sunucusunu sırasıyla başlatır. Her biri kendi terminal penceresinde açılabilir; kapanmasını beklemeyin.
+2. **Nasıl çalıştırılır?**
+   - Dosya gezgininde proje klasörüne gidin (`piyasa_chat_bot`).
+   - `setup_all.cmd` dosyasına çift tıklayın **ya da** CMD penceresinde klasöre geçip `setup_all.cmd` yazın.
+   - Komut istemcisi sizden OpenAI anahtarınızı (zorunlu) ve Redis/PostgreSQL bağlantı adreslerini (isteğe bağlı, boş bırakabilirsiniz) girdi olarak isteyecektir. Anahtarı girerken gözükmez; yazıp Enter'a basın.
+   - Betik sırasında açılan API, worker ve frontend pencereleri çalışmaya devam etmelidir; kurulum tamamlandığında tarayıcıdan `http://localhost:5173` adresine bağlanıp panelde oturum açabilirsiniz.
+   - Betiği tekrar çalıştırmak isterseniz pencereleri kapatıp CMD'de `Ctrl + C` ile süreçleri durdurduktan sonra adımları tekrarlayın.
+
 ### Seçenek A: Docker Compose (önerilen)
 1. **Kaynak dosyaları indirin**
    - GitHub'da sağ üstten **Code → Download ZIP** diyerek projeyi indirin.
