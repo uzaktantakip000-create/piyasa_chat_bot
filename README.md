@@ -98,6 +98,7 @@ Ek araçlar:
   ```
 - **Hızlı sağlık taraması:** API, veritabanı ve dış servisleri kontrol etmek için `python preflight.py` komutunu kullanın. API ayakta değilse bağlantı hatası almanız normaldir; komut amaç gereği bunu raporlar.
 - **Worker doğrulaması:** `python worker.py --check-only` komutu gerekli modüllerin yüklenip yüklenmediğini test eder.
+- **README kaynak eşitlemesi:** `python scripts/generate_readme_resources.py` komutu `docs/` klasöründeki Markdown dosyalarını okuyup README'deki "Yol Haritası ve Kaynaklar" listesini günceller. GitHub Actions üzerinde çalışan `validate-roadmap` iş akışı `--check` parametresiyle aynı doğrulamayı otomatik olarak yapar ve liste güncel değilse katkıları başarısız olarak işaretler.
 
 ---
 
@@ -110,8 +111,12 @@ Ek araçlar:
 ---
 
 ## 7. Yol Haritası ve Kaynaklar
-- Daha ayrıntılı log ve alarm yönetimi için `docs/error_management.md` dosyasına bakın.
-- Raporlama modülüne dair plan `docs/reporting_roadmap.md` içinde yer alır.
+<!-- README_DOCS_START -->
+- [Hata Yönetimi ve Log Merkezileştirme Stratejisi](docs/error_management.md)
+- [Panel Kullanıcı Deneyimi Geliştirme Planı](docs/panel_user_experience_plan.md)
+- [Test Sonuçları ve Sistem Sağlığı Raporlama Modülü — Kapsam & Roadmap](docs/reporting_roadmap.md)
+- [Kullanıcı Deneyimini Profesyonelleştirme Önerileri](docs/ux-improvement-suggestions.md)
+<!-- README_DOCS_END -->
 - QuickStart kartındaki görsel rehber `docs/dashboard-login.svg` dosyasında bulunur.
 
 Kurulum tamamlandıktan sonra tarayıcı paneli üzerinden botları yönetebilir, `pytest` ile regresyon testlerini çalıştırabilir ve `python scripts/oneclick.py` komutuyla tüm servislerin sağlık raporunu alabilirsiniz.
