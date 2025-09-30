@@ -149,6 +149,7 @@ if "%IS_CI%"=="1" (
   "%PYVENV%" -c "from fastapi.testclient import TestClient; from main import app; import sys; resp=TestClient(app).get('/healthz'); sys.exit(0 if resp.status_code==200 else 1)" >nul 2>nul
   if errorlevel 1 (
     echo( [UYARI] API saglik testi CI ortaminda basarisiz oldu.
+    call :reset_errorlevel
   ) else (
     echo(     API saglik testi basarili.
   )
@@ -156,6 +157,7 @@ if "%IS_CI%"=="1" (
   "%PYVENV%" worker.py --check-only >nul 2>nul
   if errorlevel 1 (
     echo( [UYARI] Worker kontrolu CI ortaminda basarisiz oldu.
+    call :reset_errorlevel
   ) else (
     echo(     Worker betigi kontrolu gecti.
   )
@@ -195,18 +197,22 @@ if "%IS_CI%"=="1" (
 
 :front_no_pkg
 echo( package.json yok; frontend adimi atlandi.
+call :reset_errorlevel
 goto :front_done
 
 :front_no_node
 echo( [UYARI] Node.js bulunamadi. Frontend calistirilmayacak.
+call :reset_errorlevel
 goto :front_done
 
 :front_npm_fail
 echo( [UYARI] npm install basarisiz; frontend atlandi.
+call :reset_errorlevel
 goto :front_done
 
 :front_build_fail
 echo( [UYARI] npm run build basarisiz oldu.
+call :reset_errorlevel
 goto :front_done
 
 :front_done
@@ -267,8 +273,12 @@ if "%READY%"=="1" (
   echo(     API hazir.
 ) else (
   echo( [UYARI] API'dan cevap alinamadi. Pencereyi kontrol edin.
+  call :reset_errorlevel
 )
 goto :eof
+
+:reset_errorlevel
+exit /b 0
 
 :end
 echo(
