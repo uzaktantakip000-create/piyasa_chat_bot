@@ -60,6 +60,47 @@ def test_bulk_update_requires_payload(api_client):
     assert 'No updates' in response.text
 
 
+
+def test_patch_news_feed_urls_validates_and_deduplicates(api_client):
+    response = api_client.patch(
+        '/settings/news_feed_urls',
+        json={
+            'value': [
+                'https://example.com/rss',
+                'https://another.com/feed',
+                'https://example.com/rss',  # duplicate
+                '  https://third.com/news  ',
+            ]
+        },
+        headers=auth_headers(),
+    )
+    assert response.status_code == 200
+    data = response.json()
+    feeds = _unwrap(data['value'])
+    assert feeds == [
+        'https://example.com/rss',
+        'https://another.com/feed',
+        'https://third.com/news',
+    ]
+
+    # Ensure persisted normalization when fetching settings again
+    fetched = api_client.get('/settings', headers=auth_headers())
+    assert fetched.status_code == 200
+    settings = {item['key']: _unwrap(item['value']) for item in fetched.json()}
+    assert settings['news_feed_urls'] == feeds
+
+
+def test_patch_news_feed_urls_rejects_invalid_urls(api_client):
+    response = api_client.patch(
+        '/settings/news_feed_urls',
+        json={'value': ['https://valid.com/rss', 'notaurl']},
+        headers=auth_headers(),
+    )
+    assert response.status_code == 400
+    assert 'Geçersiz RSS adresi' in response.text
+
+
+
 def test_metrics_handles_wrapped_setting_values(api_client):
     from database import SessionLocal, Setting
 
