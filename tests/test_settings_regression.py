@@ -60,6 +60,7 @@ def test_bulk_update_requires_payload(api_client):
     assert 'No updates' in response.text
 
 
+
 def test_patch_news_feed_urls_validates_and_deduplicates(api_client):
     response = api_client.patch(
         '/settings/news_feed_urls',
@@ -97,6 +98,7 @@ def test_patch_news_feed_urls_rejects_invalid_urls(api_client):
     )
     assert response.status_code == 400
     assert 'Geçersiz RSS adresi' in response.text
+
 
 
 def test_metrics_handles_wrapped_setting_values(api_client):
