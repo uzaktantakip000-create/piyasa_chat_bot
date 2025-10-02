@@ -17,7 +17,7 @@ import redis
 from fastapi import Body, Depends, HTTPException, Query, Response, status
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, AnyHttpUrl, ValidationError, parse_obj_as
 from sqlalchemy.orm import Session
 
 from database import (
@@ -356,6 +356,33 @@ def _setting_to_response(row: Setting) -> SettingResponse:
     )
 
 
+def _normalize_news_feed_urls(value: Any) -> List[str]:
+    if isinstance(value, dict) and "value" in value and len(value) == 1:
+        value = value["value"]
+
+    if isinstance(value, str):
+        candidates = [value]
+    elif isinstance(value, list):
+        candidates = value
+    else:
+        raise HTTPException(status_code=400, detail="news_feed_urls değeri liste olmalıdır.")
+
+    normalized: List[str] = []
+    for item in candidates:
+        item_str = str(item or "").strip()
+        if not item_str:
+            continue
+        try:
+            parsed = parse_obj_as(AnyHttpUrl, item_str)
+        except ValidationError:
+            raise HTTPException(status_code=400, detail=f"Geçersiz RSS adresi: {item_str}")
+        parsed_str = str(parsed)
+        if parsed_str not in normalized:
+            normalized.append(parsed_str)
+
+    return normalized
+
+
 @app.get("/settings", response_model=List[SettingResponse], dependencies=api_dependencies)
 def list_settings(db: Session = Depends(get_db)):
     rows = db.query(Setting).order_by(Setting.key.asc()).all()
@@ -386,6 +413,8 @@ def update_settings_bulk(body: SettingsBulkUpdate, db: Session = Depends(get_db)
     for k, v in body.updates.items():
         if k == "message_length_profile":
             v = normalize_message_length_profile(v)
+        if k == "news_feed_urls":
+            v = _normalize_news_feed_urls(v)
         row = db.query(Setting).filter(Setting.key == k).first()
         if not row:
             row = Setting(key=k, value=v)
@@ -410,6 +439,8 @@ def update_setting(key: str, payload: SettingUpdate, db: Session = Depends(get_d
     value = payload.value
     if key == "message_length_profile":
         value = normalize_message_length_profile(value)
+    if key == "news_feed_urls":
+        value = _normalize_news_feed_urls(value)
     row = db.query(Setting).filter(Setting.key == key).first()
     if not row:
         row = Setting(key=key, value=value)

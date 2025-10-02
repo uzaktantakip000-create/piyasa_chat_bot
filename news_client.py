@@ -44,9 +44,11 @@ class NewsClient:
         NEWS_USE_LLM_SUMMARY    -> "true" ise başlığı LLM ile kısa/temkinli Türkçe özetler
     """
 
-    def __init__(self) -> None:
+    def __init__(self, feeds: Optional[List[str]] = None) -> None:
         urls = os.getenv("NEWS_RSS_URLS", "").strip()
-        self.feeds: List[str] = [u.strip() for u in urls.split(",") if u.strip()] or DEFAULT_FEEDS
+        env_feeds = [u.strip() for u in urls.split(",") if u.strip()]
+        initial = env_feeds or (feeds or DEFAULT_FEEDS)
+        self.feeds: List[str] = self._normalize_feeds(initial)
         self.ttl = int(os.getenv("NEWS_TTL_SECONDS", "300"))
         self.timeout = float(os.getenv("NEWS_TIMEOUT", "6"))
         self.use_llm = os.getenv("NEWS_USE_LLM_SUMMARY", "false").lower() in ("1", "true", "yes")
@@ -61,6 +63,15 @@ class NewsClient:
                 self._llm = LLMClient()
             except Exception:
                 self._llm = None
+
+    def set_feeds(self, feeds: List[str]) -> None:
+        """Replace feed list and drop cache so next call pulls fresh data."""
+        normalized = self._normalize_feeds(feeds)
+        if normalized == self.feeds:
+            return
+        self.feeds = normalized
+        self._cache_items = []
+        self._cache_at = None
 
     # ------------- public -------------
     def get_brief(self, topic_hint: Optional[str]) -> Optional[str]:
@@ -142,6 +153,16 @@ class NewsClient:
                 out.append(NewsItem(title=title, published=pub, link=link))
 
         return out
+
+    def _normalize_feeds(self, feeds: List[str]) -> List[str]:
+        seen: List[str] = []
+        for url in feeds:
+            url_str = str(url).strip()
+            if not url_str:
+                continue
+            if url_str not in seen:
+                seen.append(url_str)
+        return seen or list(DEFAULT_FEEDS)
 
     def _parse_date(self, s: str) -> Optional[datetime]:
         # Çok basit yaklaşımlar (RFC 2822 / ISO)
