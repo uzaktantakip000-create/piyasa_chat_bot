@@ -22,14 +22,19 @@ set "ACTIVATE=%VENV_DIR%\Scripts\activate"
 echo(
 echo [1/9] Python kontrol ediliyor...
 set "PY_SYS="
-where python >nul 2>nul && set "PY_SYS=python"
-if "%PY_SYS%"=="" (
-  where py >nul 2>nul && set "PY_SYS=py -3"
+set "PY_VERSION_NUM="
+for %%P in ("py -3.11" "python3.11" "python311" "py -3" "python") do (
+  if "!PY_SYS!"=="" call :detect_python %%~P
 )
 if "%PY_SYS%"=="" (
-  echo( [HATA] Python bulunamadı. Lütfen Python 3.11+ kurup PATH'e ekleyin.
+  echo( [HATA] Python 3.11 veya üzeri bulunamadı. Lütfen Python 3.11+ kurup PATH'e ekleyin.
   goto :end
 )
+set /a PY_MAJOR=%PY_VERSION_NUM% / 100 >nul
+set /a PY_MINOR=%PY_VERSION_NUM% %% 100 >nul
+echo(     Python bulundu: %PY_SYS% (sürüm %PY_MAJOR%.%PY_MINOR%)
+set "PY_MAJOR="
+set "PY_MINOR="
 
 :: 1) Venv oluştur/aktif et
 echo(
@@ -99,6 +104,34 @@ if "%HAS_PS%"=="1" (
   )
   echo %KEY%=%VAL%>> ".env"
 )
+goto :eof
+
+:detect_python
+set "CAND=%~1"
+if "%CAND%"=="" goto :eof
+set "PY_CMD="
+set "PY_ARGS="
+for /f "tokens=1* delims= " %%A in ("%CAND%") do (
+  set "PY_CMD=%%~A"
+  set "PY_ARGS=%%~B"
+)
+if "!PY_CMD!"=="" goto :detect_python_end
+if defined PY_ARGS (
+  %PY_CMD% !PY_ARGS! --version >nul 2>nul || goto :detect_python_end
+  for /f %%V in ('%PY_CMD% !PY_ARGS! -c "import sys;print(sys.version_info[0]*100+sys.version_info[1])" 2^>nul') do set "PY_TEMP_VER=%%V"
+) else (
+  %PY_CMD% --version >nul 2>nul || goto :detect_python_end
+  for /f %%V in ('%PY_CMD% -c "import sys;print(sys.version_info[0]*100+sys.version_info[1])" 2^>nul') do set "PY_TEMP_VER=%%V"
+)
+if "!PY_TEMP_VER!"=="" goto :detect_python_end
+if !PY_TEMP_VER! LSS 311 goto :detect_python_end
+set "PY_SYS=%CAND%"
+set "PY_VERSION_NUM=!PY_TEMP_VER!"
+
+:detect_python_end
+set "PY_TEMP_VER="
+set "PY_CMD="
+set "PY_ARGS="
 goto :eof
 
 :ci_env
