@@ -13,6 +13,7 @@ from sqlalchemy.orm import declarative_base, relationship, sessionmaker, Session
 
 from security import decrypt_token, encrypt_token, SecurityConfigError
 from settings_utils import DEFAULT_MESSAGE_LENGTH_PROFILE
+from news_client import DEFAULT_FEEDS
 
 logger = logging.getLogger("database")
 
@@ -252,6 +253,8 @@ def init_default_settings() -> None:
             "rate_limit_hits": 0,        # (deprecated) geriye dönük uyumluluk
             "telegram_429_count": 0,
             "telegram_5xx_count": 0,
+            # Haber akışı RSS adresleri
+            "news_feed_urls": list(DEFAULT_FEEDS),
         }
 
         for k, v in defaults.items():
@@ -262,3 +265,35 @@ def init_default_settings() -> None:
         db.commit()
     finally:
         db.close()
+
+
+def migrate_news_feed_urls_setting() -> None:
+    """Ensure the ``news_feed_urls`` setting exists for legacy installs."""
+    db = SessionLocal()
+    try:
+        row = db.query(Setting).filter(Setting.key == "news_feed_urls").first()
+        if row is None:
+            db.add(Setting(key="news_feed_urls", value=list(DEFAULT_FEEDS)))
+            db.commit()
+            logger.info("Added default news_feed_urls setting for legacy database.")
+        elif not isinstance(row.value, list):
+            row.value = list(DEFAULT_FEEDS)
+            db.commit()
+            logger.info("Normalized news_feed_urls setting to list value.")
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Database utilities")
+    parser.add_argument(
+        "--migrate-news-feed-urls",
+        action="store_true",
+        help="Ensure news_feed_urls setting exists with default feeds.",
+    )
+    args = parser.parse_args()
+
+    if args.migrate_news_feed_urls:
+        migrate_news_feed_urls_setting()

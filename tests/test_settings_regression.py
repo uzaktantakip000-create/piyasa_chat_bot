@@ -58,3 +58,75 @@ def test_bulk_update_requires_payload(api_client):
     response = api_client.put('/settings/bulk', json={'updates': {}}, headers=auth_headers())
     assert response.status_code == 400
     assert 'No updates' in response.text
+
+
+def test_patch_news_feed_urls_validates_and_deduplicates(api_client):
+    response = api_client.patch(
+        '/settings/news_feed_urls',
+        json={
+            'value': [
+                'https://example.com/rss',
+                'https://another.com/feed',
+                'https://example.com/rss',  # duplicate
+                '  https://third.com/news  ',
+            ]
+        },
+        headers=auth_headers(),
+    )
+    assert response.status_code == 200
+    data = response.json()
+    feeds = _unwrap(data['value'])
+    assert feeds == [
+        'https://example.com/rss',
+        'https://another.com/feed',
+        'https://third.com/news',
+    ]
+
+    # Ensure persisted normalization when fetching settings again
+    fetched = api_client.get('/settings', headers=auth_headers())
+    assert fetched.status_code == 200
+    settings = {item['key']: _unwrap(item['value']) for item in fetched.json()}
+    assert settings['news_feed_urls'] == feeds
+
+
+def test_patch_news_feed_urls_rejects_invalid_urls(api_client):
+    response = api_client.patch(
+        '/settings/news_feed_urls',
+        json={'value': ['https://valid.com/rss', 'notaurl']},
+        headers=auth_headers(),
+    )
+    assert response.status_code == 400
+    assert 'Geçersiz RSS adresi' in response.text
+
+
+def test_metrics_handles_wrapped_setting_values(api_client):
+    from database import SessionLocal, Setting
+
+    db = SessionLocal()
+    try:
+        fixtures = {
+            'simulation_active': {'value': True},
+            'scale_factor': {'value': 1.75},
+            'rate_limit_hits': {'value': 12},
+            'telegram_429_count': {'value': 4},
+            'telegram_5xx_count': {'value': 7},
+        }
+        for key, value in fixtures.items():
+            row = db.query(Setting).filter(Setting.key == key).first()
+            if row is None:
+                db.add(Setting(key=key, value=value))
+            else:
+                row.value = value
+        db.commit()
+    finally:
+        db.close()
+
+    response = api_client.get('/metrics', headers=auth_headers())
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data['simulation_active'] is True
+    assert data['scale_factor'] == pytest.approx(1.75)
+    assert data['rate_limit_hits'] == 12
+    assert data['telegram_429_count'] == 4
+    assert data['telegram_5xx_count'] == 7

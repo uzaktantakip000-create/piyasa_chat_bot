@@ -17,7 +17,7 @@ import redis
 from fastapi import Body, Depends, HTTPException, Query, Response, status
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, AnyHttpUrl, ValidationError, parse_obj_as
 from sqlalchemy.orm import Session
 
 from database import (
@@ -36,7 +36,7 @@ from schemas import (
     SystemCheckResponse,
 )
 from security import mask_token, require_api_key, SecurityConfigError
-from settings_utils import normalize_message_length_profile
+from settings_utils import normalize_message_length_profile, unwrap_setting_value
 
 logger = logging.getLogger("api")
 logging.basicConfig(level=os.getenv("LOG_LEVEL","INFO"))
@@ -339,6 +339,44 @@ def run_system_checks(db: Session = Depends(get_db)):
     return _system_check_to_response(db_obj)
 
 # ----- Settings -----
+def _unwrap_or_default(row: Optional[Setting], default: Any) -> Any:
+    if row is None:
+        return default
+    value = unwrap_setting_value(row.value)
+    return default if value is None else value
+
+
+def _as_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off", ""}:
+            return False
+    if value is None:
+        return default
+    return bool(value)
+
+
+def _as_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return default
+
+
 def _normalize_setting_value(key: str, raw: Any) -> Dict[str, Any]:
     if key == "message_length_profile":
         normalized = normalize_message_length_profile(raw)
@@ -354,6 +392,33 @@ def _setting_to_response(row: Setting) -> SettingResponse:
         value=_normalize_setting_value(row.key, row.value),
         updated_at=row.updated_at,
     )
+
+
+def _normalize_news_feed_urls(value: Any) -> List[str]:
+    if isinstance(value, dict) and "value" in value and len(value) == 1:
+        value = value["value"]
+
+    if isinstance(value, str):
+        candidates = [value]
+    elif isinstance(value, list):
+        candidates = value
+    else:
+        raise HTTPException(status_code=400, detail="news_feed_urls değeri liste olmalıdır.")
+
+    normalized: List[str] = []
+    for item in candidates:
+        item_str = str(item or "").strip()
+        if not item_str:
+            continue
+        try:
+            parsed = parse_obj_as(AnyHttpUrl, item_str)
+        except ValidationError:
+            raise HTTPException(status_code=400, detail=f"Geçersiz RSS adresi: {item_str}")
+        parsed_str = str(parsed)
+        if parsed_str not in normalized:
+            normalized.append(parsed_str)
+
+    return normalized
 
 
 @app.get("/settings", response_model=List[SettingResponse], dependencies=api_dependencies)
@@ -386,6 +451,8 @@ def update_settings_bulk(body: SettingsBulkUpdate, db: Session = Depends(get_db)
     for k, v in body.updates.items():
         if k == "message_length_profile":
             v = normalize_message_length_profile(v)
+        if k == "news_feed_urls":
+            v = _normalize_news_feed_urls(v)
         row = db.query(Setting).filter(Setting.key == k).first()
         if not row:
             row = Setting(key=k, value=v)
@@ -410,6 +477,8 @@ def update_setting(key: str, payload: SettingUpdate, db: Session = Depends(get_d
     value = payload.value
     if key == "message_length_profile":
         value = normalize_message_length_profile(value)
+    if key == "news_feed_urls":
+        value = _normalize_news_feed_urls(value)
     row = db.query(Setting).filter(Setting.key == key).first()
     if not row:
         row = Setting(key=key, value=value)
@@ -473,10 +542,16 @@ def metrics(db: Session = Depends(get_db)):
     tg429_row = db.query(Setting).filter(Setting.key == "telegram_429_count").first()
     tg5xx_row = db.query(Setting).filter(Setting.key == "telegram_5xx_count").first()
 
+    sim_value = _unwrap_or_default(sim_active_row, False)
+    scale_value = _unwrap_or_default(scale_row, 1.0)
+    rl_value = _unwrap_or_default(rl_row, None)
+    tg429_value = _unwrap_or_default(tg429_row, 0)
+    tg5xx_value = _unwrap_or_default(tg5xx_row, 0)
+
     # Geri uyumluluk: rate_limit_hits yoksa telegram_5xx_count değerini göster
-    rate_limit_hits = int(rl_row.value) if rl_row else (int(tg5xx_row.value) if tg5xx_row else 0)
-    telegram_429_count = int(tg429_row.value) if tg429_row else 0
-    telegram_5xx_count = int(tg5xx_row.value) if tg5xx_row else 0
+    rate_limit_hits = _as_int(rl_value, 0) if rl_value is not None else _as_int(tg5xx_value, 0)
+    telegram_429_count = _as_int(tg429_value, 0)
+    telegram_5xx_count = _as_int(tg5xx_value, 0)
 
     return MetricsResponse(
         total_bots=total_bots,
@@ -484,8 +559,8 @@ def metrics(db: Session = Depends(get_db)):
         total_chats=total_chats,
         messages_last_hour=last_hour_msgs,
         messages_per_minute=per_min,
-        simulation_active=bool(sim_active_row.value) if sim_active_row else False,
-        scale_factor=float(scale_row.value) if scale_row else 1.0,
+        simulation_active=_as_bool(sim_value, False),
+        scale_factor=_as_float(scale_value, 1.0),
         rate_limit_hits=rate_limit_hits,
         telegram_429_count=telegram_429_count,
         telegram_5xx_count=telegram_5xx_count,
