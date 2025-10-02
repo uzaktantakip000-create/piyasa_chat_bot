@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Clock,
   MessageSquare,
@@ -53,6 +54,7 @@ function Settings() {
   const [saving, setSaving] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
+  const [newsFeedsText, setNewsFeedsText] = useState('')
 
   // Fetch settings
   const fetchSettings = async () => {
@@ -60,14 +62,20 @@ function Settings() {
       const response = await apiFetch('/settings')
       const data = await response.json()
       const settingsObj = {}
+      let feedsValue = ''
       data.forEach(setting => {
         let nextValue = setting.value
         if (setting.key === 'message_length_profile' && setting.value?.value) {
           nextValue = { value: normalizeMessageLengthProfile(setting.value.value) }
         }
         settingsObj[setting.key] = nextValue
+        if (setting.key === 'news_feed_urls') {
+          const arr = Array.isArray(nextValue?.value) ? nextValue.value : []
+          feedsValue = arr.join('\n')
+        }
       })
       setSettings(settingsObj)
+      setNewsFeedsText(feedsValue)
       setErrorMessage('')
       setSuccessMessage('')
     } catch (error) {
@@ -105,6 +113,7 @@ function Settings() {
         [key]: payload
       }))
       setSuccessMessage('Ayar başarıyla güncellendi.')
+      return true
     } catch (error) {
       console.error('Failed to update setting:', error)
       setErrorMessage(
@@ -113,8 +122,20 @@ function Settings() {
           : 'Ayar güncellenirken beklenmeyen bir hata oluştu.'
       )
       setSuccessMessage('')
+      return false
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleNewsFeedsSave = async () => {
+    const feeds = newsFeedsText
+      .split(/\r?\n|,/)
+      .map(item => item.trim())
+      .filter(Boolean)
+    const ok = await updateSetting('news_feed_urls', { value: feeds })
+    if (ok) {
+      setNewsFeedsText(feeds.join('\n'))
     }
   }
 
@@ -315,6 +336,24 @@ function Settings() {
                 <p className="text-xs text-muted-foreground">
                   {`Toplam: %${messageLengthTotal}. Kaydırıcıları değiştirdiğinizde oranlar otomatik olarak %100’e normalize edilir; kısa mesaj ağırlığı yüksek olduğunda Telegram rate-limit’leri daha toleranslıdır.`}
                 </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>RSS Haber Kaynakları</Label>
+                <p className="text-xs text-muted-foreground">
+                  Her satıra bir RSS adresi yazabilir veya virgülle ayırabilirsiniz. Boş bırakılırsa varsayılan liste kullanılır.
+                </p>
+                <Textarea
+                  value={newsFeedsText}
+                  onChange={(e) => setNewsFeedsText(e.target.value)}
+                  className="min-h-[120px]"
+                  placeholder={'https://örnek.com/rss\nhttps://başka.com/feed'}
+                />
+                <div className="flex justify-end">
+                  <Button onClick={handleNewsFeedsSave} disabled={saving}>
+                    Kaydet
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
