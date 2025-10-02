@@ -11,6 +11,13 @@ import httpx
 load_dotenv()
 
 API_BASE = os.getenv("API_BASE", "http://localhost:8000")
+API_KEY = os.getenv("API_KEY")
+
+
+def api_headers() -> Optional[Dict[str, str]]:
+    if API_KEY:
+        return {"X-API-Key": API_KEY}
+    return None
 
 
 def eprint(*args, **kwargs):
@@ -31,16 +38,18 @@ def _fail(msg: str):
 
 def api_get(path: str) -> Optional[Dict[str, Any]]:
     url = f"{API_BASE.rstrip('/')}{path}"
+    headers = api_headers()
     with httpx.Client(timeout=15) as client:
-        r = client.get(url)
+        r = client.get(url, headers=headers)
         r.raise_for_status()
         return r.json()
 
 
 def api_post(path: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     url = f"{API_BASE.rstrip('/')}{path}"
+    headers = api_headers()
     with httpx.Client(timeout=20) as client:
-        r = client.post(url, json=data)
+        r = client.post(url, json=data, headers=headers)
         r.raise_for_status()
         try:
             return r.json()
@@ -141,6 +150,8 @@ def check_telegram():
 
 def main():
     print(f"[i] API_BASE = {API_BASE}")
+    if not API_KEY:
+        _warn("API_KEY set değil. API çağrıları yetkilendirme hatası verebilir.")
     api_ok = check_api()
     db_ok = check_db() if api_ok else False
     llm_ok = check_llm()
