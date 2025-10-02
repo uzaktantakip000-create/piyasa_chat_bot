@@ -40,11 +40,11 @@ Aşağıdaki yöntemlerden size uyanı seçin. Her yol sonunda paneli `http://lo
 ### Yöntem A – Docker Compose (önerilen)
 1. Projeyi indirin ve klasöre girin.
 2. `.env.example` dosyasını `.env` olarak kopyalayıp yukarıdaki alanları doldurun.
-3. Terminalde projeye gidip şu komutu çalıştırın:
+3. Terminalde projeye gidip şu komutu çalıştırın (API, worker ve Vite tabanlı panel konteyneri birlikte ayağa kalkar):
    ```bash
    docker compose up --build
    ```
-4. Servisler hazır olduğunda tarayıcıdan panel adresine gidin ve `API_KEY` (ve varsa panel şifreniz) ile giriş yapın.
+4. Servisler hazır olduğunda tarayıcıdan `http://localhost:5173` adresindeki panele gidin ve `API_KEY` (ve varsa panel şifreniz) ile giriş yapın.
 5. Durdurmak için `Ctrl + C` veya başka bir terminalden `docker compose down` komutunu kullanın.
 
 ### Yöntem B – Windows için `setup_all.cmd`
