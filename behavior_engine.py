@@ -19,6 +19,7 @@ from database import (
 from settings_utils import (
     DEFAULT_MESSAGE_LENGTH_PROFILE,
     normalize_message_length_profile,
+    unwrap_setting_value,
 )
 from llm_client import LLMClient
 from system_prompt import (
@@ -102,7 +103,7 @@ def normalize_text(s: str) -> str:
 # ---------------------------
 def load_settings(db: Session) -> Dict[str, Any]:
     rows = db.query(Setting).all()
-    d = {r.key: r.value for r in rows}
+    d = {r.key: unwrap_setting_value(r.value) for r in rows}
     # Varsayılanlar (güvenli)
     d.setdefault("max_msgs_per_min", 6)
     d.setdefault("typing_enabled", True)
