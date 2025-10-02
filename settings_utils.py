@@ -50,7 +50,22 @@ def normalize_message_length_profile(raw: Any) -> Dict[str, float]:
     return normalized
 
 
+def unwrap_setting_value(value: Any) -> Any:
+    """Unwrap legacy ``{"value": ...}`` payloads stored in the database."""
+    seen = set()
+    current = value
+    while isinstance(current, dict) and "value" in current and len(current) == 1:
+        # Protect against pathological self-referential dicts
+        obj_id = id(current)
+        if obj_id in seen:
+            break
+        seen.add(obj_id)
+        current = current["value"]
+    return current
+
+
 __all__ = [
     "DEFAULT_MESSAGE_LENGTH_PROFILE",
     "normalize_message_length_profile",
+    "unwrap_setting_value",
 ]

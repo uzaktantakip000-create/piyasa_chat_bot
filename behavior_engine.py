@@ -19,6 +19,7 @@ from database import (
 from settings_utils import (
     DEFAULT_MESSAGE_LENGTH_PROFILE,
     normalize_message_length_profile,
+    unwrap_setting_value,
 )
 from llm_client import LLMClient
 from system_prompt import (
@@ -27,7 +28,7 @@ from system_prompt import (
     summarize_stances,
 )
 from telegram_client import TelegramClient
-from news_client import NewsClient  # <-- HABER TETIKLEYICI
+from news_client import NewsClient, DEFAULT_FEEDS  # <-- HABER TETIKLEYICI
 
 logger = logging.getLogger("behavior")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -102,7 +103,7 @@ def normalize_text(s: str) -> str:
 # ---------------------------
 def load_settings(db: Session) -> Dict[str, Any]:
     rows = db.query(Setting).all()
-    d = {r.key: r.value for r in rows}
+    d = {r.key: unwrap_setting_value(r.value) for r in rows}
     # Varsayılanlar (güvenli)
     d.setdefault("max_msgs_per_min", 6)
     d.setdefault("typing_enabled", True)
@@ -128,6 +129,21 @@ def load_settings(db: Session) -> Dict[str, Any]:
     # HABER tetikleyici
     d.setdefault("news_trigger_enabled", True)     # market_trigger aktif mi?
     d.setdefault("news_trigger_probability", 0.75) # %75 olasılıkla tetik kullan
+
+    stored_feeds = d.get("news_feed_urls")
+    if not isinstance(stored_feeds, list):
+        stored_feeds = []
+    stored_feeds = [str(u).strip() for u in stored_feeds if str(u).strip()]
+
+    env_urls = os.getenv("NEWS_RSS_URLS", "")
+    env_feeds = [u.strip() for u in env_urls.split(",") if u.strip()]
+
+    merged: List[str] = []
+    for candidate in env_feeds + stored_feeds:
+        if candidate not in merged:
+            merged.append(candidate)
+
+    d["news_feed_urls"] = merged or list(DEFAULT_FEEDS)
     return d
 
 
@@ -160,6 +176,7 @@ class BehaviorEngine:
         except Exception as e:
             logger.warning("NewsClient init failed: %s", e)
             self.news = None
+        self._active_news_feeds: List[str] = list(self.news.feeds) if self.news else []
 
         # Redis (opsiyonel) - async subscriber
         self._redis_url: Optional[str] = os.getenv("REDIS_URL") or None
@@ -171,12 +188,30 @@ class BehaviorEngine:
         if (now_utc() - self._settings_loaded_at) > timedelta(seconds=15):
             self._last_settings = load_settings(db)
             self._settings_loaded_at = now_utc()
+            feeds = self._last_settings.get("news_feed_urls")
+            if isinstance(feeds, list):
+                self._update_news_feeds(feeds)
         return self._last_settings
 
     def _invalidate_settings_cache(self):
         # Bir sonraki erişimde yeniden yüklensin
         self._settings_loaded_at = datetime.min.replace(tzinfo=UTC)
         logger.info("Settings cache invalidated via config update.")
+
+    def _update_news_feeds(self, feeds: List[str]) -> None:
+        if self.news is None:
+            return
+        normalized = [str(u).strip() for u in feeds if str(u).strip()]
+        if not normalized:
+            normalized = list(DEFAULT_FEEDS)
+        if normalized == self._active_news_feeds:
+            return
+        try:
+            self.news.set_feeds(normalized)
+            self._active_news_feeds = list(self.news.feeds)
+            logger.info("News feed list updated (%d entries).", len(self._active_news_feeds))
+        except Exception as exc:
+            logger.warning("Failed to update news feeds: %s", exc)
 
     # ---- Redis listener ----
     async def _config_listener(self):
@@ -212,6 +247,23 @@ class BehaviorEngine:
 
                 # Şimdilik herkes için cache invalid
                 self._invalidate_settings_cache()
+
+                if (
+                    self.news is not None
+                    and isinstance(data.get("keys"), list)
+                    and "news_feed_urls" in data.get("keys", [])
+                ):
+                    try:
+                        db = SessionLocal()
+                        try:
+                            fresh = load_settings(db)
+                        finally:
+                            db.close()
+                        feeds = fresh.get("news_feed_urls")
+                        if isinstance(feeds, list):
+                            self._update_news_feeds(feeds)
+                    except Exception as exc:
+                        logger.warning("Failed to refresh news feeds after config update: %s", exc)
 
                 # İleride: data['type'] kontrolü ile hedefli aksiyonlar (örn. belirli chat/bot)
                 logger.debug("Config update received: %s", data)
