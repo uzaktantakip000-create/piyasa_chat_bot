@@ -104,7 +104,9 @@ USER_TEMPLATE = """\
 [KONU]
 Şu konu üzerinde konuş: {topic_name}
 
-[GEÇMİŞTEN KISA ÖZET]
+[GEÇMİŞ DİYALOG TRANSKRİPTİ]
+Aşağıdaki satırlar kronolojik sırada konuşmacı ve mesaj içerir.
+Formatı aynen yorumla ve gerektiğinde doğrudan referans al (örn. "[Ali]: ..."):
 {history_excerpt}
 
 [CEVAP BAĞLAMI]
@@ -121,6 +123,7 @@ USER_TEMPLATE = """\
 - Kısa ve okunaklı yaz ({length_hint}). Gereksiz listeleme yapma.
 - Eğer görüş, mevcut STANCE ile belirgin çelişiyorsa kısaca "nedenini" belirt veya tonunu yumuşat.
 - Gerektiğinde "yatırım tavsiyesi değildir." cümlesini kısa bir not olarak ekleyebilirsin.
+- Geçmiş diyalog satırlarının formatını bozma; gerektiğinde katılımcıları aynı etiketlerle an.
 
 [MENTION]
 {mention_context}
@@ -153,7 +156,7 @@ def generate_user_prompt(
         stance_summary=s_summary,
         holdings_summary=h_summary,
         topic_name=(topic_name or "").strip()[:120],
-        history_excerpt=(history_excerpt or "").strip()[:600],
+        history_excerpt=(history_excerpt or "").strip()[:900],
         reply_context=(reply_context or "").strip()[:400],
         market_trigger=(market_trigger or "").strip()[:240],
         mode=(mode or "new"),

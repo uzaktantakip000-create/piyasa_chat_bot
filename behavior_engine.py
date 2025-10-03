@@ -8,7 +8,7 @@ import os
 import random
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Sequence
 
 from sqlalchemy.orm import Session
 
@@ -88,6 +88,62 @@ def shorten(s: Optional[str], max_chars: int) -> str:
     if len(s) <= max_chars:
         return s
     return s[: max_chars - 1] + "…"
+
+
+def _resolve_message_speaker(message: Any) -> str:
+    """Best effort speaker label for history transcripts."""
+
+    bot = getattr(message, "bot", None)
+    if bot is not None:
+        username = getattr(bot, "username", None)
+        if isinstance(username, str) and username.strip():
+            return username.lstrip("@")
+        name = getattr(bot, "name", None)
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+        bot_id = getattr(message, "bot_id", None)
+        if bot_id is not None:
+            return f"Bot#{bot_id}"
+        return "Bot"
+
+    # İnsan katılımcılar için potansiyel alanlar
+    for attr in ("sender_name", "author_name", "display_name"):
+        candidate = getattr(message, attr, None)
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+
+    meta = getattr(message, "meta", None)
+    if isinstance(meta, dict):
+        for key in ("sender_name", "username", "author", "display_name"):
+            candidate = meta.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+
+    chat = getattr(message, "chat", None)
+    if chat is not None:
+        title = getattr(chat, "title", None)
+        if isinstance(title, str) and title.strip():
+            return title.strip()
+
+    return "Kullanıcı"
+
+
+def build_history_transcript(messages: Sequence[Any]) -> str:
+    """Create a multi-line dialog transcript from chronological messages."""
+
+    lines: List[str] = []
+    for msg in messages:
+        if msg is None:
+            continue
+        text = getattr(msg, "text", "") or ""
+        text = re.sub(r"\s+", " ", str(text)).strip()
+        if not text:
+            text = "(boş)"
+        snippet = shorten(text, 180)
+        speaker = _resolve_message_speaker(msg)
+        lines.append(f"[{speaker}]: {snippet}")
+
+    return "\n".join(lines)
 
 
 def choose_message_length_category(
@@ -635,8 +691,8 @@ METİN:
                 .limit(6)
                 .all()
             )
-            # Sadece metinle kısa bir özet yap
-            history_excerpt = " | ".join([shorten(m.text, 120) for m in reversed(last_msgs)])
+            # Son mesajlardan çok satırlı diyalog transkripti oluştur
+            history_excerpt = build_history_transcript(list(reversed(last_msgs)))
             reply_excerpt = shorten(reply_msg.text if reply_msg else "", 240)
 
             # Topic seç (cooldown filtreli havuzdan)
