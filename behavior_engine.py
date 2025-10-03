@@ -617,9 +617,15 @@ class BehaviorEngine:
         return last_min_msgs < per_min_limit
 
     # ---- Persona/Stance/Holdings çekme ----
-    def fetch_psh(self, db: Session, bot: Bot, topic_hint: Optional[str]) -> tuple[Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    def fetch_psh(
+        self,
+        db: Session,
+        bot: Bot,
+        topic_hint: Optional[str],
+    ) -> tuple[Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]], str]:
         """Bot için persona_profile + stances + holdings verilerini oku ve sadeleştir."""
         persona_profile = bot.persona_profile or {}
+        persona_hint = (bot.persona_hint or "").strip()
 
         # Stance'ler: son güncellenene öncelik
         stance_rows: List[BotStance] = (
@@ -659,7 +665,7 @@ class BehaviorEngine:
                 "updated_at": h.updated_at.isoformat() if h.updated_at else None,
             })
 
-        return persona_profile, stances, holdings
+        return persona_profile, stances, holdings, persona_hint
 
     # ---- Tutarlılık koruması ----
     def apply_consistency_guard(
@@ -765,7 +771,12 @@ METİN:
             # Persona/Stance/Holdings verilerini çek (erken çekiyoruz çünkü topic seçiminde cooldown gerekiyor)
             topic_hint_pool = (chat.topics or ["BIST", "FX", "Kripto", "Makro"]).copy()
 
-            persona_profile, stances, holdings = self.fetch_psh(db, bot, topic_hint=None)
+            (
+                persona_profile,
+                stances,
+                holdings,
+                persona_hint,
+            ) = self.fetch_psh(db, bot, topic_hint=None)
 
             # Cooldown filtre: cooldown'da olan konuları pool'dan çıkar
             if bool(s.get("cooldown_filter_enabled", True)):
@@ -859,6 +870,7 @@ METİN:
                 stances=stances,
                 holdings=holdings,
                 length_hint=length_hint,
+                persona_hint=persona_hint,
             )
 
             # LLM üretimi (taslak)

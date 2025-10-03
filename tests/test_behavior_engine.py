@@ -120,3 +120,22 @@ def test_speed_profile_scales_delays_and_typing(tmp_path, monkeypatch):
         assert typing_duration == pytest.approx(expected_typing)
     finally:
         session.close()
+
+
+def test_generate_user_prompt_includes_persona_hint():
+    from system_prompt import generate_user_prompt
+
+    prompt = generate_user_prompt(
+        topic_name="BIST",
+        history_excerpt="",
+        reply_context="",
+        market_trigger="",
+        mode="new",
+        persona_profile=None,
+        stances=None,
+        holdings=None,
+        length_hint="kısa",
+        persona_hint="iyimser ve temkinli",
+    )
+
+    assert "iyimser ve temkinli" in prompt
