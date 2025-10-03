@@ -90,6 +90,58 @@ def shorten(s: Optional[str], max_chars: int) -> str:
     return s[: max_chars - 1] + "…"
 
 
+def choose_message_length_category(
+    profile: Optional[Dict[str, float]], *, rng: Optional[random.Random] = None
+) -> str:
+    """Sample a message length category from a normalized profile."""
+
+    if not isinstance(profile, dict):
+        profile = DEFAULT_MESSAGE_LENGTH_PROFILE
+
+    rng = rng or random
+    cutoff = rng.random()
+
+    cumulative = 0.0
+    chosen = None
+    for key in DEFAULT_MESSAGE_LENGTH_PROFILE:
+        weight = float(profile.get(key, 0.0))
+        if weight < 0:
+            weight = 0.0
+        cumulative += weight
+        if cutoff <= cumulative:
+            chosen = key
+            break
+
+    if chosen is None:
+        chosen = next(iter(DEFAULT_MESSAGE_LENGTH_PROFILE))
+
+    return chosen
+
+
+_MESSAGE_LENGTH_HINTS = {
+    "short": "bu tur: kısa tut (1-2 cümle)",
+    "medium": "bu tur: orta uzunluk (2-3 cümle)",
+    "long": "bu tur: biraz daha detay (3-4 cümle)",
+}
+
+
+def compose_length_hint(
+    *, persona_profile: Optional[Dict[str, Any]], selected_category: str
+) -> str:
+    """Combine persona style length with the sampled category hint."""
+
+    parts: List[str] = []
+    if persona_profile:
+        style = persona_profile.get("style") or {}
+        persona_length = style.get("length")
+        if persona_length:
+            parts.append(str(persona_length))
+
+    parts.append(_MESSAGE_LENGTH_HINTS.get(selected_category, selected_category))
+
+    return " | ".join(parts)
+
+
 def normalize_text(s: str) -> str:
     """Tekrar kontrolü için basit normalizasyon."""
     s = (s or "").lower().strip()
@@ -601,9 +653,15 @@ METİN:
                             market_trigger = brief
             except Exception as e:
                 logger.debug("news trigger error: %s", e)
-                market_trigger = ""
 
             # (prompt için) Stance/holding özetleri; topic'i ipucu olarak veriyoruz
+            selected_length_category = choose_message_length_category(
+                s.get("message_length_profile")
+            )
+            length_hint = compose_length_hint(
+                persona_profile=persona_profile,
+                selected_category=selected_length_category,
+            )
             user_prompt = generate_user_prompt(
                 topic_name=topic,
                 history_excerpt=shorten(history_excerpt, 400),
@@ -614,6 +672,7 @@ METİN:
                 persona_profile=persona_profile,
                 stances=stances,
                 holdings=holdings,
+                length_hint=length_hint,
             )
 
             # LLM üretimi (taslak)
