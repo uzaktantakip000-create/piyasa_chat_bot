@@ -54,6 +54,13 @@ def summarize_persona(persona: Optional[Dict[str, Any]]) -> str:
     return " | ".join(parts) if parts else "—"
 
 
+def format_persona_hint(persona_hint: Optional[str]) -> str:
+    hint = (persona_hint or "").strip()
+    if not hint:
+        return ""
+    return f"Tarz ipucu: {hint}"
+
+
 def summarize_stances(stances: Optional[List[Dict[str, Any]]]) -> str:
     if not stances:
         return "—"
@@ -94,6 +101,7 @@ def summarize_holdings(holds: Optional[List[Dict[str, Any]]]) -> str:
 USER_TEMPLATE = """\
 [PERSONA]
 {persona_summary}
+{persona_hint_section}
 
 [STANCE]
 {stance_summary}
@@ -142,6 +150,7 @@ def generate_user_prompt(
     stances: Optional[List[Dict[str, Any]]] = None,
     holdings: Optional[List[Dict[str, Any]]] = None,
     length_hint: str = "gerekirse 2-3 cümle",
+    persona_hint: str = "",
 ) -> str:
     """
     Geriye dönük uyumlu kullanıcı prompt'u. persona/stances/holdings verilirse
@@ -153,6 +162,7 @@ def generate_user_prompt(
 
     prompt = USER_TEMPLATE.format(
         persona_summary=p_summary,
+        persona_hint_section=format_persona_hint(persona_hint),
         stance_summary=s_summary,
         holdings_summary=h_summary,
         topic_name=(topic_name or "").strip()[:120],
