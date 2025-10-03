@@ -73,10 +73,39 @@ def parse_ranges(ranges: List[str]) -> List[tuple]:
 def is_prime_hours(ranges: List[str]) -> bool:
     local = datetime.now()  # sistemin yerel saati (sunucu)
     hm = local.hour * 60 + local.minute
+    if not ranges:
+        return False
+    return _time_matches_ranges(ranges, hm)
+
+
+def _time_matches_ranges(ranges: List[str], minute_of_day: int) -> bool:
     for (s, e) in parse_ranges(ranges):
-        if s <= hm <= e:
-            return True
+        if s <= e:
+            if s <= minute_of_day <= e:
+                return True
+        else:
+            # Gece yarısı devreden aralık (örn. 22:00-02:00)
+            if minute_of_day >= s or minute_of_day <= e:
+                return True
     return False
+
+
+def is_within_active_hours(ranges: Optional[List[str]], *, moment: Optional[datetime] = None) -> bool:
+    """Yerel zamana göre active_hours aralığında mı? Liste boşsa her zaman aktif say."""
+
+    if not ranges:
+        return True
+
+    local = moment or datetime.now()
+    hm = local.hour * 60 + local.minute
+    return _time_matches_ranges(list(ranges), hm)
+
+
+def _safe_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def clamp(v: float, lo: float, hi: float) -> float:
@@ -348,6 +377,8 @@ class BehaviorEngine:
         one_hour_ago = now_utc() - timedelta(hours=1)
         eligible: List[Bot] = []
         for b in bots:
+            if not self._bot_is_active_now(b):
+                continue
             sent_last_hour = (
                 db.query(Message)
                 .filter(Message.bot_id == b.id, Message.created_at >= one_hour_ago)
@@ -359,6 +390,13 @@ class BehaviorEngine:
         if not eligible:
             return None
         return random.choice(eligible)
+
+    def _bot_is_active_now(self, bot: Bot) -> bool:
+        try:
+            ranges = bot.active_hours  # type: ignore[attr-defined]
+        except Exception:
+            ranges = None
+        return is_within_active_hours(ranges if isinstance(ranges, list) else None)
 
     def _active_cooldown_topics(self, stances: List[Dict[str, Any]]) -> List[str]:
         active: List[str] = []
@@ -402,7 +440,7 @@ class BehaviorEngine:
         return target, mention_handle
 
     # ---- Gecikme ve hız ----
-    def next_delay_seconds(self, db: Session) -> float:
+    def next_delay_seconds(self, db: Session, *, bot: Optional[Bot] = None) -> float:
         s = self.settings(db)
         # prime saatlerde gecikmeyi kısalt
         base = 30.0  # ortalama gecikme tabanı
@@ -410,17 +448,109 @@ class BehaviorEngine:
             base = 18.0
         # scale factor uygula
         base = base * float(s.get("scale_factor", 1.0))
-        # exponential + jitter
-        delay = exp_delay(base) * random.uniform(0.7, 1.3)
-        return clamp(delay, 2.0, 180.0)
+        delay_profile = self._resolve_delay_profile(bot)
 
-    def typing_seconds(self, db: Session, est_chars: int) -> float:
+        if "base_delay_seconds" in delay_profile:
+            base = _safe_float(delay_profile.get("base_delay_seconds"), base)
+
+        multiplier = _safe_float(
+            delay_profile.get("delay_multiplier", delay_profile.get("multiplier", 1.0)), 1.0
+        )
+        mean = max(base * multiplier, 0.0)
+
+        jitter_min = _safe_float(
+            delay_profile.get("jitter_min", delay_profile.get("delay_jitter_min", 0.7)), 0.7
+        )
+        jitter_max = _safe_float(
+            delay_profile.get("jitter_max", delay_profile.get("delay_jitter_max", 1.3)), 1.3
+        )
+        if jitter_max < jitter_min:
+            jitter_min, jitter_max = jitter_max, jitter_min
+
+        delay = exp_delay(mean if mean > 0 else 1.0) * random.uniform(jitter_min, jitter_max)
+
+        min_delay = _safe_float(
+            delay_profile.get(
+                "min_seconds",
+                delay_profile.get("delay_min_seconds", delay_profile.get("seconds_min", 2.0)),
+            ),
+            2.0,
+        )
+        max_delay = _safe_float(
+            delay_profile.get(
+                "max_seconds",
+                delay_profile.get("delay_max_seconds", delay_profile.get("seconds_max", 180.0)),
+            ),
+            180.0,
+        )
+        return clamp(delay, min_delay, max_delay)
+
+    def typing_seconds(self, db: Session, est_chars: int, *, bot: Optional[Bot] = None) -> float:
         wpm = self.settings(db).get("typing_speed_wpm", {"min": 2.5, "max": 4.5})
-        mean_wpm = (float(wpm.get("min", 2.5)) + float(wpm.get("max", 4.5))) / 2.0
+        min_wpm = _safe_float(wpm.get("min"), 2.5)
+        max_wpm = _safe_float(wpm.get("max"), 4.5)
+
+        typing_profile = self._resolve_typing_profile(bot)
+        if isinstance(typing_profile.get("wpm"), dict):
+            wpm_dict = typing_profile.get("wpm", {})
+            min_wpm = _safe_float(wpm_dict.get("min"), min_wpm)
+            max_wpm = _safe_float(wpm_dict.get("max"), max_wpm)
+
+        min_wpm = _safe_float(
+            typing_profile.get("wpm_min", typing_profile.get("typing_wpm_min", min_wpm)),
+            min_wpm,
+        )
+        max_wpm = _safe_float(
+            typing_profile.get("wpm_max", typing_profile.get("typing_wpm_max", max_wpm)),
+            max_wpm,
+        )
+
+        multiplier = _safe_float(
+            typing_profile.get("typing_multiplier", typing_profile.get("multiplier", 1.0)), 1.0
+        )
+        min_wpm *= multiplier
+        max_wpm *= multiplier
+
+        if max_wpm < min_wpm:
+            min_wpm, max_wpm = max_wpm, min_wpm
+
+        mean_wpm = max((min_wpm + max_wpm) / 2.0, 0.1)
         cps = (mean_wpm * 5.0) / 60.0  # 1 kelime ~5 karakter varsayımı
         seconds = est_chars / max(cps, 1.0)
-        # sınırlar
-        return clamp(seconds, 2.0, 8.0)
+
+        min_seconds = _safe_float(
+            typing_profile.get(
+                "min_seconds",
+                typing_profile.get("typing_min_seconds", typing_profile.get("seconds_min", 2.0)),
+            ),
+            2.0,
+        )
+        max_seconds = _safe_float(
+            typing_profile.get(
+                "max_seconds",
+                typing_profile.get("typing_max_seconds", typing_profile.get("seconds_max", 8.0)),
+            ),
+            8.0,
+        )
+        return clamp(seconds, min_seconds, max_seconds)
+
+    def _resolve_delay_profile(self, bot: Optional[Bot]) -> Dict[str, Any]:
+        profile = getattr(bot, "speed_profile", None) if bot else None
+        if isinstance(profile, dict):
+            delay = profile.get("delay")
+            if isinstance(delay, dict):
+                return delay
+            return profile
+        return {}
+
+    def _resolve_typing_profile(self, bot: Optional[Bot]) -> Dict[str, Any]:
+        profile = getattr(bot, "speed_profile", None) if bot else None
+        if isinstance(profile, dict):
+            typing = profile.get("typing")
+            if isinstance(typing, dict):
+                return typing
+            return profile
+        return {}
 
     # ---- Rate limit ----
     def global_rate_ok(self, db: Session) -> bool:
@@ -619,7 +749,7 @@ METİN:
                             reply_to_message_id=target.telegram_message_id,
                         ))
                         db.commit()
-                await asyncio.sleep(self.next_delay_seconds(db))
+                await asyncio.sleep(self.next_delay_seconds(db, bot=bot))
                 return
 
             # Reply hedefi ve mention
@@ -679,7 +809,7 @@ METİN:
             text = self.llm.generate(user_prompt=user_prompt, temperature=0.8, max_tokens=220)
             if not text:
                 logger.warning("LLM boş/filtreli çıktı; atlanıyor.")
-                await asyncio.sleep(self.next_delay_seconds(db))
+                await asyncio.sleep(self.next_delay_seconds(db, bot=bot))
                 return
 
             # Tutarlılık koruması
@@ -713,12 +843,16 @@ METİN:
                 # Hâlâ birebir aynıysa mesajı es geç
                 if self.is_duplicate_recent(db, bot_id=bot.id, text=text, hours=window_h):
                     logger.info("Dedup: aynı metin tespit edildi, gönderim atlandı.")
-                    await asyncio.sleep(self.next_delay_seconds(db))
+                    await asyncio.sleep(self.next_delay_seconds(db, bot=bot))
                     return
 
             # Typing simülasyonu
             if bool(s.get("typing_enabled", True)):
-                await self.tg.send_typing(bot.token, chat.chat_id, self.typing_seconds(db, len(text)))
+                await self.tg.send_typing(
+                    bot.token,
+                    chat.chat_id,
+                    self.typing_seconds(db, len(text), bot=bot),
+                )
 
             # Mesajı gönder
             msg_id = await self.tg.send_message(
@@ -740,7 +874,7 @@ METİN:
             db.commit()
 
             # Sonraki gecikme
-            await asyncio.sleep(self.next_delay_seconds(db))
+            await asyncio.sleep(self.next_delay_seconds(db, bot=bot))
 
         except Exception as e:
             logger.exception("tick_once error: %s", e)
