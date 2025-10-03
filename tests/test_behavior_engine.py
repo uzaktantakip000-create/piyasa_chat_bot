@@ -74,6 +74,47 @@ def test_pick_bot_respects_active_hours(tmp_path, monkeypatch):
         session.close()
 
 
+def test_pick_bot_avoids_last_bot_when_others_available(tmp_path, monkeypatch):
+    behavior_engine_module, database = setup_behavior_engine(tmp_path, monkeypatch)
+
+    engine = behavior_engine_module.BehaviorEngine()
+    SessionLocal = database.SessionLocal
+    Bot = database.Bot
+    Chat = database.Chat
+    Message = database.Message
+
+    session = SessionLocal()
+    try:
+        chat = Chat(chat_id="-500", title="Rotation Chat", is_enabled=True)
+        bot_a = Bot(name="Alpha", username="alpha_bot", is_enabled=True)
+        bot_b = Bot(name="Beta", username="beta_bot", is_enabled=True)
+        bot_a.token = "12345:ALPHA"
+        bot_b.token = "12345:BETA"
+
+        session.add_all([chat, bot_a, bot_b])
+        session.commit()
+        session.refresh(chat)
+        session.refresh(bot_a)
+        session.refresh(bot_b)
+
+        session.add(
+            Message(
+                id=1,
+                bot_id=bot_a.id,
+                chat_db_id=chat.id,
+                telegram_message_id=111,
+                text="son mesaj alpha",
+            )
+        )
+        session.commit()
+
+        selected = engine.pick_bot(session, {"max": 12}, chat=chat)
+        assert selected is not None
+        assert selected.id == bot_b.id
+    finally:
+        session.close()
+
+
 def test_speed_profile_scales_delays_and_typing(tmp_path, monkeypatch):
     behavior_engine_module, database = setup_behavior_engine(tmp_path, monkeypatch)
 
@@ -464,7 +505,9 @@ def test_short_reaction_skips_self_messages(tmp_path, monkeypatch):
     monkeypatch.setattr(engine, "settings", lambda _db: settings_payload)
     monkeypatch.setattr(engine, "global_rate_ok", lambda _db: True)
     monkeypatch.setattr(engine, "pick_chat", lambda _db: chat_stub)
-    monkeypatch.setattr(engine, "pick_bot", lambda _db, hourly_limit=None: bot_stub)
+    monkeypatch.setattr(
+        engine, "pick_bot", lambda _db, hourly_limit=None, chat=None: bot_stub
+    )
     monkeypatch.setattr(engine, "fetch_psh", lambda _db, _bot, topic_hint: (None, [], [], None))
     monkeypatch.setattr(engine, "next_delay_seconds", lambda _db, bot=None: 0.0)
     monkeypatch.setattr(engine, "apply_consistency_guard", lambda **_: None)
