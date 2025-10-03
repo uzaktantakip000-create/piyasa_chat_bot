@@ -568,11 +568,13 @@ class BehaviorEngine:
         chat: Chat,
         reply_p: float,
         *,
-        bot_id: Optional[int] = None,
+        active_bot_id: Optional[int] = None,
+        active_bot_username: Optional[str] = None,
     ) -> tuple[Optional[Message], Optional[str]]:
         """Reply yapılacak bir mesaj ve mention handle döndürür (yoksa None, None)."""
         if random.random() > reply_p:
             return None, None
+
         last_msgs = (
             db.query(Message)
             .filter(Message.chat_db_id == chat.id)
@@ -582,16 +584,64 @@ class BehaviorEngine:
         )
         if not last_msgs:
             return None, None
-        candidates = [m for m in last_msgs if bot_id is None or m.bot_id != bot_id]
-        if not candidates:
-            return None, None
-        target = random.choice(candidates)
 
-        # mention
+        normalized_username = (active_bot_username or "").lstrip("@").lower()
+        mention_tokens = [
+            f"@{normalized_username}" if normalized_username else "",
+            normalized_username,
+        ]
+
+        scored_candidates: list[tuple[float, int, Message, Optional[str]]] = []
+        for idx, msg in enumerate(last_msgs):
+            if active_bot_id is not None and msg.bot_id == active_bot_id:
+                continue
+
+            text = getattr(msg, "text", "") or ""
+            lower_text = text.lower()
+
+            score = 0.0
+            if msg.bot_id is None:
+                score += 3.0
+            else:
+                score -= 1.0
+
+            if "?" in text:
+                score += 1.5
+
+            if normalized_username:
+                for token in mention_tokens:
+                    if token and token in lower_text:
+                        score += 2.5
+                        break
+
+            mention_handle = None
+            msg_bot = getattr(msg, "bot", None)
+            username = getattr(msg_bot, "username", None) if msg_bot else None
+            if isinstance(username, str) and username.strip():
+                mention_handle = username.lstrip("@")
+
+            scored_candidates.append((score, idx, msg, mention_handle))
+
+        if not scored_candidates:
+            return None, None
+
+        best_score, _best_index, target, candidate_mention_handle = max(
+            scored_candidates,
+            key=lambda item: (item[0], -item[1]),
+        )
+
+        # Eğer puanlama çok düşükse, cevap vermekten kaçın
+        if best_score <= -1.0:
+            return None, None
+
+        settings = self.settings(db)
         mention_handle = None
-        if random.random() < self.settings(db)["mention_probability"] and target.bot and target.bot.username:
-            # Telegram mention formatında prefix eklemeyi metin üretimine bırakacağız
-            mention_handle = target.bot.username.lstrip("@")
+        if (
+            candidate_mention_handle
+            and random.random() < settings.get("mention_probability", 0.0)
+        ):
+            mention_handle = candidate_mention_handle
+
         return target, mention_handle
 
     # ---- Gecikme ve hız ----
@@ -924,7 +974,8 @@ METİN:
                 db,
                 chat,
                 float(s.get("reply_probability", 0.65)),
-                bot_id=bot.id,
+                active_bot_id=bot.id,
+                active_bot_username=getattr(bot, "username", None),
             )
             mode = "reply" if reply_msg else "new"
             mention_ctx = f"@{mention_handle}" if mention_handle else ""

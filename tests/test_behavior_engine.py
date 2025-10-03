@@ -198,7 +198,11 @@ def test_pick_reply_target_ignores_self_messages(tmp_path, monkeypatch):
         monkeypatch.setattr(engine, "settings", lambda _db: {"mention_probability": 0.0})
 
         target, mention = engine.pick_reply_target(
-            session, chat, reply_p=1.0, bot_id=bot.id
+            session,
+            chat,
+            reply_p=1.0,
+            active_bot_id=bot.id,
+            active_bot_username=bot.username,
         )
 
         assert target is not None
@@ -247,11 +251,144 @@ def test_pick_reply_target_returns_none_for_only_self_messages(tmp_path, monkeyp
         monkeypatch.setattr(engine, "settings", lambda _db: {"mention_probability": 0.0})
 
         target, mention = engine.pick_reply_target(
-            session, chat, reply_p=1.0, bot_id=bot.id
+            session,
+            chat,
+            reply_p=1.0,
+            active_bot_id=bot.id,
+            active_bot_username=bot.username,
         )
 
         assert target is None
         assert mention is None
+    finally:
+        session.close()
+
+
+def test_pick_reply_target_prioritizes_user_questions_over_bot_messages(tmp_path, monkeypatch):
+    behavior_engine_module, database = setup_behavior_engine(tmp_path, monkeypatch)
+
+    engine = behavior_engine_module.BehaviorEngine()
+    SessionLocal = database.SessionLocal
+    Bot = database.Bot
+    Chat = database.Chat
+    Message = database.Message
+
+    session = SessionLocal()
+    try:
+        responder = Bot(
+            name="Responder",
+            username="responder_bot",
+            is_enabled=True,
+        )
+        responder.token = "12345:RESP"
+        other_bot = Bot(
+            name="Announcer",
+            username="announcer_bot",
+            is_enabled=True,
+        )
+        other_bot.token = "12345:ANN"
+        chat = Chat(chat_id="-2001", title="Test Chat", is_enabled=True)
+        session.add_all([responder, other_bot, chat])
+        session.commit()
+        session.refresh(responder)
+        session.refresh(other_bot)
+        session.refresh(chat)
+
+        session.add(
+            Message(
+                id=1,
+                bot=other_bot,
+                chat_db_id=chat.id,
+                telegram_message_id=501,
+                text="borsa hakkında düşüncelerim",
+            )
+        )
+        session.add(
+            Message(
+                id=2,
+                bot_id=None,
+                chat_db_id=chat.id,
+                telegram_message_id=502,
+                text="borsa düşer mi?",
+            )
+        )
+        session.commit()
+
+        monkeypatch.setattr(behavior_engine_module.random, "random", lambda: 0.0)
+        monkeypatch.setattr(engine, "settings", lambda _db: {"mention_probability": 0.0})
+
+        target, _ = engine.pick_reply_target(
+            session,
+            chat,
+            reply_p=1.0,
+            active_bot_id=responder.id,
+            active_bot_username=responder.username,
+        )
+
+        assert target is not None
+        assert target.text == "borsa düşer mi?"
+    finally:
+        session.close()
+
+
+def test_pick_reply_target_respects_active_bot_mentions(tmp_path, monkeypatch):
+    behavior_engine_module, database = setup_behavior_engine(tmp_path, monkeypatch)
+
+    engine = behavior_engine_module.BehaviorEngine()
+    SessionLocal = database.SessionLocal
+    Bot = database.Bot
+    Chat = database.Chat
+    Message = database.Message
+
+    session = SessionLocal()
+    try:
+        responder = Bot(
+            name="Responder",
+            username="responder_bot",
+            is_enabled=True,
+        )
+        responder.token = "12345:RESP"
+        other_bot = Bot(
+            name="Announcer",
+            username="announcer_bot",
+            is_enabled=True,
+        )
+        other_bot.token = "12345:ANN"
+        chat = Chat(chat_id="-2002", title="Test Chat", is_enabled=True)
+        session.add_all([responder, other_bot, chat])
+        session.commit()
+        session.refresh(responder)
+        session.refresh(other_bot)
+        session.refresh(chat)
+
+        session.add(
+            Message(
+                id=1,
+                bot=other_bot,
+                chat_db_id=chat.id,
+                telegram_message_id=601,
+                text="@responder_bot görüşlerin neler?",
+            )
+        )
+        session.commit()
+
+        def fake_settings(_db):
+            return {"mention_probability": 1.0}
+
+        monkeypatch.setattr(behavior_engine_module.random, "random", lambda: 0.0)
+        monkeypatch.setattr(engine, "settings", fake_settings)
+
+        target, mention = engine.pick_reply_target(
+            session,
+            chat,
+            reply_p=1.0,
+            active_bot_id=responder.id,
+            active_bot_username=responder.username,
+        )
+
+        assert target is not None
+        assert target.text == "@responder_bot görüşlerin neler?"
+        assert mention == "announcer_bot"
     finally:
         session.close()
 
