@@ -358,3 +358,37 @@ def test_short_reaction_skips_self_messages(tmp_path, monkeypatch):
 
     assert calls["reaction"] is False, "bot kendi mesajına reaksiyon vermemeli"
     assert calls["sent"] is True, "reaksiyon atlanınca normal gönderim akışı devam etmeli"
+
+
+def test_choose_topic_prefers_context():
+    from behavior_engine import choose_topic_from_messages
+
+    messages = [
+        SimpleNamespace(text="BTC fiyatı bugün çok oynak"),
+        SimpleNamespace(text="Kripto piyasası sert düştü"),
+    ]
+
+    topic = choose_topic_from_messages(messages, ["BIST", "Kripto", "Makro"])
+
+    assert topic == "Kripto"
+
+
+def test_choose_topic_fallback_preserves_random_choice():
+    from behavior_engine import choose_topic_from_messages
+
+    class DummyRng:
+        def __init__(self):
+            self.last_choices = None
+
+        def choice(self, seq):
+            self.last_choices = list(seq)
+            return seq[0]
+
+    rng = DummyRng()
+    messages = [SimpleNamespace(text="Merhaba nasılsın"), SimpleNamespace(text="Bugün hava güzel")]  # no keywords
+    topics = ["BIST", "FX"]
+
+    topic = choose_topic_from_messages(messages, topics, rng=rng)
+
+    assert topic == "BIST"
+    assert rng.last_choices == topics
