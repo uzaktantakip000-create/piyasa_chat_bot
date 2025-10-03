@@ -55,7 +55,7 @@ Geliştirme için SQLite kullanılabilir; üretimde PostgreSQL veya benzeri çok
 
 ## 2) Test & doğrulama
 
-- **Statik kontrol**: `python -m compileall -x '/\.venv' .`
+- **Statik kontrol**: `python -m compileall -q -x ".*(/\\.venv/|/node_modules/|/\\.git/).*" .`
 - **API entegrasyon testleri**: `pytest`
 - **Yük testi**: `python scripts/stress_test.py --duration 1800 --concurrency 6 --api-key $API_KEY`
 
