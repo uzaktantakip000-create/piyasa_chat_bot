@@ -1,9 +1,10 @@
 import base64
 import importlib
 import sys
+import asyncio
 from pathlib import Path
 from datetime import datetime
-
+from types import SimpleNamespace
 import pytest
 
 
@@ -139,3 +140,221 @@ def test_generate_user_prompt_includes_persona_hint():
     )
 
     assert "iyimser ve temkinli" in prompt
+
+
+def _first_choice(seq):
+    if not seq:
+        raise IndexError("Cannot choose from an empty sequence")
+    return seq[0]
+
+
+def test_pick_reply_target_ignores_self_messages(tmp_path, monkeypatch):
+    behavior_engine_module, database = setup_behavior_engine(tmp_path, monkeypatch)
+
+    engine = behavior_engine_module.BehaviorEngine()
+    SessionLocal = database.SessionLocal
+    Bot = database.Bot
+    Chat = database.Chat
+    Message = database.Message
+
+    session = SessionLocal()
+    try:
+        bot = Bot(
+            name="Responder",
+            username="responder_bot",
+            is_enabled=True,
+        )
+        bot.token = "12345:RESP"
+        chat = Chat(chat_id="-1001", title="Test Chat", is_enabled=True)
+        session.add_all([bot, chat])
+        session.commit()
+        session.refresh(bot)
+        session.refresh(chat)
+
+        # Bot'un kendi mesajı (filtrelenmeli)
+        session.add(
+            Message(
+                id=1,
+                bot_id=bot.id,
+                chat_db_id=chat.id,
+                telegram_message_id=101,
+                text="kendi mesajı",
+            )
+        )
+        # Kullanıcı mesajı (yanıt hedefi olmalı)
+        session.add(
+            Message(
+                id=2,
+                bot_id=None,
+                chat_db_id=chat.id,
+                telegram_message_id=102,
+                text="merhaba bot",
+            )
+        )
+        session.commit()
+
+        monkeypatch.setattr(behavior_engine_module.random, "random", lambda: 0.0)
+        monkeypatch.setattr(behavior_engine_module.random, "choice", _first_choice)
+        monkeypatch.setattr(engine, "settings", lambda _db: {"mention_probability": 0.0})
+
+        target, mention = engine.pick_reply_target(
+            session, chat, reply_p=1.0, bot_id=bot.id
+        )
+
+        assert target is not None
+        assert target.text == "merhaba bot"
+        assert mention is None
+    finally:
+        session.close()
+
+
+def test_pick_reply_target_returns_none_for_only_self_messages(tmp_path, monkeypatch):
+    behavior_engine_module, database = setup_behavior_engine(tmp_path, monkeypatch)
+
+    engine = behavior_engine_module.BehaviorEngine()
+    SessionLocal = database.SessionLocal
+    Bot = database.Bot
+    Chat = database.Chat
+    Message = database.Message
+
+    session = SessionLocal()
+    try:
+        bot = Bot(
+            name="Solo",
+            username="solo_bot",
+            is_enabled=True,
+        )
+        bot.token = "12345:SOLO"
+        chat = Chat(chat_id="-1002", title="Solo Chat", is_enabled=True)
+        session.add_all([bot, chat])
+        session.commit()
+        session.refresh(bot)
+        session.refresh(chat)
+
+        session.add(
+            Message(
+                id=1,
+                bot_id=bot.id,
+                chat_db_id=chat.id,
+                telegram_message_id=201,
+                text="bot botla konuşmaz",
+            )
+        )
+        session.commit()
+
+        monkeypatch.setattr(behavior_engine_module.random, "random", lambda: 0.0)
+        monkeypatch.setattr(behavior_engine_module.random, "choice", _first_choice)
+        monkeypatch.setattr(engine, "settings", lambda _db: {"mention_probability": 0.0})
+
+        target, mention = engine.pick_reply_target(
+            session, chat, reply_p=1.0, bot_id=bot.id
+        )
+
+        assert target is None
+        assert mention is None
+    finally:
+        session.close()
+
+
+def test_short_reaction_skips_self_messages(tmp_path, monkeypatch):
+    behavior_engine_module, database = setup_behavior_engine(tmp_path, monkeypatch)
+
+    engine = behavior_engine_module.BehaviorEngine()
+    SessionLocal = database.SessionLocal
+    Bot = database.Bot
+    Chat = database.Chat
+    Message = database.Message
+
+    session = SessionLocal()
+    try:
+        bot = Bot(
+            name="Reactor",
+            username="reactor_bot",
+            is_enabled=True,
+        )
+        bot.token = "12345:REACT"
+        chat = Chat(chat_id="-1003", title="Reaction Chat", is_enabled=True, topics=["BIST"])
+        session.add_all([bot, chat])
+        session.commit()
+        session.refresh(bot)
+        session.refresh(chat)
+
+        session.add(
+            Message(
+                id=1,
+                bot_id=bot.id,
+                chat_db_id=chat.id,
+                telegram_message_id=301,
+                text="bot kendi mesajı",
+            )
+        )
+        session.commit()
+
+        bot_stub = SimpleNamespace(
+            id=bot.id,
+            token=bot.token,
+            username=bot.username,
+            name=bot.name,
+        )
+        chat_stub = SimpleNamespace(
+            id=chat.id,
+            chat_id=chat.chat_id,
+            topics=list(chat.topics or []),
+            title=chat.title,
+        )
+        session.expunge(bot)
+        session.expunge(chat)
+    finally:
+        session.close()
+
+    monkeypatch.setattr(behavior_engine_module.random, "random", lambda: 0.0)
+    monkeypatch.setattr(behavior_engine_module.random, "choice", _first_choice)
+
+    settings_payload = {
+        "simulation_active": True,
+        "bot_hourly_msg_limit": {"max": 12},
+        "short_reaction_probability": 1.0,
+        "reply_probability": 1.0,
+        "mention_probability": 0.0,
+        "cooldown_filter_enabled": False,
+        "news_trigger_enabled": False,
+        "message_length_profile": None,
+        "consistency_guard_enabled": False,
+        "dedup_enabled": False,
+        "typing_enabled": False,
+    }
+
+    monkeypatch.setattr(engine, "settings", lambda _db: settings_payload)
+    monkeypatch.setattr(engine, "global_rate_ok", lambda _db: True)
+    monkeypatch.setattr(engine, "pick_chat", lambda _db: chat_stub)
+    monkeypatch.setattr(engine, "pick_bot", lambda _db, hourly_limit=None: bot_stub)
+    monkeypatch.setattr(engine, "fetch_psh", lambda _db, _bot, topic_hint: (None, [], [], None))
+    monkeypatch.setattr(engine, "next_delay_seconds", lambda _db, bot=None: 0.0)
+    monkeypatch.setattr(engine, "apply_consistency_guard", lambda **_: None)
+    monkeypatch.setattr(engine, "is_duplicate_recent", lambda *_, **__: False)
+
+    calls = {
+        "reaction": False,
+        "sent": False,
+    }
+
+    async def fake_try_set_reaction(*args, **kwargs):
+        calls["reaction"] = True
+        return True
+
+    async def fake_send_message(*args, **kwargs):
+        calls["sent"] = True
+        return 999
+
+    async def fake_send_typing(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(engine.tg, "try_set_reaction", fake_try_set_reaction)
+    monkeypatch.setattr(engine.tg, "send_message", fake_send_message)
+    monkeypatch.setattr(engine.tg, "send_typing", fake_send_typing)
+    monkeypatch.setattr(engine.llm, "generate", lambda **_: "selam")
+
+    asyncio.run(engine.tick_once())
+
+    assert calls["reaction"] is False, "bot kendi mesajına reaksiyon vermemeli"
+    assert calls["sent"] is True, "reaksiyon atlanınca normal gönderim akışı devam etmeli"

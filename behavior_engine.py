@@ -473,7 +473,14 @@ class BehaviorEngine:
                     active.append(t)
         return active
 
-    def pick_reply_target(self, db: Session, chat: Chat, reply_p: float) -> tuple[Optional[Message], Optional[str]]:
+    def pick_reply_target(
+        self,
+        db: Session,
+        chat: Chat,
+        reply_p: float,
+        *,
+        bot_id: Optional[int] = None,
+    ) -> tuple[Optional[Message], Optional[str]]:
         """Reply yapılacak bir mesaj ve mention handle döndürür (yoksa None, None)."""
         if random.random() > reply_p:
             return None, None
@@ -486,7 +493,10 @@ class BehaviorEngine:
         )
         if not last_msgs:
             return None, None
-        target = random.choice(last_msgs)
+        candidates = [m for m in last_msgs if bot_id is None or m.bot_id != bot_id]
+        if not candidates:
+            return None, None
+        target = random.choice(candidates)
 
         # mention
         mention_handle = None
@@ -794,8 +804,9 @@ METİN:
                     .limit(10)
                     .all()
                 )
-                if last:
-                    target = random.choice(last)
+                candidates = [m for m in last if m.bot_id != bot.id]
+                if candidates:
+                    target = random.choice(candidates)
                     ok = await self.tg.try_set_reaction(bot.token, chat.chat_id, target.telegram_message_id)
                     if not ok:
                         # fallback: çok kısa bir emoji mesajı
@@ -816,11 +827,16 @@ METİN:
                             reply_to_message_id=target.telegram_message_id,
                         ))
                         db.commit()
-                await asyncio.sleep(self.next_delay_seconds(db, bot=bot))
-                return
+                    await asyncio.sleep(self.next_delay_seconds(db, bot=bot))
+                    return
 
             # Reply hedefi ve mention
-            reply_msg, mention_handle = self.pick_reply_target(db, chat, float(s.get("reply_probability", 0.65)))
+            reply_msg, mention_handle = self.pick_reply_target(
+                db,
+                chat,
+                float(s.get("reply_probability", 0.65)),
+                bot_id=bot.id,
+            )
             mode = "reply" if reply_msg else "new"
             mention_ctx = f"@{mention_handle}" if mention_handle else ""
 
