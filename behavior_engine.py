@@ -513,7 +513,12 @@ class BehaviorEngine:
             return None
         return random.choice(chats)
 
-    def pick_bot(self, db: Session, hourly_limit: Dict[str, Any]) -> Optional[Bot]:
+    def pick_bot(
+        self,
+        db: Session,
+        hourly_limit: Dict[str, Any],
+        chat: Optional[Chat] = None,
+    ) -> Optional[Bot]:
         bots = db.query(Bot).filter(Bot.is_enabled.is_(True)).all()
         if not bots:
             return None
@@ -534,6 +539,23 @@ class BehaviorEngine:
 
         if not eligible:
             return None
+
+        last_bot_id: Optional[int] = None
+        if chat is not None:
+            last_message = (
+                db.query(Message)
+                .filter(Message.chat_db_id == chat.id)
+                .order_by(Message.created_at.desc())
+                .first()
+            )
+            if last_message and last_message.bot_id is not None:
+                last_bot_id = last_message.bot_id
+
+        if last_bot_id is not None:
+            alternative = [b for b in eligible if b.id != last_bot_id]
+            if alternative:
+                eligible = alternative
+
         return random.choice(eligible)
 
     def _bot_is_active_now(self, bot: Bot) -> bool:
@@ -911,7 +933,11 @@ METİN:
                 await asyncio.sleep(2.0)
                 return
 
-            bot = self.pick_bot(db, hourly_limit=s.get("bot_hourly_msg_limit", {"max": 12}))
+            bot = self.pick_bot(
+                db,
+                hourly_limit=s.get("bot_hourly_msg_limit", {"max": 12}),
+                chat=chat,
+            )
             if not bot:
                 logger.info("Saatlik sınır nedeniyle uygun bot bulunamadı; bekleniyor.")
                 await asyncio.sleep(3.0)
