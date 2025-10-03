@@ -1,22 +1,49 @@
 from __future__ import annotations
-
 import os
+import signal
+import subprocess
 import sys
-import json
-from typing import Optional, Dict, Any
+import time
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
-from dotenv import load_dotenv
 import httpx
+from dotenv import load_dotenv
 
-load_dotenv()
+
+ROOT = Path(__file__).resolve().parent
+load_dotenv(dotenv_path=ROOT / ".env", override=False)
 
 API_BASE = os.getenv("API_BASE", "http://localhost:8000")
-API_KEY = os.getenv("API_KEY")
+
+
+def _ensure_api_key() -> Optional[str]:
+    key = os.getenv("API_KEY")
+    if key:
+        return key
+
+    example = ROOT / ".env.example"
+    if example.exists():
+        for line in example.read_text(encoding="utf-8").splitlines():
+            if line.startswith("API_KEY="):
+                candidate = line.split("=", 1)[1].strip()
+                if candidate:
+                    os.environ.setdefault("API_KEY", candidate)
+                    return candidate
+
+    # Son çare olarak test ortamı için tahmini bir anahtar kullan.
+    fallback = "change-me"
+    os.environ.setdefault("API_KEY", fallback)
+    _warn("API_KEY bulunamadı; 'change-me' değeri kullanılacak. .env dosyanızı güncelleyin.")
+    return fallback
 
 
 def api_headers() -> Optional[Dict[str, str]]:
-    if API_KEY:
-        return {"X-API-Key": API_KEY}
+    key = os.getenv("API_KEY")
+    if key:
+        return {"X-API-Key": key}
     return None
 
 
@@ -55,6 +82,84 @@ def api_post(path: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             return r.json()
         except Exception:
             return None
+
+
+def _api_is_healthy() -> bool:
+    try:
+        resp = api_get("/healthz")
+        return bool(resp and resp.get("ok"))
+    except Exception:
+        return False
+
+
+def _should_autostart_api(hostname: Optional[str]) -> bool:
+    if hostname not in {None, "", "localhost", "127.0.0.1", "0.0.0.0"}:
+        return False
+    toggle = os.getenv("PREFLIGHT_AUTO_START_API", "1").lower()
+    return toggle not in {"0", "false", "no"}
+
+
+@contextmanager
+def maybe_start_api() -> None:
+    parsed = urlparse(API_BASE)
+    hostname = parsed.hostname or "localhost"
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+
+    proc: Optional[subprocess.Popen] = None
+
+    if _api_is_healthy():
+        yield
+        return
+
+    if not _should_autostart_api(hostname):
+        yield
+        return
+
+    _ensure_api_key()
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "main:app",
+        "--host",
+        hostname,
+        "--port",
+        str(port),
+    ]
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(ROOT),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except FileNotFoundError:
+        _warn("uvicorn bulunamadı; API otomatik başlatılamıyor.")
+        yield
+        return
+
+    print("[i] API başlatılıyor (preflight için geçici)")
+
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        if _api_is_healthy():
+            break
+        time.sleep(0.5)
+
+    if not _api_is_healthy():
+        _warn("API 30 saniye içinde hazır hale gelemedi. Manuel olarak başlatmayı deneyin.")
+
+    try:
+        yield
+    finally:
+        if proc and proc.poll() is None:
+            proc.send_signal(signal.SIGINT)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
 
 
 def check_api():
@@ -150,12 +255,16 @@ def check_telegram():
 
 def main():
     print(f"[i] API_BASE = {API_BASE}")
-    if not API_KEY:
+
+    key = _ensure_api_key()
+    if not key:
         _warn("API_KEY set değil. API çağrıları yetkilendirme hatası verebilir.")
-    api_ok = check_api()
-    db_ok = check_db() if api_ok else False
-    llm_ok = check_llm()
-    tg_ok = check_telegram()
+
+    with maybe_start_api():
+        api_ok = check_api()
+        db_ok = check_db() if api_ok else False
+        llm_ok = check_llm()
+        tg_ok = check_telegram()
 
     print("\n--- Özet ---")
     print(f"API: {'OK' if api_ok else 'HATA'}")

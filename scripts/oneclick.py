@@ -356,23 +356,23 @@ def main() -> None:
     print("[oneclick] Çıkmak için Ctrl+C tuşlayın. Alt süreçler otomatik kapatılacak.")
 
     try:
-        while any(proc.poll() is None for proc in processes):
+        while any(proc.poll() is None for proc in processes.values()):
             time.sleep(1)
     except KeyboardInterrupt:
         print("\n[oneclick] Kapatılıyor...")
     finally:
-        shutdown_all()
+        if step_results or health_checks:
+            report = {
+                "generated_at": time.time(),
+                "steps": [asdict(step) for step in step_results],
+                "health_checks": [asdict(item) for item in health_checks],
+            }
+            report_path = ROOT / "latest_oneclick_report.json"
+            report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+            print(f"[oneclick] Özet rapor kaydedildi: {report_path}")
+            send_report_to_api(api_base, step_results, health_checks)
 
-    if step_results or health_checks:
-        report = {
-            "generated_at": time.time(),
-            "steps": [asdict(step) for step in step_results],
-            "health_checks": [asdict(item) for item in health_checks],
-        }
-        report_path = ROOT / "latest_oneclick_report.json"
-        report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
-        print(f"[oneclick] Özet rapor kaydedildi: {report_path}")
-        send_report_to_api(api_base, step_results, health_checks)
+        shutdown_all()
 
 
 def send_report_to_api(api_base: str, steps: List[StepResult], health_checks: List[HealthCheckResult]) -> None:
