@@ -949,7 +949,7 @@ METİN:
                     ok = await self.tg.try_set_reaction(bot.token, chat.chat_id, target.telegram_message_id)
                     if not ok:
                         # fallback: çok kısa bir emoji mesajı
-                        emoji = LLMClient.generate_reaction()
+                        emoji = LLMClient.pick_reaction_for_text(getattr(target, "text", ""))
                         msg_id = await self.tg.send_message(
                             token=bot.token,
                             chat_id=chat.chat_id,

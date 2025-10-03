@@ -53,6 +53,52 @@ except Exception:
 logger = logging.getLogger("llm")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
 
+REACTION_KEYWORDS = {
+    "positive": {
+        "artış",
+        "yükseliş",
+        "kazanç",
+        "kâr",
+        "kârı",
+        "mutlu",
+        "sevind",
+        "teşekkür",
+        "güçlü",
+        "olumlu",
+        "harika",
+        "mükemmel",
+    },
+    "negative": {
+        "düşüş",
+        "düştü",
+        "kayb",
+        "kayıp",
+        "olumsuz",
+        "kötü",
+        "berbat",
+        "üzgün",
+        "moral bozuk",
+        "felaket",
+        "sert sat",
+    },
+    "neutral": {
+        "stabil",
+        "dengede",
+        "yatay",
+        "nötr",
+        "beklemede",
+        "izlemede",
+        "kararsız",
+        "sideways",
+    },
+}
+
+REACTION_EMOJIS = {
+    "positive": "📈",
+    "negative": "📉",
+    "neutral": "💬",
+}
+
 # -------------------------------------------------------------------
 # LLM Client
 # -------------------------------------------------------------------
@@ -150,3 +196,16 @@ class LLMClient:
     @staticmethod
     def generate_reaction() -> str:
         return random.choice(["👍", "🔥", "📈", "📉", "💡", "👌", "✅", "❤️"])
+
+    @staticmethod
+    def pick_reaction_for_text(text: Optional[str]) -> str:
+        content = (text or "").strip().lower()
+        if not content:
+            return LLMClient.generate_reaction()
+
+        for category in ("positive", "negative", "neutral"):
+            keywords = REACTION_KEYWORDS.get(category, set())
+            if any(keyword in content for keyword in keywords):
+                return REACTION_EMOJIS.get(category, LLMClient.generate_reaction())
+
+        return LLMClient.generate_reaction()
