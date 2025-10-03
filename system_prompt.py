@@ -118,7 +118,7 @@ USER_TEMPLATE = """\
 
 [EK TALİMAT]
 - Aşırı iddiadan kaçın; rakam gerekiyorsa yuvarlak/bağlamsal anlatım tercih et.
-- Kısa ve okunaklı yaz (gerekirse 2-3 cümle). Gereksiz listeleme yapma.
+- Kısa ve okunaklı yaz ({length_hint}). Gereksiz listeleme yapma.
 - Eğer görüş, mevcut STANCE ile belirgin çelişiyorsa kısaca "nedenini" belirt veya tonunu yumuşat.
 - Gerektiğinde "yatırım tavsiyesi değildir." cümlesini kısa bir not olarak ekleyebilirsin.
 
@@ -138,6 +138,7 @@ def generate_user_prompt(
     persona_profile: Optional[Dict[str, Any]] = None,
     stances: Optional[List[Dict[str, Any]]] = None,
     holdings: Optional[List[Dict[str, Any]]] = None,
+    length_hint: str = "gerekirse 2-3 cümle",
 ) -> str:
     """
     Geriye dönük uyumlu kullanıcı prompt'u. persona/stances/holdings verilirse
@@ -157,6 +158,7 @@ def generate_user_prompt(
         market_trigger=(market_trigger or "").strip()[:240],
         mode=(mode or "new"),
         mention_context=(mention_context or "").strip()[:80],
+        length_hint=(length_hint or "gerekirse 2-3 cümle"),
     )
     return prompt
 
