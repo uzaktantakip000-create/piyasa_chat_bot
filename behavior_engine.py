@@ -7,6 +7,7 @@ import logging
 import os
 import random
 import re
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Sequence
 
@@ -42,6 +43,13 @@ _ENGINE: Optional["BehaviorEngine"] = None
 # ---------------------------
 # Yardımcı fonksiyonlar
 # ---------------------------
+TOPIC_KEYWORDS: Dict[str, set] = {
+    "bist": {"bist", "borsa", "hisse", "hisseler", "bist100", "x100"},
+    "fx": {"fx", "doviz", "döviz", "kur", "usd", "eur", "parite"},
+    "kripto": {"kripto", "crypto", "bitcoin", "btc", "eth", "ethereum", "altcoin", "coin"},
+    "makro": {"makro", "enflasyon", "faiz", "ekonomi", "gsyih", "büyüme", "veri"},
+}
+
 def now_utc() -> datetime:
     return datetime.now(UTC)
 
@@ -173,6 +181,87 @@ def build_history_transcript(messages: Sequence[Any]) -> str:
         lines.append(f"[{speaker}]: {snippet}")
 
     return "\n".join(lines)
+
+
+def _tokenize_messages(messages: Sequence[Any]) -> Counter:
+    tokens: Counter = Counter()
+    for msg in messages:
+        if msg is None:
+            continue
+        text = getattr(msg, "text", None)
+        if not isinstance(text, str):
+            continue
+        for raw_token in text.split():
+            token = raw_token.strip().lower()
+            token = token.strip("#.,;:!?()[]{}\"'`“”’")
+            if not token:
+                continue
+            tokens[token] += 1
+    return tokens
+
+
+def score_topics_from_messages(messages: Sequence[Any], topics: Sequence[str]) -> Dict[str, float]:
+    """Basit anahtar kelime eşleşmesiyle mesajlara göre topic skorla."""
+
+    if not topics:
+        return {}
+
+    topic_list = [t for t in topics if isinstance(t, str) and t.strip()]
+    if not topic_list:
+        return {}
+
+    token_counts = _tokenize_messages(messages)
+    if not token_counts:
+        return {}
+
+    joined_text = " ".join(token_counts.elements())
+    scores: Dict[str, float] = {}
+
+    for topic in topic_list:
+        topic_key = topic.strip()
+        topic_lower = topic_key.lower()
+        keywords = set()
+        keywords.add(topic_lower)
+        keywords.update(TOPIC_KEYWORDS.get(topic_lower, set()))
+        keywords.update(k for k in re.split(r"[^\wçğıöşü]+", topic_lower) if k)
+
+        score = 0.0
+        for kw in keywords:
+            if not kw:
+                continue
+            score += token_counts.get(kw, 0)
+            if kw not in token_counts and kw in joined_text:
+                score += 0.2
+
+        if score > 0:
+            scores[topic_key] = score
+
+    return scores
+
+
+def choose_topic_from_messages(
+    messages: Sequence[Any],
+    topic_candidates: Sequence[str],
+    fallback_defaults: Optional[Sequence[str]] = None,
+    *,
+    rng: Optional[random.Random] = None,
+) -> str:
+    """Mesajlara bakarak topic seç; eşleşme yoksa rastgele fallback kullan."""
+
+    rng = rng or random
+    fallback_pool = list(fallback_defaults or ["BIST", "FX", "Kripto", "Makro"])
+    candidates = [t for t in topic_candidates or [] if isinstance(t, str) and t.strip()]
+
+    scored = score_topics_from_messages(messages, candidates)
+    if scored:
+        max_score = max(scored.values())
+        best = [topic for topic, score in scored.items() if score == max_score]
+        return rng.choice(best)
+
+    if candidates:
+        return rng.choice(candidates)
+
+    return rng.choice(fallback_pool)
 
 
 def choose_message_length_category(
@@ -853,7 +942,7 @@ METİN:
             reply_excerpt = shorten(reply_msg.text if reply_msg else "", 240)
 
             # Topic seç (cooldown filtreli havuzdan)
-            topic = random.choice(topic_hint_pool or ["BIST", "FX", "Kripto", "Makro"])
+            topic = choose_topic_from_messages(last_msgs, topic_hint_pool)
 
             # ---- HABER TETIKLEYICI ----
             market_trigger = ""
