@@ -69,6 +69,14 @@
 - [x] Test sonuçlarını veritabanında saklayıp `/system/checks/latest` uç noktasıyla panele servis et.
 - [x] Dashboard'da son test özetini ve stres testi kontrollerini gösteren yeni kart ekle.
 
+### Profesyonel Geliştirme Fırsatları
+- [ ] **P0:** RBAC, çok faktörlü kimlik doğrulama ve API anahtarı rotasyonu içeren kapsamlı bir erişim yönetimi katmanı tasarlayıp uygulamaya alma.
+- [ ] **P0:** Dashboard verilerini WebSocket tabanlı canlı akışa taşıyarak test sonuçları ve uyarıları gecikmesiz güncelle.
+- [ ] **P1:** Sistem sağlık verilerinden yola çıkarak haftalık özet e-posta/slack raporları ve dışa aktarılabilir PDF/CSV üretimi yapan kurumsal raporlama modülü oluştur.
+- [ ] **P1:** WCAG 2.1 AA uyumluluğu için kontrast, klavye navigasyonu ve ekran okuyucu etiketlerini kapsayan kapsamlı erişilebilirlik iyileştirmeleri planla ve uygula.
+- [ ] **P1:** Yeni kullanıcılar için rehberli turlar, bağlamsal yardım makaleleri ve arama yapılabilir bilgi tabanını entegre ederek self-servis destek deneyimini güçlendir.
+- [ ] **P2:** Otomatik toparlanma (self-healing) senaryoları için başarısız testleri yeniden deneme, olay kaydı açma ve sorumlu ekiplere bildirim zincirini tetikleyen orkestrasyon akışı geliştir.
+
 ### UX İyileştirme Görevleri
 - [x] Dashboard metrikleri yüklenene kadar görsel geri bildirim ve "güncelleniyor" durumu ekle.
 - [x] Dashboard başlığına manuel yenile düğmesi ekle ve veri gecikmelerini InlineNotice ile bildir.
