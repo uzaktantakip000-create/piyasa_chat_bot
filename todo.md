@@ -88,6 +88,18 @@
 - [x] Giriş panelinde oturum durumu ve parola gereksinimleri hakkında açıklayıcı içerik sun.
 - [x] Dashboard kartlarında eşik temelli tema/ikon göstergeleri ile anlam katmanı oluştur.
 
+### Planlanan UI/UX Profesyonel Geliştirmeleri
+- [ ] **P0:** Panel ve dashboard için kapsamlı kullanıcı araştırması + kullanılabilirlik testleri düzenleyip bulguları aksiyon planına dönüştür.
+- [ ] **P0:** Kritik iş akışları için rol bazlı görev panoları ve bağlama duyarlı yardım turları tasarla.
+- [ ] **P1:** Gerçek zamanlı bildirimler, toast geçmişi ve sistem durum değişiklikleri için birleşik bir "Etkinlik Merkezi" bileşeni geliştir.
+- [ ] **P1:** Kişiselleştirilebilir tema seçenekleri (karanlık/aydınlık, yüksek kontrast, yazı tipi boyutu) ekleyerek erişilebilirlik kontrollerini kullanıcıya aç.
+- [ ] **P1:** Çok adımlı formlarda ilerleme çubuğu, geri bildirim özetleri ve otomatik taslak kaydı sağlayan sihirbaz bileşeni hazırla.
+- [ ] **P2:** Dashboard ve liste sayfalarında kart/tablo görünümü arasında geçiş yapabilen adaptif düzen sistemi uygula.
+- [ ] **P2:** Kritik metrikler için eşik tabanlı uyarıları e-posta/SMS/push bildirimlerine bağlayan tercih yönetim ekranı tasarla.
+- [ ] **P2:** Kullanıcı davranışını analiz edip proaktif öneriler sunan "akıllı öneri" bannerları ve boş durum içerikleri üret.
+- [ ] **P3:** Uygulama genelinde metin ve ikonografi için çok dillilik desteğini genişletip yerelleştirme iş akışını otomatikleştir.
+- [ ] **P3:** İnteraktif stil rehberi ve bileşen kütüphanesi dokümantasyonu hazırlayarak tasarım-tabanlı geliştirme sürecini standardize et.
+
 ### Yeni Geliştirme Adımları
 - [x] Sistem kontrolü sonuçlarını 7 günlük periyotta özetleyen `/system/checks/summary` API uç noktasını ekle.
 - [x] Yeni uç noktayı kapsayan birim testi yazarak API davranışını doğrula.
