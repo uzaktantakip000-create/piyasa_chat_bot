@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
@@ -10,13 +11,55 @@ import {
   TrendingUp,
   AlertTriangle,
   Clock,
+  CalendarDays,
   Zap,
   ShieldCheck,
   FlaskConical,
   CheckCircle,
   XCircle,
-  Loader2
+  Loader2,
+  Info,
+  ListChecks,
+  ChevronDown,
+  ChevronUp,
+  Copy
 } from 'lucide-react'
+
+const formatRelativeTime = (date) => {
+  if (!date) {
+    return null
+  }
+  const diffMs = Date.now() - date.getTime()
+  if (!Number.isFinite(diffMs)) {
+    return null
+  }
+  const diffSeconds = Math.round(diffMs / 1000)
+  if (diffSeconds < 45) {
+    return 'Az önce'
+  }
+  const diffMinutes = Math.round(diffSeconds / 60)
+  if (diffMinutes < 60) {
+    return `${diffMinutes} dk önce`
+  }
+  const diffHours = Math.round(diffMinutes / 60)
+  if (diffHours < 24) {
+    return `${diffHours} sa önce`
+  }
+  const diffDays = Math.round(diffHours / 24)
+  if (diffDays < 7) {
+    return `${diffDays} gün önce`
+  }
+  const diffWeeks = Math.round(diffDays / 7)
+  if (diffWeeks < 4) {
+    return `${diffWeeks} hf önce`
+  }
+  const diffMonths = Math.round(diffDays / 30)
+  if (diffMonths < 12) {
+    return `${diffMonths} ay önce`
+  }
+  const diffYears = Math.round(diffDays / 365)
+  return `${diffYears} yıl önce`
+}
 
 const placeholder = (width = 'w-20') => (
   <div className={`h-6 rounded bg-muted/60 ${width} animate-pulse`} aria-hidden="true" />
@@ -28,6 +71,7 @@ function Dashboard({
   isLoading = false,
   isRefreshing = false,
   systemCheck = null,
+  systemSummary = null,
   onRunChecks = () => {},
   isRunningChecks = false
 }) {
@@ -66,6 +110,267 @@ function Dashboard({
       return <div className={`h-4 rounded bg-muted/40 ${width} animate-pulse`} aria-hidden="true" />
     }
     return value
+  }
+
+  const summaryPending = !systemSummary && (isLoading || isRefreshing)
+  const summaryRuns = systemSummary?.total_runs ?? 0
+  const summarySuccessPercent = systemSummary ? Math.round(systemSummary.success_rate * 1000) / 10 : 0
+  const formattedSuccessPercent = summarySuccessPercent.toFixed(1)
+  const summarySuccessAccent =
+    summaryRuns === 0
+      ? 'text-muted-foreground'
+      : summarySuccessPercent >= 90
+        ? 'text-emerald-600'
+        : summarySuccessPercent >= 70
+          ? 'text-amber-600'
+          : 'text-rose-600'
+  const averageDurationValue =
+    systemSummary && typeof systemSummary.average_duration === 'number'
+      ? systemSummary.average_duration.toFixed(1)
+      : '—'
+  const summaryLastRun = systemSummary?.last_run_at ? new Date(systemSummary.last_run_at) : null
+  const summaryLastRunLabel = summaryLastRun
+    ? summaryLastRun.toLocaleString('tr-TR', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    : 'Çalıştırılmadı'
+  const summaryLastRunRelative = summaryLastRun ? formatRelativeTime(summaryLastRun) : null
+  const summaryWindowStart = systemSummary?.window_start ? new Date(systemSummary.window_start) : null
+  const summaryWindowEnd = systemSummary?.window_end ? new Date(systemSummary.window_end) : null
+  const summaryWindowLabel =
+    summaryWindowStart && summaryWindowEnd
+      ? `${summaryWindowStart.toLocaleDateString('tr-TR', {
+          day: '2-digit',
+          month: '2-digit'
+        })} – ${summaryWindowEnd.toLocaleDateString('tr-TR', {
+          day: '2-digit',
+          month: '2-digit'
+        })}`
+      : null
+  const summaryWindowDays = systemSummary
+    ? Math.max(
+        1,
+        Math.round(
+          (new Date(systemSummary.window_end).getTime() - new Date(systemSummary.window_start).getTime()) /
+            (1000 * 60 * 60 * 24)
+        )
+      )
+    : 7
+  const summaryBuckets = systemSummary?.daily_breakdown ?? []
+  const recentBuckets = summaryBuckets.slice(-3).reverse()
+  const summaryRecentRuns = systemSummary?.recent_runs ?? []
+  const hasRecentRuns = summaryRecentRuns.length > 0
+
+  const summaryStatusMeta = {
+    healthy: {
+      label: 'Sağlıklı',
+      badgeClass: 'border border-emerald-200 bg-emerald-50 text-emerald-700',
+      icon: ShieldCheck,
+      iconClass: 'text-emerald-600',
+      containerClass: 'border border-emerald-200/70 bg-emerald-50/50'
+    },
+    warning: {
+      label: 'Uyarı',
+      badgeClass: 'border border-amber-200 bg-amber-50 text-amber-700',
+      icon: AlertTriangle,
+      iconClass: 'text-amber-600',
+      containerClass: 'border border-amber-200/70 bg-amber-50/50'
+    },
+    critical: {
+      label: 'Kritik',
+      badgeClass: 'border border-rose-200 bg-rose-50 text-rose-700',
+      icon: XCircle,
+      iconClass: 'text-rose-600',
+      containerClass: 'border border-rose-200/70 bg-rose-50/50'
+    },
+    empty: {
+      label: 'Veri Yok',
+      badgeClass: 'border border-muted-foreground/40 bg-muted/30 text-muted-foreground',
+      icon: Info,
+      iconClass: 'text-muted-foreground',
+      containerClass: 'border border-dashed border-muted-foreground/40 bg-muted/20'
+    }
+  }
+
+  const runStatusMeta = {
+    passed: {
+      label: 'Başarılı',
+      icon: CheckCircle,
+      textClass: 'text-emerald-600',
+      chipClass: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
+      containerClass: 'border border-emerald-200/70 bg-emerald-50/60'
+    },
+    failed: {
+      label: 'Başarısız',
+      icon: XCircle,
+      textClass: 'text-rose-600',
+      chipClass: 'bg-rose-100 text-rose-700 border border-rose-200',
+      containerClass: 'border border-rose-200/70 bg-rose-50/60'
+    }
+  }
+
+  const summaryStatus = systemSummary?.overall_status ?? (summaryRuns === 0 ? 'empty' : 'healthy')
+  const summaryStatusInfo = summaryStatusMeta[summaryStatus] ?? summaryStatusMeta.empty
+  const SummaryStatusIcon = summaryStatusInfo.icon
+  const summaryStatusIconClass = summaryStatusInfo.iconClass ?? 'text-muted-foreground'
+  const summaryMessage = systemSummary?.overall_message ??
+    (summaryRuns === 0
+      ? 'Son günlerde otomasyon testi sonucu bulunmuyor.'
+      : 'Sistem özeti alınamadı.')
+  const summaryInsights = systemSummary?.insights ?? []
+  const summaryActions = systemSummary?.recommended_actions ?? []
+
+  const [insightsExpanded, setInsightsExpanded] = useState(false)
+  const [actionsExpanded, setActionsExpanded] = useState(false)
+  const [copyStatus, setCopyStatus] = useState(null)
+
+  useEffect(() => {
+    setInsightsExpanded(false)
+    setActionsExpanded(false)
+  }, [summaryRuns, summaryPending])
+
+  useEffect(() => {
+    if (!copyStatus) {
+      return undefined
+    }
+    const timeout = window.setTimeout(() => setCopyStatus(null), 2500)
+    return () => window.clearTimeout(timeout)
+  }, [copyStatus])
+
+  const hasExtraInsights = summaryInsights.length > 2
+  const displayedInsights = useMemo(
+    () => (hasExtraInsights && !insightsExpanded ? summaryInsights.slice(0, 2) : summaryInsights),
+    [summaryInsights, hasExtraInsights, insightsExpanded]
+  )
+  const insightsRemainder = Math.max(summaryInsights.length - displayedInsights.length, 0)
+
+  const hasExtraActions = summaryActions.length > 2
+  const displayedActions = useMemo(
+    () => (hasExtraActions && !actionsExpanded ? summaryActions.slice(0, 2) : summaryActions),
+    [summaryActions, hasExtraActions, actionsExpanded]
+  )
+  const actionsRemainder = Math.max(summaryActions.length - displayedActions.length, 0)
+
+  const clipboardSupported =
+    typeof navigator !== 'undefined' && typeof navigator.clipboard?.writeText === 'function'
+
+  const handleCopyActions = async () => {
+    if (!summaryActions.length) {
+      return
+    }
+    if (!clipboardSupported) {
+      setCopyStatus({ type: 'error', message: 'Tarayıcınız panoya kopyalamayı desteklemiyor.' })
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(summaryActions.join('\n'))
+      setCopyStatus({ type: 'success', message: 'Aksiyon listesi panoya kopyalandı.' })
+    } catch (error) {
+      console.warn('Aksiyonlar panoya kopyalanamadı:', error)
+      setCopyStatus({ type: 'error', message: 'Panoya kopyalama başarısız oldu.' })
+    }
+  }
+
+  const renderRecommendedActions = (showEmptyFallback = false) => {
+    if (!summaryActions.length) {
+      if (!showEmptyFallback) {
+        return null
+      }
+      return (
+        <p className="text-xs text-muted-foreground">
+          Panelden testleri çalıştırarak özet oluşturabilirsiniz.
+        </p>
+      )
+    }
+    return (
+      <div className="rounded-lg border border-primary/40 bg-primary/5 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs uppercase tracking-wide text-primary">Önerilen aksiyonlar</p>
+          <div className="flex items-center gap-1">
+            {hasExtraActions ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs"
+                onClick={() => setActionsExpanded((prev) => !prev)}
+              >
+                {actionsExpanded ? (
+                  <span className="flex items-center gap-1">
+                    <ChevronUp className="h-3 w-3" /> Daralt
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1">
+                    <ChevronDown className="h-3 w-3" /> Tümünü göster
+                  </span>
+                )}
+              </Button>
+            ) : null}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs"
+              onClick={handleCopyActions}
+              disabled={!summaryActions.length || !clipboardSupported}
+              title={clipboardSupported ? 'Aksiyon listesini panoya kopyala' : 'Tarayıcı panoya kopyalamayı desteklemiyor'}
+            >
+              <span className="flex items-center gap-1">
+                {copyStatus?.type === 'success' ? (
+                  <CheckCircle className="h-3.5 w-3.5 text-emerald-600" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                )}
+                {copyStatus?.type === 'success' ? 'Kopyalandı' : 'Kopyala'}
+              </span>
+            </Button>
+          </div>
+        </div>
+        {copyStatus ? (
+          <p
+            className={`mt-1 text-xs ${copyStatus.type === 'error' ? 'text-rose-600' : 'text-emerald-600'}`}
+            aria-live="polite"
+          >
+            {copyStatus.message}
+          </p>
+        ) : null}
+        <ul className="mt-2 space-y-2">
+          {displayedActions.map((action) => (
+            <li key={action} className="flex items-start gap-2 text-sm text-primary">
+              <ListChecks className="mt-0.5 h-4 w-4 text-primary" />
+              <span>{action}</span>
+            </li>
+          ))}
+        </ul>
+        {!actionsExpanded && actionsRemainder > 0 ? (
+          <p className="mt-2 text-xs text-muted-foreground">+{actionsRemainder} ek öneri daha var.</p>
+        ) : null}
+      </div>
+    )
+  }
+
+  const insightStyles = {
+    success: {
+      icon: CheckCircle,
+      iconClass: 'text-emerald-600',
+      containerClass: 'border border-emerald-200 bg-emerald-50'
+    },
+    info: {
+      icon: Info,
+      iconClass: 'text-sky-600',
+      containerClass: 'border border-sky-200 bg-sky-50'
+    },
+    warning: {
+      icon: AlertTriangle,
+      iconClass: 'text-amber-600',
+      containerClass: 'border border-amber-200 bg-amber-50'
+    },
+    critical: {
+      icon: XCircle,
+      iconClass: 'text-rose-600',
+      containerClass: 'border border-rose-200 bg-rose-50'
+    }
   }
 
   const statusBadgeClass = systemCheck?.status === 'passed'
@@ -182,7 +487,7 @@ function Dashboard({
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -221,6 +526,275 @@ function Dashboard({
                 {renderSubtle(`${safeMetrics.scale_factor}x`, 'w-16')}
               </span>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-primary" />
+              Sistem Sağlık Özeti
+            </CardTitle>
+            <CardDescription>Son {summaryWindowDays} günlük görünüm</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {(summaryPending || systemSummary) && (
+              <div className="rounded-lg border border-border/60 bg-card/40 p-3 text-xs text-muted-foreground">
+                <div className="flex items-center gap-2">
+                  <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
+                  <div className="flex-1">
+                    {summaryPending
+                      ? placeholder('w-32')
+                      : summaryWindowLabel
+                        ? `Kapsam: ${summaryWindowLabel}`
+                        : 'Veri kapsamı hesaplanıyor.'}
+                  </div>
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                  <div className="flex-1">
+                    {summaryPending
+                      ? placeholder('w-28')
+                      : summaryLastRunRelative
+                        ? `Son koşu ${summaryLastRunRelative} (${summaryLastRunLabel})`
+                        : 'Son koşu bilgisi bulunmuyor.'}
+                  </div>
+                </div>
+              </div>
+            )}
+            {summaryPending ? (
+              <div className="space-y-3">
+                {placeholder('w-full')}
+                {placeholder('w-5/6')}
+                {placeholder('w-2/3')}
+              </div>
+            ) : !systemSummary ? (
+              <p className="text-sm text-muted-foreground">
+                Sistem özeti alınamadı. Yenilemeyi deneyin veya kısa süre sonra tekrar bakın.
+              </p>
+            ) : summaryRuns === 0 ? (
+              <div className="space-y-4">
+                <div className={`rounded-lg p-4 ${summaryStatusInfo.containerClass}`}>
+                  <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                    <SummaryStatusIcon className={`h-4 w-4 ${summaryStatusIconClass}`} />
+                    {summaryStatusInfo.label}
+                  </div>
+                  <p className="mt-2 text-sm text-muted-foreground">{summaryMessage}</p>
+                </div>
+                {renderRecommendedActions(true)}
+              </div>
+            ) : (
+              <>
+                <div className={`rounded-lg p-4 ${summaryStatusInfo.containerClass}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                      <SummaryStatusIcon className={`h-4 w-4 ${summaryStatusIconClass}`} />
+                      Genel Durum
+                    </div>
+                    <span className={`rounded-full px-2 py-1 text-xs font-semibold ${summaryStatusInfo.badgeClass}`}>
+                      {summaryStatusInfo.label}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm text-muted-foreground">{summaryMessage}</p>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Toplam Koşu</span>
+                    <span className="text-base font-semibold">{summaryRuns}</span>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Başarı Oranı</span>
+                      <span className={`text-base font-semibold ${summarySuccessAccent}`}>
+                        {formattedSuccessPercent}%
+                      </span>
+                    </div>
+                    <Progress value={summarySuccessPercent} className="mt-2 h-2" />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Ortalama Süre</span>
+                    <span className="text-base font-semibold">{averageDurationValue} sn</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Son Koşu</span>
+                    <span className="text-xs text-muted-foreground">{summaryLastRunLabel}</span>
+                  </div>
+                </div>
+
+                {summaryInsights.length ? (
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Öne çıkan noktalar</p>
+                      {hasExtraInsights ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => setInsightsExpanded((prev) => !prev)}
+                        >
+                          {insightsExpanded ? (
+                            <span className="flex items-center gap-1">
+                              <ChevronUp className="h-3 w-3" /> Daralt
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1">
+                              <ChevronDown className="h-3 w-3" /> Tümünü göster
+                            </span>
+                          )}
+                        </Button>
+                      ) : null}
+                    </div>
+                    <ul className="mt-2 space-y-2">
+                      {displayedInsights.map((insight) => {
+                        const style = insightStyles[insight.level] ?? insightStyles.info
+                        const InsightIcon = style.icon
+                        return (
+                          <li key={insight.message} className={`rounded-lg p-3 ${style.containerClass}`}>
+                            <div className="flex items-start gap-3">
+                              <InsightIcon className={`mt-0.5 h-4 w-4 ${style.iconClass}`} />
+                              <span className="text-sm text-foreground">{insight.message}</span>
+                            </div>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                    {!insightsExpanded && insightsRemainder > 0 ? (
+                      <p className="mt-2 text-xs text-muted-foreground">+{insightsRemainder} ek not daha var.</p>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {renderRecommendedActions()}
+
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Son koşular</p>
+                  {summaryPending && !hasRecentRuns ? (
+                    <div className="mt-2 space-y-2">
+                      {[0, 1].map((index) => (
+                        <div
+                          // eslint-disable-next-line react/no-array-index-key
+                          key={index}
+                          className="rounded-md border border-border/40 bg-muted/30 p-3"
+                        >
+                          <div className="flex items-center justify-between">
+                            {placeholder('w-24')}
+                            <div className="h-3 w-20 rounded bg-muted/50 animate-pulse" aria-hidden="true" />
+                          </div>
+                          <div className="mt-2 h-3 w-3/4 rounded bg-muted/40 animate-pulse" aria-hidden="true" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : hasRecentRuns ? (
+                    <ul className="mt-2 space-y-2">
+                      {summaryRecentRuns.map((run) => {
+                        const statusInfo = runStatusMeta[run.status] ?? runStatusMeta.failed
+                        const RunStatusIcon = statusInfo.icon
+                        const runDate = run.created_at ? new Date(run.created_at) : null
+                        const runRelative = runDate ? formatRelativeTime(runDate) : null
+                        const runDateLabel = runDate
+                          ? runDate.toLocaleString('tr-TR', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })
+                          : 'Zaman bilgisi yok'
+                        const detailParts = []
+                        if (typeof run.total_steps === 'number' && Number.isFinite(run.total_steps)) {
+                          const passedSteps =
+                            typeof run.passed_steps === 'number' && Number.isFinite(run.passed_steps)
+                              ? run.passed_steps
+                              : null
+                          const failedSteps =
+                            typeof run.failed_steps === 'number' && Number.isFinite(run.failed_steps)
+                              ? run.failed_steps
+                              : null
+                          let stepsLabel = `${run.total_steps} adım`
+                          if (typeof passedSteps === 'number') {
+                            stepsLabel = `${passedSteps}/${run.total_steps} adım tamamlandı`
+                          }
+                          if (typeof failedSteps === 'number' && failedSteps > 0) {
+                            stepsLabel += `, ${failedSteps} hata`
+                          }
+                          detailParts.push(stepsLabel)
+                        }
+                        if (typeof run.duration === 'number' && Number.isFinite(run.duration)) {
+                          detailParts.push(`${run.duration.toFixed(1)} sn`)
+                        }
+                        if (run.triggered_by) {
+                          detailParts.push(`Tetikleyen: ${run.triggered_by}`)
+                        }
+                        const detailText = detailParts.join(' • ')
+
+                        return (
+                          <li key={run.id} className={`rounded-md p-3 ${statusInfo.containerClass}`}>
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <RunStatusIcon className={`h-4 w-4 ${statusInfo.textClass}`} />
+                                <span
+                                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${statusInfo.chipClass}`}
+                                >
+                                  {statusInfo.label}
+                                </span>
+                              </div>
+                              <span className="text-xs text-muted-foreground">
+                                {runRelative ? runRelative : 'Zaman bilinmiyor'}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs text-muted-foreground">{runDateLabel}</p>
+                            {detailText ? (
+                              <p className="mt-1 text-xs text-muted-foreground">{detailText}</p>
+                            ) : null}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Son {summaryWindowDays} gün içinde kayıtlı otomasyon koşusu bulunamadı.
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Günlük dağılım</p>
+                  {recentBuckets.length ? (
+                    <ul className="mt-2 space-y-2">
+                      {recentBuckets.map((bucket) => {
+                        const bucketDate = new Date(`${bucket.date}T00:00:00Z`)
+                        const formattedDate = bucketDate.toLocaleDateString('tr-TR', {
+                          day: '2-digit',
+                          month: '2-digit'
+                        })
+                        const bucketSuccess = bucket.total > 0 ? Math.round((bucket.passed / bucket.total) * 100) : 0
+                        const bucketAccent =
+                          bucket.total === 0
+                            ? 'text-muted-foreground'
+                            : bucketSuccess >= 90
+                              ? 'text-emerald-600'
+                              : bucketSuccess >= 70
+                                ? 'text-amber-600'
+                                : 'text-rose-600'
+                        return (
+                          <li key={bucket.date} className="rounded-md border border-border/60 bg-card/40 p-3">
+                            <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
+                              <span>{formattedDate}</span>
+                              <span className={bucketAccent}>
+                                {bucket.passed}/{bucket.total} • %{bucketSuccess}
+                              </span>
+                            </div>
+                            <Progress value={bucketSuccess} className="mt-2 h-1.5" />
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted-foreground">Günlük dağılım verisi bulunmuyor.</p>
+                  )}
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 

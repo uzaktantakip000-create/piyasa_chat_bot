@@ -69,6 +69,14 @@
 - [x] Test sonuçlarını veritabanında saklayıp `/system/checks/latest` uç noktasıyla panele servis et.
 - [x] Dashboard'da son test özetini ve stres testi kontrollerini gösteren yeni kart ekle.
 
+### Profesyonel Geliştirme Fırsatları
+- [ ] **P0:** RBAC, çok faktörlü kimlik doğrulama ve API anahtarı rotasyonu içeren kapsamlı bir erişim yönetimi katmanı tasarlayıp uygulamaya alma.
+- [ ] **P0:** Dashboard verilerini WebSocket tabanlı canlı akışa taşıyarak test sonuçları ve uyarıları gecikmesiz güncelle.
+- [ ] **P1:** Sistem sağlık verilerinden yola çıkarak haftalık özet e-posta/slack raporları ve dışa aktarılabilir PDF/CSV üretimi yapan kurumsal raporlama modülü oluştur.
+- [ ] **P1:** WCAG 2.1 AA uyumluluğu için kontrast, klavye navigasyonu ve ekran okuyucu etiketlerini kapsayan kapsamlı erişilebilirlik iyileştirmeleri planla ve uygula.
+- [ ] **P1:** Yeni kullanıcılar için rehberli turlar, bağlamsal yardım makaleleri ve arama yapılabilir bilgi tabanını entegre ederek self-servis destek deneyimini güçlendir.
+- [ ] **P2:** Otomatik toparlanma (self-healing) senaryoları için başarısız testleri yeniden deneme, olay kaydı açma ve sorumlu ekiplere bildirim zincirini tetikleyen orkestrasyon akışı geliştir.
+
 ### UX İyileştirme Görevleri
 - [x] Dashboard metrikleri yüklenene kadar görsel geri bildirim ve "güncelleniyor" durumu ekle.
 - [x] Dashboard başlığına manuel yenile düğmesi ekle ve veri gecikmelerini InlineNotice ile bildir.
@@ -79,4 +87,27 @@
 - [x] QuickStart kopyalama aksiyonlarını geliştirilmiş hata/başarı bildirimleri ve bağlamsal CTA'larla güçlendir.
 - [x] Giriş panelinde oturum durumu ve parola gereksinimleri hakkında açıklayıcı içerik sun.
 - [x] Dashboard kartlarında eşik temelli tema/ikon göstergeleri ile anlam katmanı oluştur.
+
+### Planlanan UI/UX Profesyonel Geliştirmeleri
+- [ ] **P0:** Panel ve dashboard için kapsamlı kullanıcı araştırması + kullanılabilirlik testleri düzenleyip bulguları aksiyon planına dönüştür.
+- [ ] **P0:** Kritik iş akışları için rol bazlı görev panoları ve bağlama duyarlı yardım turları tasarla.
+- [ ] **P1:** Gerçek zamanlı bildirimler, toast geçmişi ve sistem durum değişiklikleri için birleşik bir "Etkinlik Merkezi" bileşeni geliştir.
+- [ ] **P1:** Kişiselleştirilebilir tema seçenekleri (karanlık/aydınlık, yüksek kontrast, yazı tipi boyutu) ekleyerek erişilebilirlik kontrollerini kullanıcıya aç.
+- [ ] **P1:** Çok adımlı formlarda ilerleme çubuğu, geri bildirim özetleri ve otomatik taslak kaydı sağlayan sihirbaz bileşeni hazırla.
+- [ ] **P2:** Dashboard ve liste sayfalarında kart/tablo görünümü arasında geçiş yapabilen adaptif düzen sistemi uygula.
+- [ ] **P2:** Kritik metrikler için eşik tabanlı uyarıları e-posta/SMS/push bildirimlerine bağlayan tercih yönetim ekranı tasarla.
+- [ ] **P2:** Kullanıcı davranışını analiz edip proaktif öneriler sunan "akıllı öneri" bannerları ve boş durum içerikleri üret.
+- [ ] **P3:** Uygulama genelinde metin ve ikonografi için çok dillilik desteğini genişletip yerelleştirme iş akışını otomatikleştir.
+- [ ] **P3:** İnteraktif stil rehberi ve bileşen kütüphanesi dokümantasyonu hazırlayarak tasarım-tabanlı geliştirme sürecini standardize et.
+
+### Yeni Geliştirme Adımları
+- [x] Sistem kontrolü sonuçlarını 7 günlük periyotta özetleyen `/system/checks/summary` API uç noktasını ekle.
+- [x] Yeni uç noktayı kapsayan birim testi yazarak API davranışını doğrula.
+- [x] Dashboard'da sistem kontrolü özetini gösteren yeni kart ekle.
+
+### Kullanıcı Dostu Takip İyileştirmeleri
+- [x] Sistem sağlık özet kartına veri kapsamı ve son çalıştırma zamanını açıkça gösteren yardımcı içerik ekle.
+- [x] Öne çıkan noktalar ve önerilen aksiyonları özet/expandable hale getirip aksiyonları panoya kopyalama kısayolu ekle.
+- [x] Sistem özeti API'sine son koşu detay listesini ekleyip şema doğrulamasıyla güvence altına al.
+- [x] Dashboard sağlık kartında son koşuların durum, süre ve tetikleyici bilgilerini kullanıcı dostu biçimde sergile.
 

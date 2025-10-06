@@ -49,6 +49,7 @@ function AppShell() {
     telegram_429_count: 0
   })
   const [systemCheck, setSystemCheck] = useState(null)
+  const [systemSummary, setSystemSummary] = useState(null)
   const [authenticating, setAuthenticating] = useState(false)
   const [authError, setAuthError] = useState('')
   const [globalStatus, setGlobalStatus] = useState(null)
@@ -114,6 +115,7 @@ function AppShell() {
       setMetricsPhase('idle')
       setFirstMetricsLoaded(false)
       setSystemCheck(null)
+      setSystemSummary(null)
       setChecksPhase('idle')
     },
     [persistSessionFlag]
@@ -143,17 +145,32 @@ function AppShell() {
     }
   }
 
-  const fetchLatestSystemCheck = useCallback(
+  const fetchSystemCheckData = useCallback(
     async () => {
       if (!isAuthenticated) {
         return
       }
       try {
-        const response = await apiFetch('/system/checks/latest')
-        const data = await response.json()
-        setSystemCheck(data)
+        const [latestResult, summaryResult] = await Promise.allSettled([
+          apiFetch('/system/checks/latest'),
+          apiFetch('/system/checks/summary')
+        ])
+
+        if (latestResult.status === 'fulfilled') {
+          const latestData = await latestResult.value.json()
+          setSystemCheck(latestData)
+        } else {
+          setSystemCheck(null)
+        }
+
+        if (summaryResult.status === 'fulfilled') {
+          const summaryData = await summaryResult.value.json()
+          setSystemSummary(summaryData)
+        } else {
+          setSystemSummary(null)
+        }
       } catch (error) {
-        console.warn('System check kaydı alınamadı:', error)
+        console.warn('System check verileri alınamadı:', error)
       }
     },
     [isAuthenticated]
@@ -185,7 +202,7 @@ function AppShell() {
           setFirstMetricsLoaded(true)
         }
         setMetricsPhase('ready')
-        await fetchLatestSystemCheck()
+        await fetchSystemCheckData()
         if (manual) {
           showToast({
             type: 'success',
@@ -221,7 +238,7 @@ function AppShell() {
         }
       }
     },
-    [fetchLatestSystemCheck, firstMetricsLoaded, isAuthenticated, logout, showToast]
+    [fetchSystemCheckData, firstMetricsLoaded, isAuthenticated, logout, showToast]
   )
 
   const toggleSimulation = async () => {
@@ -263,6 +280,7 @@ function AppShell() {
         const response = await apiFetch('/system/checks/run', { method: 'POST' })
         const data = await response.json()
         setSystemCheck(data)
+        await fetchSystemCheckData()
         showToast({
           type: data.status === 'passed' ? 'success' : 'warning',
           title: 'Testler tamamlandı',
@@ -282,7 +300,7 @@ function AppShell() {
         setChecksPhase('idle')
       }
     },
-    [checksPhase, isAuthenticated, showToast]
+    [checksPhase, fetchSystemCheckData, isAuthenticated, showToast]
   )
 
   useEffect(() => {
@@ -588,6 +606,7 @@ function AppShell() {
                     isLoading={!firstMetricsLoaded && metricsPhase === 'loading'}
                     isRefreshing={isFetchingMetrics}
                     systemCheck={systemCheck}
+                    systemSummary={systemSummary}
                     onRunChecks={runSystemChecks}
                     isRunningChecks={checksPhase === 'running'}
                   />

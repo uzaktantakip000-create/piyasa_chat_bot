@@ -6,6 +6,7 @@ import json
 import logging
 import subprocess
 import time
+from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Dict, Any
@@ -34,6 +35,10 @@ from schemas import (
     HealthCheckStatus,
     SystemCheckCreate,
     SystemCheckResponse,
+    SystemCheckSummaryBucket,
+    SystemCheckSummaryResponse,
+    SystemCheckSummaryInsight,
+    SystemCheckSummaryRun,
 )
 from security import mask_token, require_api_key, SecurityConfigError
 from settings_utils import normalize_message_length_profile, unwrap_setting_value
@@ -269,6 +274,175 @@ def get_latest_system_check(db: Session = Depends(get_db)):
     if not obj:
         return None
     return _system_check_to_response(obj)
+
+
+@app.get(
+    "/system/checks/summary",
+    response_model=SystemCheckSummaryResponse,
+    dependencies=api_dependencies,
+)
+def get_system_check_summary(
+    window_days: int = Query(7, ge=1, le=90),
+    db: Session = Depends(get_db),
+):
+    window_end = datetime.utcnow()
+    window_start = window_end - timedelta(days=window_days)
+
+    checks = (
+        db.query(SystemCheck)
+        .filter(SystemCheck.created_at >= window_start)
+        .order_by(SystemCheck.created_at.asc())
+        .all()
+    )
+
+    total_runs = len(checks)
+    passed_runs = sum(1 for check in checks if check.status.lower() == "passed")
+    failed_runs = total_runs - passed_runs
+    durations = [check.duration for check in checks if check.duration is not None]
+    average_duration = round(sum(durations) / len(durations), 2) if durations else None
+    last_run_at = checks[-1].created_at if checks else None
+
+    per_day = defaultdict(lambda: {"total": 0, "passed": 0, "failed": 0})
+    for check in checks:
+        bucket = per_day[check.created_at.date()]
+        bucket["total"] += 1
+        if check.status.lower() == "passed":
+            bucket["passed"] += 1
+        else:
+            bucket["failed"] += 1
+
+    daily_breakdown = [
+        SystemCheckSummaryBucket(
+            date=day,
+            total=data["total"],
+            passed=data["passed"],
+            failed=data["failed"],
+        )
+        for day, data in sorted(per_day.items())
+    ]
+
+    recent_runs = [
+        SystemCheckSummaryRun(
+            id=check.id,
+            status=check.status,
+            created_at=check.created_at,
+            duration=check.duration,
+            triggered_by=check.triggered_by,
+            total_steps=check.total_steps,
+            passed_steps=check.passed_steps,
+            failed_steps=check.failed_steps,
+        )
+        for check in sorted(checks, key=lambda record: record.created_at, reverse=True)[:5]
+    ]
+
+    success_rate = round(passed_runs / total_runs, 4) if total_runs else 0.0
+
+    insight_messages = set()
+    insights: List[SystemCheckSummaryInsight] = []
+    recommended_actions: List[str] = []
+
+    def add_insight(level: str, message: str) -> None:
+        if not message or message in insight_messages:
+            return
+        insights.append(SystemCheckSummaryInsight(level=level, message=message))
+        insight_messages.add(message)
+
+    def add_action(text: str) -> None:
+        if not text:
+            return
+        if text not in recommended_actions:
+            recommended_actions.append(text)
+
+    overall_status: str = "empty" if total_runs == 0 else "healthy"
+    overall_message = (
+        f"Son {window_days} gün içinde otomasyon testi kaydı bulunmuyor."
+        if total_runs == 0
+        else "Otomasyon koşuları sağlıklı görünüyor."
+    )
+
+    def update_status(level: str, message: Optional[str] = None) -> None:
+        nonlocal overall_status, overall_message
+        priority = {"empty": 0, "healthy": 1, "warning": 2, "critical": 3}
+        if priority.get(level, 0) > priority.get(overall_status, 0):
+            overall_status = level
+            if message:
+                overall_message = message
+        elif level == overall_status and message:
+            overall_message = message
+
+    now = datetime.utcnow()
+    hours_since_last_run: Optional[float] = None
+    if last_run_at is not None:
+        hours_since_last_run = (now - last_run_at).total_seconds() / 3600.0
+
+    if total_runs == 0:
+        add_insight("info", "Henüz otomasyon raporu oluşmamış. İlk testi çalıştırın.")
+        add_action("Panelden \"Testleri çalıştır\" butonunu kullanarak ilk kontrolü başlatın.")
+    else:
+        if failed_runs > 0:
+            failure_ratio = failed_runs / total_runs
+            severity = "critical" if failure_ratio >= 0.3 or success_rate < 0.7 else "warning"
+            message = (
+                "Testlerin önemli bir kısmı başarısız; aksiyon alınmalı."
+                if severity == "critical"
+                else "Bazı otomasyon adımları başarısız sonuçlandı."
+            )
+            update_status(severity, message)
+            add_insight(
+                severity,
+                f"Son {total_runs} koşunun {failed_runs} tanesi başarısız oldu (başarı oranı %{round(success_rate * 100, 1)}).",
+            )
+            add_action("Hata veren adımların loglarını inceleyip testleri yeniden çalıştırın.")
+        else:
+            add_insight("success", "Son otomasyon koşularının tamamı başarılı tamamlandı.")
+
+        if failed_runs == 0 and success_rate >= 0.95:
+            add_insight("success", "Başarı oranı %{:.1f} ile hedef seviyede.".format(success_rate * 100))
+        elif failed_runs == 0:
+            add_insight("info", "Başarı oranı %{:.1f} seviyesinde.".format(success_rate * 100))
+
+        if average_duration is not None:
+            if average_duration > 20:
+                update_status("warning", "Test süreleri uzamış görünüyor; altyapıyı kontrol edin.")
+                add_insight(
+                    "warning",
+                    f"Ortalama test süresi {average_duration:.1f} sn; bu değer önceki günlerden yüksek olabilir.",
+                )
+                add_action("Uzun süren adımların loglarını inceleyin ve gerekli optimizasyonları planlayın.")
+            elif failed_runs == 0:
+                add_insight("success", f"Ortalama test süresi {average_duration:.1f} sn ile sağlıklı görünüyor.")
+
+        if hours_since_last_run is not None:
+            if hours_since_last_run > 24:
+                update_status("critical", "Son otomasyon koşusu 24 saatten eski; yeni bir koşu başlatın.")
+                add_insight("critical", "Son otomasyon koşusu 24 saatten daha eski.")
+                add_action("Güncel sonuç almak için otomasyon testlerini yeniden başlatın.")
+            elif hours_since_last_run > 12:
+                update_status("warning", "Son otomasyon koşusu 12 saatten eski; yeni koşu planlayın.")
+                add_insight("warning", "Son otomasyon koşusu 12 saatten daha eski.")
+                add_action("Testleri manuel olarak tetikleyin veya zamanlayıcıyı gözden geçirin.")
+            elif failed_runs == 0:
+                add_insight("success", "Son otomasyon koşusu son 12 saat içinde tamamlandı.")
+
+    if overall_status == "healthy" and not insights:
+        add_insight("success", "Otomasyon koşuları stabil şekilde çalışıyor.")
+
+    return SystemCheckSummaryResponse(
+        window_start=window_start,
+        window_end=window_end,
+        total_runs=total_runs,
+        passed_runs=passed_runs,
+        failed_runs=failed_runs,
+        success_rate=success_rate,
+        average_duration=average_duration,
+        last_run_at=last_run_at,
+        daily_breakdown=daily_breakdown,
+        overall_status=overall_status,
+        overall_message=overall_message,
+        insights=insights,
+        recommended_actions=recommended_actions,
+        recent_runs=recent_runs,
+    )
 
 
 def _run_step(name: str, cmd: List[str], env: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

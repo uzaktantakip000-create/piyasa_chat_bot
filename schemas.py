@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
-from datetime import datetime
+from typing import Any, Dict, List, Optional, Literal
+from datetime import datetime, date
 
 from pydantic import BaseModel, Field
 
@@ -217,3 +217,43 @@ class SystemCheckResponse(SystemCheckCreate):
 
     class Config:
         orm_mode = True
+
+
+class SystemCheckSummaryBucket(BaseModel):
+    date: date
+    total: int
+    passed: int
+    failed: int
+
+
+class SystemCheckSummaryInsight(BaseModel):
+    level: Literal["info", "success", "warning", "critical"]
+    message: str
+
+
+class SystemCheckSummaryRun(BaseModel):
+    id: int
+    status: str
+    created_at: datetime
+    duration: Optional[float] = None
+    triggered_by: Optional[str] = None
+    total_steps: Optional[int] = None
+    passed_steps: Optional[int] = None
+    failed_steps: Optional[int] = None
+
+
+class SystemCheckSummaryResponse(BaseModel):
+    window_start: datetime
+    window_end: datetime
+    total_runs: int
+    passed_runs: int
+    failed_runs: int
+    success_rate: float
+    average_duration: Optional[float]
+    last_run_at: Optional[datetime]
+    daily_breakdown: List[SystemCheckSummaryBucket]
+    overall_status: Literal["empty", "healthy", "warning", "critical"]
+    overall_message: str
+    insights: List[SystemCheckSummaryInsight] = Field(default_factory=list)
+    recommended_actions: List[str] = Field(default_factory=list)
+    recent_runs: List[SystemCheckSummaryRun] = Field(default_factory=list)
