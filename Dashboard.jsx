@@ -28,6 +28,7 @@ function Dashboard({
   isLoading = false,
   isRefreshing = false,
   systemCheck = null,
+  systemSummary = null,
   onRunChecks = () => {},
   isRunningChecks = false
 }) {
@@ -67,6 +68,43 @@ function Dashboard({
     }
     return value
   }
+
+  const summaryPending = !systemSummary && (isLoading || isRefreshing)
+  const summaryRuns = systemSummary?.total_runs ?? 0
+  const summarySuccessPercent = systemSummary ? Math.round(systemSummary.success_rate * 1000) / 10 : 0
+  const formattedSuccessPercent = summarySuccessPercent.toFixed(1)
+  const summarySuccessAccent =
+    summaryRuns === 0
+      ? 'text-muted-foreground'
+      : summarySuccessPercent >= 90
+        ? 'text-emerald-600'
+        : summarySuccessPercent >= 70
+          ? 'text-amber-600'
+          : 'text-rose-600'
+  const averageDurationValue =
+    systemSummary && typeof systemSummary.average_duration === 'number'
+      ? systemSummary.average_duration.toFixed(1)
+      : '—'
+  const summaryLastRun = systemSummary?.last_run_at ? new Date(systemSummary.last_run_at) : null
+  const summaryLastRunLabel = summaryLastRun
+    ? summaryLastRun.toLocaleString('tr-TR', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    : 'Çalıştırılmadı'
+  const summaryWindowDays = systemSummary
+    ? Math.max(
+        1,
+        Math.round(
+          (new Date(systemSummary.window_end).getTime() - new Date(systemSummary.window_start).getTime()) /
+            (1000 * 60 * 60 * 24)
+        )
+      )
+    : 7
+  const summaryBuckets = systemSummary?.daily_breakdown ?? []
+  const recentBuckets = summaryBuckets.slice(-3).reverse()
 
   const statusBadgeClass = systemCheck?.status === 'passed'
     ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
@@ -182,7 +220,7 @@ function Dashboard({
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -221,6 +259,96 @@ function Dashboard({
                 {renderSubtle(`${safeMetrics.scale_factor}x`, 'w-16')}
               </span>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-primary" />
+              Sistem Sağlık Özeti
+            </CardTitle>
+            <CardDescription>Son {summaryWindowDays} günlük görünüm</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {summaryPending ? (
+              <div className="space-y-3">
+                {placeholder('w-full')}
+                {placeholder('w-5/6')}
+                {placeholder('w-2/3')}
+              </div>
+            ) : !systemSummary ? (
+              <p className="text-sm text-muted-foreground">
+                Sistem özeti alınamadı. Yenilemeyi deneyin veya kısa süre sonra tekrar bakın.
+              </p>
+            ) : summaryRuns === 0 ? (
+              <div className="rounded-md border border-dashed border-muted-foreground/40 p-4 text-sm text-muted-foreground">
+                Son {summaryWindowDays} gün içinde hiç otomasyon testi kaydı bulunmuyor.
+              </div>
+            ) : (
+              <>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Toplam Koşu</span>
+                    <span className="text-base font-semibold">{summaryRuns}</span>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Başarı Oranı</span>
+                      <span className={`text-base font-semibold ${summarySuccessAccent}`}>
+                        {formattedSuccessPercent}%
+                      </span>
+                    </div>
+                    <Progress value={summarySuccessPercent} className="mt-2 h-2" />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Ortalama Süre</span>
+                    <span className="text-base font-semibold">{averageDurationValue} sn</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Son Koşu</span>
+                    <span className="text-xs text-muted-foreground">{summaryLastRunLabel}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Günlük dağılım</p>
+                  {recentBuckets.length ? (
+                    <ul className="mt-2 space-y-2">
+                      {recentBuckets.map((bucket) => {
+                        const bucketDate = new Date(`${bucket.date}T00:00:00Z`)
+                        const formattedDate = bucketDate.toLocaleDateString('tr-TR', {
+                          day: '2-digit',
+                          month: '2-digit'
+                        })
+                        const bucketSuccess = bucket.total > 0 ? Math.round((bucket.passed / bucket.total) * 100) : 0
+                        const bucketAccent =
+                          bucket.total === 0
+                            ? 'text-muted-foreground'
+                            : bucketSuccess >= 90
+                              ? 'text-emerald-600'
+                              : bucketSuccess >= 70
+                                ? 'text-amber-600'
+                                : 'text-rose-600'
+                        return (
+                          <li key={bucket.date} className="rounded-md border border-border/60 bg-card/40 p-3">
+                            <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
+                              <span>{formattedDate}</span>
+                              <span className={bucketAccent}>
+                                {bucket.passed}/{bucket.total} • %{bucketSuccess}
+                              </span>
+                            </div>
+                            <Progress value={bucketSuccess} className="mt-2 h-1.5" />
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted-foreground">Günlük dağılım verisi bulunmuyor.</p>
+                  )}
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 

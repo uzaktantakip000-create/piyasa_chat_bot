@@ -1,6 +1,6 @@
 import base64  # Required so _generate_key can use base64.urlsafe_b64encode
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -191,6 +191,75 @@ def test_system_check_flow(api_client):
     assert latest_body["id"] == created["id"]
     assert latest_body["steps"][0]["name"] == "preflight"
     assert latest_body["health_checks"][0]["name"] == "api"
+
+
+def test_system_check_summary(api_client):
+    payload = {
+        "status": "passed",
+        "total_steps": 3,
+        "passed_steps": 3,
+        "failed_steps": 0,
+        "duration": 10.0,
+        "triggered_by": "unit-test",
+        "steps": [
+            {"name": "preflight", "success": True, "duration": 3.0, "stdout": "", "stderr": ""},
+            {"name": "pytest", "success": True, "duration": 4.0, "stdout": "", "stderr": ""},
+            {"name": "stress-test", "success": True, "duration": 3.0, "stdout": "", "stderr": ""},
+        ],
+        "health_checks": [],
+    }
+
+    first = api_client.post("/system/checks", json=payload, headers=auth_headers())
+    assert first.status_code == 201
+    first_id = first.json()["id"]
+
+    second_payload = dict(payload)
+    second_payload.update({"status": "failed", "failed_steps": 1, "passed_steps": 2, "duration": 6.0})
+    second = api_client.post("/system/checks", json=second_payload, headers=auth_headers())
+    assert second.status_code == 201
+    second_id = second.json()["id"]
+
+    old_payload = dict(payload)
+    old_payload.update({"duration": 8.0})
+    old = api_client.post("/system/checks", json=old_payload, headers=auth_headers())
+    assert old.status_code == 201
+    old_id = old.json()["id"]
+
+    from database import SessionLocal, SystemCheck
+
+    session = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        adjustments = [
+            (first_id, timedelta(days=2), "passed"),
+            (second_id, timedelta(hours=6), "failed"),
+            (old_id, timedelta(days=9), "passed"),
+        ]
+
+        for record_id, delta, status in adjustments:
+            obj = session.query(SystemCheck).filter(SystemCheck.id == record_id).one()
+            obj.created_at = now - delta
+            obj.status = status
+        session.commit()
+    finally:
+        session.close()
+
+    summary_resp = api_client.get("/system/checks/summary", headers=auth_headers())
+    assert summary_resp.status_code == 200
+    summary = summary_resp.json()
+
+    assert summary["total_runs"] == 2
+    assert summary["passed_runs"] == 1
+    assert summary["failed_runs"] == 1
+    assert summary["success_rate"] == pytest.approx(0.5)
+    assert summary["average_duration"] == pytest.approx(8.0)
+    assert summary["last_run_at"] is not None
+    assert len(summary["daily_breakdown"]) == 2
+
+    dates = [bucket["date"] for bucket in summary["daily_breakdown"]]
+    assert dates == sorted(dates)
+    totals = [bucket["total"] for bucket in summary["daily_breakdown"]]
+    assert totals == [1, 1]
 
 
 def test_run_system_checks_endpoint(api_client, monkeypatch):

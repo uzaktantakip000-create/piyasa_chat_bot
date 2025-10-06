@@ -6,6 +6,7 @@ import json
 import logging
 import subprocess
 import time
+from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Dict, Any
@@ -34,6 +35,8 @@ from schemas import (
     HealthCheckStatus,
     SystemCheckCreate,
     SystemCheckResponse,
+    SystemCheckSummaryBucket,
+    SystemCheckSummaryResponse,
 )
 from security import mask_token, require_api_key, SecurityConfigError
 from settings_utils import normalize_message_length_profile, unwrap_setting_value
@@ -269,6 +272,66 @@ def get_latest_system_check(db: Session = Depends(get_db)):
     if not obj:
         return None
     return _system_check_to_response(obj)
+
+
+@app.get(
+    "/system/checks/summary",
+    response_model=SystemCheckSummaryResponse,
+    dependencies=api_dependencies,
+)
+def get_system_check_summary(
+    window_days: int = Query(7, ge=1, le=90),
+    db: Session = Depends(get_db),
+):
+    window_end = datetime.utcnow()
+    window_start = window_end - timedelta(days=window_days)
+
+    checks = (
+        db.query(SystemCheck)
+        .filter(SystemCheck.created_at >= window_start)
+        .order_by(SystemCheck.created_at.asc())
+        .all()
+    )
+
+    total_runs = len(checks)
+    passed_runs = sum(1 for check in checks if check.status.lower() == "passed")
+    failed_runs = total_runs - passed_runs
+    durations = [check.duration for check in checks if check.duration is not None]
+    average_duration = round(sum(durations) / len(durations), 2) if durations else None
+    last_run_at = checks[-1].created_at if checks else None
+
+    per_day = defaultdict(lambda: {"total": 0, "passed": 0, "failed": 0})
+    for check in checks:
+        bucket = per_day[check.created_at.date()]
+        bucket["total"] += 1
+        if check.status.lower() == "passed":
+            bucket["passed"] += 1
+        else:
+            bucket["failed"] += 1
+
+    daily_breakdown = [
+        SystemCheckSummaryBucket(
+            date=day,
+            total=data["total"],
+            passed=data["passed"],
+            failed=data["failed"],
+        )
+        for day, data in sorted(per_day.items())
+    ]
+
+    success_rate = round(passed_runs / total_runs, 4) if total_runs else 0.0
+
+    return SystemCheckSummaryResponse(
+        window_start=window_start,
+        window_end=window_end,
+        total_runs=total_runs,
+        passed_runs=passed_runs,
+        failed_runs=failed_runs,
+        success_rate=success_rate,
+        average_duration=average_duration,
+        last_run_at=last_run_at,
+        daily_breakdown=daily_breakdown,
+    )
 
 
 def _run_step(name: str, cmd: List[str], env: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

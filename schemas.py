@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, date
 
 from pydantic import BaseModel, Field
 
@@ -217,3 +217,22 @@ class SystemCheckResponse(SystemCheckCreate):
 
     class Config:
         orm_mode = True
+
+
+class SystemCheckSummaryBucket(BaseModel):
+    date: date
+    total: int
+    passed: int
+    failed: int
+
+
+class SystemCheckSummaryResponse(BaseModel):
+    window_start: datetime
+    window_end: datetime
+    total_runs: int
+    passed_runs: int
+    failed_runs: int
+    success_rate: float
+    average_duration: Optional[float]
+    last_run_at: Optional[datetime]
+    daily_breakdown: List[SystemCheckSummaryBucket]

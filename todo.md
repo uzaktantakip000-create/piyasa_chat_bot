@@ -80,3 +80,8 @@
 - [x] Giriş panelinde oturum durumu ve parola gereksinimleri hakkında açıklayıcı içerik sun.
 - [x] Dashboard kartlarında eşik temelli tema/ikon göstergeleri ile anlam katmanı oluştur.
 
+### Yeni Geliştirme Adımları
+- [x] Sistem kontrolü sonuçlarını 7 günlük periyotta özetleyen `/system/checks/summary` API uç noktasını ekle.
+- [x] Yeni uç noktayı kapsayan birim testi yazarak API davranışını doğrula.
+- [x] Dashboard'da sistem kontrolü özetini gösteren yeni kart ekle.
+
