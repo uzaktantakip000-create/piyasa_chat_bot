@@ -161,6 +161,8 @@ function Dashboard({
     : 7
   const summaryBuckets = systemSummary?.daily_breakdown ?? []
   const recentBuckets = summaryBuckets.slice(-3).reverse()
+  const summaryRecentRuns = systemSummary?.recent_runs ?? []
+  const hasRecentRuns = summaryRecentRuns.length > 0
 
   const summaryStatusMeta = {
     healthy: {
@@ -190,6 +192,23 @@ function Dashboard({
       icon: Info,
       iconClass: 'text-muted-foreground',
       containerClass: 'border border-dashed border-muted-foreground/40 bg-muted/20'
+    }
+  }
+
+  const runStatusMeta = {
+    passed: {
+      label: 'Başarılı',
+      icon: CheckCircle,
+      textClass: 'text-emerald-600',
+      chipClass: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
+      containerClass: 'border border-emerald-200/70 bg-emerald-50/60'
+    },
+    failed: {
+      label: 'Başarısız',
+      icon: XCircle,
+      textClass: 'text-rose-600',
+      chipClass: 'bg-rose-100 text-rose-700 border border-rose-200',
+      containerClass: 'border border-rose-200/70 bg-rose-50/60'
     }
   }
 
@@ -647,6 +666,96 @@ function Dashboard({
                 ) : null}
 
                 {renderRecommendedActions()}
+
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Son koşular</p>
+                  {summaryPending && !hasRecentRuns ? (
+                    <div className="mt-2 space-y-2">
+                      {[0, 1].map((index) => (
+                        <div
+                          // eslint-disable-next-line react/no-array-index-key
+                          key={index}
+                          className="rounded-md border border-border/40 bg-muted/30 p-3"
+                        >
+                          <div className="flex items-center justify-between">
+                            {placeholder('w-24')}
+                            <div className="h-3 w-20 rounded bg-muted/50 animate-pulse" aria-hidden="true" />
+                          </div>
+                          <div className="mt-2 h-3 w-3/4 rounded bg-muted/40 animate-pulse" aria-hidden="true" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : hasRecentRuns ? (
+                    <ul className="mt-2 space-y-2">
+                      {summaryRecentRuns.map((run) => {
+                        const statusInfo = runStatusMeta[run.status] ?? runStatusMeta.failed
+                        const RunStatusIcon = statusInfo.icon
+                        const runDate = run.created_at ? new Date(run.created_at) : null
+                        const runRelative = runDate ? formatRelativeTime(runDate) : null
+                        const runDateLabel = runDate
+                          ? runDate.toLocaleString('tr-TR', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })
+                          : 'Zaman bilgisi yok'
+                        const detailParts = []
+                        if (typeof run.total_steps === 'number' && Number.isFinite(run.total_steps)) {
+                          const passedSteps =
+                            typeof run.passed_steps === 'number' && Number.isFinite(run.passed_steps)
+                              ? run.passed_steps
+                              : null
+                          const failedSteps =
+                            typeof run.failed_steps === 'number' && Number.isFinite(run.failed_steps)
+                              ? run.failed_steps
+                              : null
+                          let stepsLabel = `${run.total_steps} adım`
+                          if (typeof passedSteps === 'number') {
+                            stepsLabel = `${passedSteps}/${run.total_steps} adım tamamlandı`
+                          }
+                          if (typeof failedSteps === 'number' && failedSteps > 0) {
+                            stepsLabel += `, ${failedSteps} hata`
+                          }
+                          detailParts.push(stepsLabel)
+                        }
+                        if (typeof run.duration === 'number' && Number.isFinite(run.duration)) {
+                          detailParts.push(`${run.duration.toFixed(1)} sn`)
+                        }
+                        if (run.triggered_by) {
+                          detailParts.push(`Tetikleyen: ${run.triggered_by}`)
+                        }
+                        const detailText = detailParts.join(' • ')
+
+                        return (
+                          <li key={run.id} className={`rounded-md p-3 ${statusInfo.containerClass}`}>
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <RunStatusIcon className={`h-4 w-4 ${statusInfo.textClass}`} />
+                                <span
+                                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${statusInfo.chipClass}`}
+                                >
+                                  {statusInfo.label}
+                                </span>
+                              </div>
+                              <span className="text-xs text-muted-foreground">
+                                {runRelative ? runRelative : 'Zaman bilinmiyor'}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs text-muted-foreground">{runDateLabel}</p>
+                            {detailText ? (
+                              <p className="mt-1 text-xs text-muted-foreground">{detailText}</p>
+                            ) : null}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Son {summaryWindowDays} gün içinde kayıtlı otomasyon koşusu bulunamadı.
+                    </p>
+                  )}
+                </div>
 
                 <div>
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">Günlük dağılım</p>

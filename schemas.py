@@ -231,6 +231,17 @@ class SystemCheckSummaryInsight(BaseModel):
     message: str
 
 
+class SystemCheckSummaryRun(BaseModel):
+    id: int
+    status: str
+    created_at: datetime
+    duration: Optional[float] = None
+    triggered_by: Optional[str] = None
+    total_steps: Optional[int] = None
+    passed_steps: Optional[int] = None
+    failed_steps: Optional[int] = None
+
+
 class SystemCheckSummaryResponse(BaseModel):
     window_start: datetime
     window_end: datetime
@@ -245,3 +256,4 @@ class SystemCheckSummaryResponse(BaseModel):
     overall_message: str
     insights: List[SystemCheckSummaryInsight] = Field(default_factory=list)
     recommended_actions: List[str] = Field(default_factory=list)
+    recent_runs: List[SystemCheckSummaryRun] = Field(default_factory=list)

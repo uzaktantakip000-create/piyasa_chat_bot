@@ -38,6 +38,7 @@ from schemas import (
     SystemCheckSummaryBucket,
     SystemCheckSummaryResponse,
     SystemCheckSummaryInsight,
+    SystemCheckSummaryRun,
 )
 from security import mask_token, require_api_key, SecurityConfigError
 from settings_utils import normalize_message_length_profile, unwrap_setting_value
@@ -320,6 +321,20 @@ def get_system_check_summary(
         for day, data in sorted(per_day.items())
     ]
 
+    recent_runs = [
+        SystemCheckSummaryRun(
+            id=check.id,
+            status=check.status,
+            created_at=check.created_at,
+            duration=check.duration,
+            triggered_by=check.triggered_by,
+            total_steps=check.total_steps,
+            passed_steps=check.passed_steps,
+            failed_steps=check.failed_steps,
+        )
+        for check in sorted(checks, key=lambda record: record.created_at, reverse=True)[:5]
+    ]
+
     success_rate = round(passed_runs / total_runs, 4) if total_runs else 0.0
 
     insight_messages = set()
@@ -426,6 +441,7 @@ def get_system_check_summary(
         overall_message=overall_message,
         insights=insights,
         recommended_actions=recommended_actions,
+        recent_runs=recent_runs,
     )
 
 

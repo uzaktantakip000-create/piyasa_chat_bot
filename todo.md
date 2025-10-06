@@ -88,4 +88,6 @@
 ### Kullanıcı Dostu Takip İyileştirmeleri
 - [x] Sistem sağlık özet kartına veri kapsamı ve son çalıştırma zamanını açıkça gösteren yardımcı içerik ekle.
 - [x] Öne çıkan noktalar ve önerilen aksiyonları özet/expandable hale getirip aksiyonları panoya kopyalama kısayolu ekle.
+- [x] Sistem özeti API'sine son koşu detay listesini ekleyip şema doğrulamasıyla güvence altına al.
+- [x] Dashboard sağlık kartında son koşuların durum, süre ve tetikleyici bilgilerini kullanıcı dostu biçimde sergile.
 

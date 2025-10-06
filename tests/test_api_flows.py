@@ -263,6 +263,14 @@ def test_system_check_summary(api_client):
     assert summary["recommended_actions"], "recommended_actions boş olmamalı"
     assert any("loglarını" in action for action in summary["recommended_actions"])
 
+    assert summary["recent_runs"], "recent_runs boş olmamalı"
+    assert len(summary["recent_runs"]) == 2
+    latest_run = summary["recent_runs"][0]
+    assert latest_run["id"] == second_id
+    assert latest_run["status"] == "failed"
+    assert latest_run["created_at"] is not None
+    assert latest_run["total_steps"] == payload["total_steps"]
+
     dates = [bucket["date"] for bucket in summary["daily_breakdown"]]
     assert dates == sorted(dates)
     totals = [bucket["total"] for bucket in summary["daily_breakdown"]]
