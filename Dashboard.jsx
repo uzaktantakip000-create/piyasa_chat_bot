@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
@@ -10,6 +11,7 @@ import {
   TrendingUp,
   AlertTriangle,
   Clock,
+  CalendarDays,
   Zap,
   ShieldCheck,
   FlaskConical,
@@ -17,8 +19,47 @@ import {
   XCircle,
   Loader2,
   Info,
-  ListChecks
+  ListChecks,
+  ChevronDown,
+  ChevronUp,
+  Copy
 } from 'lucide-react'
+
+const formatRelativeTime = (date) => {
+  if (!date) {
+    return null
+  }
+  const diffMs = Date.now() - date.getTime()
+  if (!Number.isFinite(diffMs)) {
+    return null
+  }
+  const diffSeconds = Math.round(diffMs / 1000)
+  if (diffSeconds < 45) {
+    return 'Az önce'
+  }
+  const diffMinutes = Math.round(diffSeconds / 60)
+  if (diffMinutes < 60) {
+    return `${diffMinutes} dk önce`
+  }
+  const diffHours = Math.round(diffMinutes / 60)
+  if (diffHours < 24) {
+    return `${diffHours} sa önce`
+  }
+  const diffDays = Math.round(diffHours / 24)
+  if (diffDays < 7) {
+    return `${diffDays} gün önce`
+  }
+  const diffWeeks = Math.round(diffDays / 7)
+  if (diffWeeks < 4) {
+    return `${diffWeeks} hf önce`
+  }
+  const diffMonths = Math.round(diffDays / 30)
+  if (diffMonths < 12) {
+    return `${diffMonths} ay önce`
+  }
+  const diffYears = Math.round(diffDays / 365)
+  return `${diffYears} yıl önce`
+}
 
 const placeholder = (width = 'w-20') => (
   <div className={`h-6 rounded bg-muted/60 ${width} animate-pulse`} aria-hidden="true" />
@@ -96,6 +137,19 @@ function Dashboard({
         minute: '2-digit'
       })
     : 'Çalıştırılmadı'
+  const summaryLastRunRelative = summaryLastRun ? formatRelativeTime(summaryLastRun) : null
+  const summaryWindowStart = systemSummary?.window_start ? new Date(systemSummary.window_start) : null
+  const summaryWindowEnd = systemSummary?.window_end ? new Date(systemSummary.window_end) : null
+  const summaryWindowLabel =
+    summaryWindowStart && summaryWindowEnd
+      ? `${summaryWindowStart.toLocaleDateString('tr-TR', {
+          day: '2-digit',
+          month: '2-digit'
+        })} – ${summaryWindowEnd.toLocaleDateString('tr-TR', {
+          day: '2-digit',
+          month: '2-digit'
+        })}`
+      : null
   const summaryWindowDays = systemSummary
     ? Math.max(
         1,
@@ -149,6 +203,133 @@ function Dashboard({
       : 'Sistem özeti alınamadı.')
   const summaryInsights = systemSummary?.insights ?? []
   const summaryActions = systemSummary?.recommended_actions ?? []
+
+  const [insightsExpanded, setInsightsExpanded] = useState(false)
+  const [actionsExpanded, setActionsExpanded] = useState(false)
+  const [copyStatus, setCopyStatus] = useState(null)
+
+  useEffect(() => {
+    setInsightsExpanded(false)
+    setActionsExpanded(false)
+  }, [summaryRuns, summaryPending])
+
+  useEffect(() => {
+    if (!copyStatus) {
+      return undefined
+    }
+    const timeout = window.setTimeout(() => setCopyStatus(null), 2500)
+    return () => window.clearTimeout(timeout)
+  }, [copyStatus])
+
+  const hasExtraInsights = summaryInsights.length > 2
+  const displayedInsights = useMemo(
+    () => (hasExtraInsights && !insightsExpanded ? summaryInsights.slice(0, 2) : summaryInsights),
+    [summaryInsights, hasExtraInsights, insightsExpanded]
+  )
+  const insightsRemainder = Math.max(summaryInsights.length - displayedInsights.length, 0)
+
+  const hasExtraActions = summaryActions.length > 2
+  const displayedActions = useMemo(
+    () => (hasExtraActions && !actionsExpanded ? summaryActions.slice(0, 2) : summaryActions),
+    [summaryActions, hasExtraActions, actionsExpanded]
+  )
+  const actionsRemainder = Math.max(summaryActions.length - displayedActions.length, 0)
+
+  const clipboardSupported =
+    typeof navigator !== 'undefined' && typeof navigator.clipboard?.writeText === 'function'
+
+  const handleCopyActions = async () => {
+    if (!summaryActions.length) {
+      return
+    }
+    if (!clipboardSupported) {
+      setCopyStatus({ type: 'error', message: 'Tarayıcınız panoya kopyalamayı desteklemiyor.' })
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(summaryActions.join('\n'))
+      setCopyStatus({ type: 'success', message: 'Aksiyon listesi panoya kopyalandı.' })
+    } catch (error) {
+      console.warn('Aksiyonlar panoya kopyalanamadı:', error)
+      setCopyStatus({ type: 'error', message: 'Panoya kopyalama başarısız oldu.' })
+    }
+  }
+
+  const renderRecommendedActions = (showEmptyFallback = false) => {
+    if (!summaryActions.length) {
+      if (!showEmptyFallback) {
+        return null
+      }
+      return (
+        <p className="text-xs text-muted-foreground">
+          Panelden testleri çalıştırarak özet oluşturabilirsiniz.
+        </p>
+      )
+    }
+    return (
+      <div className="rounded-lg border border-primary/40 bg-primary/5 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs uppercase tracking-wide text-primary">Önerilen aksiyonlar</p>
+          <div className="flex items-center gap-1">
+            {hasExtraActions ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs"
+                onClick={() => setActionsExpanded((prev) => !prev)}
+              >
+                {actionsExpanded ? (
+                  <span className="flex items-center gap-1">
+                    <ChevronUp className="h-3 w-3" /> Daralt
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1">
+                    <ChevronDown className="h-3 w-3" /> Tümünü göster
+                  </span>
+                )}
+              </Button>
+            ) : null}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs"
+              onClick={handleCopyActions}
+              disabled={!summaryActions.length || !clipboardSupported}
+              title={clipboardSupported ? 'Aksiyon listesini panoya kopyala' : 'Tarayıcı panoya kopyalamayı desteklemiyor'}
+            >
+              <span className="flex items-center gap-1">
+                {copyStatus?.type === 'success' ? (
+                  <CheckCircle className="h-3.5 w-3.5 text-emerald-600" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                )}
+                {copyStatus?.type === 'success' ? 'Kopyalandı' : 'Kopyala'}
+              </span>
+            </Button>
+          </div>
+        </div>
+        {copyStatus ? (
+          <p
+            className={`mt-1 text-xs ${copyStatus.type === 'error' ? 'text-rose-600' : 'text-emerald-600'}`}
+            aria-live="polite"
+          >
+            {copyStatus.message}
+          </p>
+        ) : null}
+        <ul className="mt-2 space-y-2">
+          {displayedActions.map((action) => (
+            <li key={action} className="flex items-start gap-2 text-sm text-primary">
+              <ListChecks className="mt-0.5 h-4 w-4 text-primary" />
+              <span>{action}</span>
+            </li>
+          ))}
+        </ul>
+        {!actionsExpanded && actionsRemainder > 0 ? (
+          <p className="mt-2 text-xs text-muted-foreground">+{actionsRemainder} ek öneri daha var.</p>
+        ) : null}
+      </div>
+    )
+  }
 
   const insightStyles = {
     success: {
@@ -338,6 +519,30 @@ function Dashboard({
             <CardDescription>Son {summaryWindowDays} günlük görünüm</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {(summaryPending || systemSummary) && (
+              <div className="rounded-lg border border-border/60 bg-card/40 p-3 text-xs text-muted-foreground">
+                <div className="flex items-center gap-2">
+                  <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
+                  <div className="flex-1">
+                    {summaryPending
+                      ? placeholder('w-32')
+                      : summaryWindowLabel
+                        ? `Kapsam: ${summaryWindowLabel}`
+                        : 'Veri kapsamı hesaplanıyor.'}
+                  </div>
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                  <div className="flex-1">
+                    {summaryPending
+                      ? placeholder('w-28')
+                      : summaryLastRunRelative
+                        ? `Son koşu ${summaryLastRunRelative} (${summaryLastRunLabel})`
+                        : 'Son koşu bilgisi bulunmuyor.'}
+                  </div>
+                </div>
+              </div>
+            )}
             {summaryPending ? (
               <div className="space-y-3">
                 {placeholder('w-full')}
@@ -357,23 +562,7 @@ function Dashboard({
                   </div>
                   <p className="mt-2 text-sm text-muted-foreground">{summaryMessage}</p>
                 </div>
-                {summaryActions.length ? (
-                  <div className="rounded-lg border border-primary/40 bg-primary/5 p-3">
-                    <p className="text-xs uppercase tracking-wide text-primary">Önerilen aksiyonlar</p>
-                    <ul className="mt-2 space-y-2">
-                      {summaryActions.map((action) => (
-                        <li key={action} className="flex items-start gap-2 text-sm text-primary">
-                          <ListChecks className="mt-0.5 h-4 w-4 text-primary" />
-                          <span>{action}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Panelden testleri çalıştırarak özet oluşturabilirsiniz.
-                  </p>
-                )}
+                {renderRecommendedActions(true)}
               </div>
             ) : (
               <>
@@ -416,9 +605,29 @@ function Dashboard({
 
                 {summaryInsights.length ? (
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Öne çıkan noktalar</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Öne çıkan noktalar</p>
+                      {hasExtraInsights ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => setInsightsExpanded((prev) => !prev)}
+                        >
+                          {insightsExpanded ? (
+                            <span className="flex items-center gap-1">
+                              <ChevronUp className="h-3 w-3" /> Daralt
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1">
+                              <ChevronDown className="h-3 w-3" /> Tümünü göster
+                            </span>
+                          )}
+                        </Button>
+                      ) : null}
+                    </div>
                     <ul className="mt-2 space-y-2">
-                      {summaryInsights.map((insight) => {
+                      {displayedInsights.map((insight) => {
                         const style = insightStyles[insight.level] ?? insightStyles.info
                         const InsightIcon = style.icon
                         return (
@@ -431,22 +640,13 @@ function Dashboard({
                         )
                       })}
                     </ul>
+                    {!insightsExpanded && insightsRemainder > 0 ? (
+                      <p className="mt-2 text-xs text-muted-foreground">+{insightsRemainder} ek not daha var.</p>
+                    ) : null}
                   </div>
                 ) : null}
 
-                {summaryActions.length ? (
-                  <div className="rounded-lg border border-primary/40 bg-primary/5 p-3">
-                    <p className="text-xs uppercase tracking-wide text-primary">Önerilen aksiyonlar</p>
-                    <ul className="mt-2 space-y-2">
-                      {summaryActions.map((action) => (
-                        <li key={action} className="flex items-start gap-2 text-sm text-primary">
-                          <ListChecks className="mt-0.5 h-4 w-4 text-primary" />
-                          <span>{action}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
+                {renderRecommendedActions()}
 
                 <div>
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">Günlük dağılım</p>

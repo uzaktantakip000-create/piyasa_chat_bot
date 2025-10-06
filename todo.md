@@ -85,3 +85,7 @@
 - [x] Yeni uç noktayı kapsayan birim testi yazarak API davranışını doğrula.
 - [x] Dashboard'da sistem kontrolü özetini gösteren yeni kart ekle.
 
+### Kullanıcı Dostu Takip İyileştirmeleri
+- [x] Sistem sağlık özet kartına veri kapsamı ve son çalıştırma zamanını açıkça gösteren yardımcı içerik ekle.
+- [x] Öne çıkan noktalar ve önerilen aksiyonları özet/expandable hale getirip aksiyonları panoya kopyalama kısayolu ekle.
+
