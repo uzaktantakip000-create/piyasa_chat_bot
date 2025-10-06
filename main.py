@@ -37,6 +37,7 @@ from schemas import (
     SystemCheckResponse,
     SystemCheckSummaryBucket,
     SystemCheckSummaryResponse,
+    SystemCheckSummaryInsight,
 )
 from security import mask_token, require_api_key, SecurityConfigError
 from settings_utils import normalize_message_length_profile, unwrap_setting_value
@@ -321,6 +322,96 @@ def get_system_check_summary(
 
     success_rate = round(passed_runs / total_runs, 4) if total_runs else 0.0
 
+    insight_messages = set()
+    insights: List[SystemCheckSummaryInsight] = []
+    recommended_actions: List[str] = []
+
+    def add_insight(level: str, message: str) -> None:
+        if not message or message in insight_messages:
+            return
+        insights.append(SystemCheckSummaryInsight(level=level, message=message))
+        insight_messages.add(message)
+
+    def add_action(text: str) -> None:
+        if not text:
+            return
+        if text not in recommended_actions:
+            recommended_actions.append(text)
+
+    overall_status: str = "empty" if total_runs == 0 else "healthy"
+    overall_message = (
+        f"Son {window_days} gün içinde otomasyon testi kaydı bulunmuyor."
+        if total_runs == 0
+        else "Otomasyon koşuları sağlıklı görünüyor."
+    )
+
+    def update_status(level: str, message: Optional[str] = None) -> None:
+        nonlocal overall_status, overall_message
+        priority = {"empty": 0, "healthy": 1, "warning": 2, "critical": 3}
+        if priority.get(level, 0) > priority.get(overall_status, 0):
+            overall_status = level
+            if message:
+                overall_message = message
+        elif level == overall_status and message:
+            overall_message = message
+
+    now = datetime.utcnow()
+    hours_since_last_run: Optional[float] = None
+    if last_run_at is not None:
+        hours_since_last_run = (now - last_run_at).total_seconds() / 3600.0
+
+    if total_runs == 0:
+        add_insight("info", "Henüz otomasyon raporu oluşmamış. İlk testi çalıştırın.")
+        add_action("Panelden \"Testleri çalıştır\" butonunu kullanarak ilk kontrolü başlatın.")
+    else:
+        if failed_runs > 0:
+            failure_ratio = failed_runs / total_runs
+            severity = "critical" if failure_ratio >= 0.3 or success_rate < 0.7 else "warning"
+            message = (
+                "Testlerin önemli bir kısmı başarısız; aksiyon alınmalı."
+                if severity == "critical"
+                else "Bazı otomasyon adımları başarısız sonuçlandı."
+            )
+            update_status(severity, message)
+            add_insight(
+                severity,
+                f"Son {total_runs} koşunun {failed_runs} tanesi başarısız oldu (başarı oranı %{round(success_rate * 100, 1)}).",
+            )
+            add_action("Hata veren adımların loglarını inceleyip testleri yeniden çalıştırın.")
+        else:
+            add_insight("success", "Son otomasyon koşularının tamamı başarılı tamamlandı.")
+
+        if failed_runs == 0 and success_rate >= 0.95:
+            add_insight("success", "Başarı oranı %{:.1f} ile hedef seviyede.".format(success_rate * 100))
+        elif failed_runs == 0:
+            add_insight("info", "Başarı oranı %{:.1f} seviyesinde.".format(success_rate * 100))
+
+        if average_duration is not None:
+            if average_duration > 20:
+                update_status("warning", "Test süreleri uzamış görünüyor; altyapıyı kontrol edin.")
+                add_insight(
+                    "warning",
+                    f"Ortalama test süresi {average_duration:.1f} sn; bu değer önceki günlerden yüksek olabilir.",
+                )
+                add_action("Uzun süren adımların loglarını inceleyin ve gerekli optimizasyonları planlayın.")
+            elif failed_runs == 0:
+                add_insight("success", f"Ortalama test süresi {average_duration:.1f} sn ile sağlıklı görünüyor.")
+
+        if hours_since_last_run is not None:
+            if hours_since_last_run > 24:
+                update_status("critical", "Son otomasyon koşusu 24 saatten eski; yeni bir koşu başlatın.")
+                add_insight("critical", "Son otomasyon koşusu 24 saatten daha eski.")
+                add_action("Güncel sonuç almak için otomasyon testlerini yeniden başlatın.")
+            elif hours_since_last_run > 12:
+                update_status("warning", "Son otomasyon koşusu 12 saatten eski; yeni koşu planlayın.")
+                add_insight("warning", "Son otomasyon koşusu 12 saatten daha eski.")
+                add_action("Testleri manuel olarak tetikleyin veya zamanlayıcıyı gözden geçirin.")
+            elif failed_runs == 0:
+                add_insight("success", "Son otomasyon koşusu son 12 saat içinde tamamlandı.")
+
+    if overall_status == "healthy" and not insights:
+        add_insight("success", "Otomasyon koşuları stabil şekilde çalışıyor.")
+
     return SystemCheckSummaryResponse(
         window_start=window_start,
         window_end=window_end,
@@ -331,6 +422,10 @@ def get_system_check_summary(
         average_duration=average_duration,
         last_run_at=last_run_at,
         daily_breakdown=daily_breakdown,
+        overall_status=overall_status,
+        overall_message=overall_message,
+        insights=insights,
+        recommended_actions=recommended_actions,
     )
 
 

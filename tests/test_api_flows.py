@@ -255,6 +255,13 @@ def test_system_check_summary(api_client):
     assert summary["average_duration"] == pytest.approx(8.0)
     assert summary["last_run_at"] is not None
     assert len(summary["daily_breakdown"]) == 2
+    assert summary["overall_status"] == "critical"
+    assert summary["overall_message"] == "Testlerin önemli bir kısmı başarısız; aksiyon alınmalı."
+    assert summary["insights"], "insights boş olmamalı"
+    failure_insight = next((item for item in summary["insights"] if "başarısız" in item["message"].lower()), None)
+    assert failure_insight is not None
+    assert summary["recommended_actions"], "recommended_actions boş olmamalı"
+    assert any("loglarını" in action for action in summary["recommended_actions"])
 
     dates = [bucket["date"] for bucket in summary["daily_breakdown"]]
     assert dates == sorted(dates)

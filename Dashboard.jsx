@@ -15,7 +15,9 @@ import {
   FlaskConical,
   CheckCircle,
   XCircle,
-  Loader2
+  Loader2,
+  Info,
+  ListChecks
 } from 'lucide-react'
 
 const placeholder = (width = 'w-20') => (
@@ -105,6 +107,71 @@ function Dashboard({
     : 7
   const summaryBuckets = systemSummary?.daily_breakdown ?? []
   const recentBuckets = summaryBuckets.slice(-3).reverse()
+
+  const summaryStatusMeta = {
+    healthy: {
+      label: 'Sağlıklı',
+      badgeClass: 'border border-emerald-200 bg-emerald-50 text-emerald-700',
+      icon: ShieldCheck,
+      iconClass: 'text-emerald-600',
+      containerClass: 'border border-emerald-200/70 bg-emerald-50/50'
+    },
+    warning: {
+      label: 'Uyarı',
+      badgeClass: 'border border-amber-200 bg-amber-50 text-amber-700',
+      icon: AlertTriangle,
+      iconClass: 'text-amber-600',
+      containerClass: 'border border-amber-200/70 bg-amber-50/50'
+    },
+    critical: {
+      label: 'Kritik',
+      badgeClass: 'border border-rose-200 bg-rose-50 text-rose-700',
+      icon: XCircle,
+      iconClass: 'text-rose-600',
+      containerClass: 'border border-rose-200/70 bg-rose-50/50'
+    },
+    empty: {
+      label: 'Veri Yok',
+      badgeClass: 'border border-muted-foreground/40 bg-muted/30 text-muted-foreground',
+      icon: Info,
+      iconClass: 'text-muted-foreground',
+      containerClass: 'border border-dashed border-muted-foreground/40 bg-muted/20'
+    }
+  }
+
+  const summaryStatus = systemSummary?.overall_status ?? (summaryRuns === 0 ? 'empty' : 'healthy')
+  const summaryStatusInfo = summaryStatusMeta[summaryStatus] ?? summaryStatusMeta.empty
+  const SummaryStatusIcon = summaryStatusInfo.icon
+  const summaryStatusIconClass = summaryStatusInfo.iconClass ?? 'text-muted-foreground'
+  const summaryMessage = systemSummary?.overall_message ??
+    (summaryRuns === 0
+      ? 'Son günlerde otomasyon testi sonucu bulunmuyor.'
+      : 'Sistem özeti alınamadı.')
+  const summaryInsights = systemSummary?.insights ?? []
+  const summaryActions = systemSummary?.recommended_actions ?? []
+
+  const insightStyles = {
+    success: {
+      icon: CheckCircle,
+      iconClass: 'text-emerald-600',
+      containerClass: 'border border-emerald-200 bg-emerald-50'
+    },
+    info: {
+      icon: Info,
+      iconClass: 'text-sky-600',
+      containerClass: 'border border-sky-200 bg-sky-50'
+    },
+    warning: {
+      icon: AlertTriangle,
+      iconClass: 'text-amber-600',
+      containerClass: 'border border-amber-200 bg-amber-50'
+    },
+    critical: {
+      icon: XCircle,
+      iconClass: 'text-rose-600',
+      containerClass: 'border border-rose-200 bg-rose-50'
+    }
+  }
 
   const statusBadgeClass = systemCheck?.status === 'passed'
     ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
@@ -282,11 +349,47 @@ function Dashboard({
                 Sistem özeti alınamadı. Yenilemeyi deneyin veya kısa süre sonra tekrar bakın.
               </p>
             ) : summaryRuns === 0 ? (
-              <div className="rounded-md border border-dashed border-muted-foreground/40 p-4 text-sm text-muted-foreground">
-                Son {summaryWindowDays} gün içinde hiç otomasyon testi kaydı bulunmuyor.
+              <div className="space-y-4">
+                <div className={`rounded-lg p-4 ${summaryStatusInfo.containerClass}`}>
+                  <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                    <SummaryStatusIcon className={`h-4 w-4 ${summaryStatusIconClass}`} />
+                    {summaryStatusInfo.label}
+                  </div>
+                  <p className="mt-2 text-sm text-muted-foreground">{summaryMessage}</p>
+                </div>
+                {summaryActions.length ? (
+                  <div className="rounded-lg border border-primary/40 bg-primary/5 p-3">
+                    <p className="text-xs uppercase tracking-wide text-primary">Önerilen aksiyonlar</p>
+                    <ul className="mt-2 space-y-2">
+                      {summaryActions.map((action) => (
+                        <li key={action} className="flex items-start gap-2 text-sm text-primary">
+                          <ListChecks className="mt-0.5 h-4 w-4 text-primary" />
+                          <span>{action}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Panelden testleri çalıştırarak özet oluşturabilirsiniz.
+                  </p>
+                )}
               </div>
             ) : (
               <>
+                <div className={`rounded-lg p-4 ${summaryStatusInfo.containerClass}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                      <SummaryStatusIcon className={`h-4 w-4 ${summaryStatusIconClass}`} />
+                      Genel Durum
+                    </div>
+                    <span className={`rounded-full px-2 py-1 text-xs font-semibold ${summaryStatusInfo.badgeClass}`}>
+                      {summaryStatusInfo.label}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm text-muted-foreground">{summaryMessage}</p>
+                </div>
+
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Toplam Koşu</span>
@@ -310,6 +413,40 @@ function Dashboard({
                     <span className="text-xs text-muted-foreground">{summaryLastRunLabel}</span>
                   </div>
                 </div>
+
+                {summaryInsights.length ? (
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Öne çıkan noktalar</p>
+                    <ul className="mt-2 space-y-2">
+                      {summaryInsights.map((insight) => {
+                        const style = insightStyles[insight.level] ?? insightStyles.info
+                        const InsightIcon = style.icon
+                        return (
+                          <li key={insight.message} className={`rounded-lg p-3 ${style.containerClass}`}>
+                            <div className="flex items-start gap-3">
+                              <InsightIcon className={`mt-0.5 h-4 w-4 ${style.iconClass}`} />
+                              <span className="text-sm text-foreground">{insight.message}</span>
+                            </div>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {summaryActions.length ? (
+                  <div className="rounded-lg border border-primary/40 bg-primary/5 p-3">
+                    <p className="text-xs uppercase tracking-wide text-primary">Önerilen aksiyonlar</p>
+                    <ul className="mt-2 space-y-2">
+                      {summaryActions.map((action) => (
+                        <li key={action} className="flex items-start gap-2 text-sm text-primary">
+                          <ListChecks className="mt-0.5 h-4 w-4 text-primary" />
+                          <span>{action}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
 
                 <div>
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">Günlük dağılım</p>

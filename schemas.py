@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 from datetime import datetime, date
 
 from pydantic import BaseModel, Field
@@ -226,6 +226,11 @@ class SystemCheckSummaryBucket(BaseModel):
     failed: int
 
 
+class SystemCheckSummaryInsight(BaseModel):
+    level: Literal["info", "success", "warning", "critical"]
+    message: str
+
+
 class SystemCheckSummaryResponse(BaseModel):
     window_start: datetime
     window_end: datetime
@@ -236,3 +241,7 @@ class SystemCheckSummaryResponse(BaseModel):
     average_duration: Optional[float]
     last_run_at: Optional[datetime]
     daily_breakdown: List[SystemCheckSummaryBucket]
+    overall_status: Literal["empty", "healthy", "warning", "critical"]
+    overall_message: str
+    insights: List[SystemCheckSummaryInsight] = Field(default_factory=list)
+    recommended_actions: List[str] = Field(default_factory=list)
