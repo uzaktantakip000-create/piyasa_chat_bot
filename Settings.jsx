@@ -10,11 +10,18 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   Clock,
   MessageSquare,
-  Zap
+  Zap,
+  Palette,
+  SunMedium,
+  Moon,
+  Contrast,
+  Type,
+  RefreshCcw
 } from 'lucide-react'
 
 import { apiFetch } from './apiClient'
 import InlineNotice from './components/InlineNotice'
+import { useThemePreferences } from './components/ThemeProvider'
 
 const DEFAULT_MESSAGE_LENGTH_PROFILE = { short: 0.55, medium: 0.35, long: 0.10 }
 
@@ -55,6 +62,15 @@ function Settings() {
   const [errorMessage, setErrorMessage] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
   const [newsFeedsText, setNewsFeedsText] = useState('')
+  const {
+    theme: uiTheme,
+    contrast: uiContrast,
+    fontScale,
+    setTheme: setUiTheme,
+    setContrast: setUiContrast,
+    setFontScale: setUiFontScale,
+    resetPreferences: resetThemePreferences
+  } = useThemePreferences()
 
   // Fetch settings
   const fetchSettings = async () => {
@@ -216,6 +232,7 @@ function Settings() {
           <TabsTrigger value="behavior">Davranış</TabsTrigger>
           <TabsTrigger value="timing">Zamanlama</TabsTrigger>
           <TabsTrigger value="performance">Performans</TabsTrigger>
+          <TabsTrigger value="appearance">Görünüm</TabsTrigger>
         </TabsList>
 
         {/* Behavior Settings */}
@@ -620,6 +637,101 @@ function Settings() {
                 <p className="text-sm text-green-800">
                   ✅ Tüm ayarlar gerçek zamanlı olarak worker'lara iletilir.
                 </p>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="appearance" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Palette className="h-5 w-5" />
+                Tema ve Erişilebilirlik
+              </CardTitle>
+              <CardDescription>Kişiselleştirilmiş görünüm tercihlerini yapılandırın.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Tema modu</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant={uiTheme === 'light' ? 'default' : 'outline'}
+                    onClick={() => setUiTheme('light')}
+                    className="flex items-center gap-2"
+                  >
+                    <SunMedium className="h-4 w-4" /> Aydınlık
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={uiTheme === 'dark' ? 'default' : 'outline'}
+                    onClick={() => setUiTheme('dark')}
+                    className="flex items-center gap-2"
+                  >
+                    <Moon className="h-4 w-4" /> Karanlık
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Karanlık mod gece vardiyalarında göz yorgunluğunu azaltır; aydınlık mod ise gündüz kullanımlarında daha yüksek okunabilirlik sunar.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border/70 bg-muted/30 p-4">
+                <div>
+                  <p className="text-sm font-medium">Yüksek kontrast</p>
+                  <p className="text-xs text-muted-foreground">
+                    Kontrastı artırarak metin ve ikonları daha belirgin hale getirir.
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Contrast className="h-4 w-4 text-muted-foreground" />
+                  <Switch
+                    checked={uiContrast === 'high'}
+                    onCheckedChange={(checked) => setUiContrast(checked ? 'high' : 'normal')}
+                    aria-label="Yüksek kontrastı değiştir"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Metin boyutu</p>
+                    <p className="text-xs text-muted-foreground">
+                      Panel yazıları {Math.round(fontScale * 100)}% ölçeğinde görüntüleniyor.
+                    </p>
+                  </div>
+                  <Type className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <Slider
+                  min={90}
+                  max={130}
+                  step={5}
+                  value={[Math.round(fontScale * 100)]}
+                  onValueChange={([value]) => setUiFontScale(value / 100)}
+                  aria-label="Metin boyutu ölçeği"
+                />
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>90%</span>
+                  <span>{Math.round(fontScale * 100)}%</span>
+                  <span>130%</span>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-border/70 p-4">
+                <p className="text-xs text-muted-foreground">
+                  Varsayılan değerlere dönmek isterseniz aşağıdaki sıfırlama butonunu kullanabilirsiniz.
+                </p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={resetThemePreferences}
+                  className="flex items-center gap-2"
+                >
+                  <RefreshCcw className="h-4 w-4" /> Varsayılanları Yükle
+                </Button>
               </div>
             </CardContent>
           </Card>

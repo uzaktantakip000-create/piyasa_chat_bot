@@ -18,7 +18,8 @@ import {
   LifeBuoy,
   Clock,
   RotateCw,
-  Loader2
+  Loader2,
+  BellRing
 } from 'lucide-react'
 import Dashboard from './Dashboard'
 import Bots from './Bots'
@@ -32,9 +33,14 @@ import './App.css'
 import LoginPanel from './components/LoginPanel'
 import InlineNotice from './components/InlineNotice'
 import { ToastProvider, useToast } from './components/ToastProvider'
+import { ThemeProvider } from './components/ThemeProvider'
+import ActivityCenter from './components/ActivityCenter'
 
 function AppShell() {
-  const { showToast } = useToast()
+  const toastApi = useToast()
+  const showToast = toastApi.showToast
+  const toastHistory = toastApi.history ?? []
+  const clearToastHistory = toastApi.clearHistory ?? (() => {})
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [simulationActive, setSimulationActive] = useState(false)
   const [metrics, setMetrics] = useState({
@@ -58,6 +64,49 @@ function AppShell() {
   const [firstMetricsLoaded, setFirstMetricsLoaded] = useState(false)
   const [manualRefreshing, setManualRefreshing] = useState(false)
   const [checksPhase, setChecksPhase] = useState('idle')
+  const [activityFeed, setActivityFeed] = useState([])
+  const [activityCenterOpen, setActivityCenterOpen] = useState(false)
+  const [activitySeenAt, setActivitySeenAt] = useState(() => Date.now())
+
+  const pushActivity = useCallback((event) => {
+    setActivityFeed((current) => {
+      const entry = {
+        id: event?.id ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        title: event?.title ?? 'Olay',
+        description: event?.description ?? '',
+        severity: event?.severity ?? 'info',
+        source: event?.source ?? 'sistem',
+        timestamp: event?.timestamp ?? new Date().toISOString(),
+        meta: event?.meta ?? {}
+      }
+      const next = [entry, ...current]
+      return next.slice(0, 80)
+    })
+  }, [])
+
+  const clearActivityFeed = useCallback(() => {
+    setActivityFeed([])
+  }, [])
+
+  const unreadCount = useMemo(() => {
+    return activityFeed.filter((event) => {
+      if (!event?.timestamp) {
+        return false
+      }
+      const ts = new Date(event.timestamp).getTime()
+      return Number.isFinite(ts) && ts > activitySeenAt
+    }).length
+  }, [activityFeed, activitySeenAt])
+
+  const handleOpenActivityCenter = useCallback(() => {
+    setActivityCenterOpen(true)
+    setActivitySeenAt(Date.now())
+  }, [])
+
+  const handleCloseActivityCenter = useCallback(() => {
+    setActivityCenterOpen(false)
+    setActivitySeenAt(Date.now())
+  }, [])
 
 
   const safeMessagesPerMinute = useMemo(() => {
@@ -121,7 +170,14 @@ function AppShell() {
     setSystemCheck(null)
     setSystemSummary(null)
     setChecksPhase('idle')
-  }, [])
+    pushActivity({
+      severity: message ? 'warning' : 'info',
+      title: 'Oturum kapatıldı',
+      description: message || 'Kullanıcı isteğiyle çıkış yapıldı.',
+      source: 'auth',
+      meta: { manual: !message }
+    })
+  }, [pushActivity])
 
   const handleLogin = async ({ username, password, totp }) => {
     setAuthError('')
@@ -160,11 +216,25 @@ function AppShell() {
       } catch (infoError) {
         console.warn('Kullanıcı bilgileri alınamadı:', infoError)
       }
+      pushActivity({
+        severity: 'success',
+        title: 'Giriş başarılı',
+        description: `${username.trim()} oturumu açtı.`,
+        source: 'auth',
+        meta: { manual: true }
+      })
     } catch (error) {
       setStoredApiKey(null)
       setSessionMeta(null)
       setIsAuthenticated(false)
       setAuthError(error?.message || 'Giriş başarısız oldu.')
+      pushActivity({
+        severity: 'error',
+        title: 'Giriş başarısız',
+        description: error?.message || 'Giriş sırasında beklenmeyen bir hata oluştu.',
+        source: 'auth',
+        meta: { manual: true }
+      })
     } finally {
       setAuthenticating(false)
     }
@@ -221,6 +291,7 @@ function AppShell() {
           setMetricsPhase('refreshing')
         }
 
+        const wasFirstLoad = !firstMetricsLoaded
         const response = await apiFetch('/metrics')
         const data = await response.json()
         setMetrics(data)
@@ -236,7 +307,22 @@ function AppShell() {
           showToast({
             type: 'success',
             title: 'Dashboard yenilendi',
-            description: 'Son metrikler başarıyla alındı.'
+            description: 'Son metrikler başarıyla alındı.',
+            source: 'metrics'
+          })
+          pushActivity({
+            severity: 'success',
+            title: 'Metrikler yenilendi',
+            description: 'Manuel yenileme tamamlandı.',
+            source: 'metrics',
+            meta: { manual: true }
+          })
+        } else if (wasFirstLoad) {
+          pushActivity({
+            severity: 'info',
+            title: 'Metrikler yüklendi',
+            description: 'Dashboard başlangıç metrikleri alındı.',
+            source: 'metrics'
           })
         }
       } catch (error) {
@@ -260,6 +346,13 @@ function AppShell() {
                   onAction: () => fetchMetrics({ manual: true })
                 }
           )
+          pushActivity({
+            severity: 'warning',
+            title: 'Ağ bağlantısı kesildi',
+            description: 'Metrikler alınamadı. Bağlantı geri geldiğinde otomatik yenilenecek.',
+            source: 'network',
+            meta: { manual }
+          })
         } else if (isApiError(error) && error.code === 'timeout') {
           setGlobalStatus({
             type: 'warning',
@@ -268,6 +361,13 @@ function AppShell() {
             actionLabel: 'Tekrar dene',
             onAction: () => fetchMetrics({ manual: true })
           })
+          pushActivity({
+            severity: 'warning',
+            title: 'Metrik isteği zaman aşımı',
+            description: 'API isteği belirlenen sürede yanıt vermedi.',
+            source: 'metrics',
+            meta: { manual }
+          })
         } else {
           setGlobalStatus({
             type: 'error',
@@ -275,6 +375,13 @@ function AppShell() {
               error?.message
                 ? `Metrikler alınırken hata oluştu: ${error.message}`
                 : 'Metrikler alınırken beklenmeyen bir hata oluştu.'
+          })
+          pushActivity({
+            severity: 'error',
+            title: 'Metrikler alınamadı',
+            description: error?.message || 'Beklenmeyen bir hata oluştu.',
+            source: 'metrics',
+            meta: { manual }
           })
         }
 
@@ -292,7 +399,8 @@ function AppShell() {
                   ? 'Ağ bağlantısı yok'
                   : 'Yenileme başarısız',
             description:
-              error?.message || 'Metrikler alınırken beklenmeyen bir hata oluştu.'
+              error?.message || 'Metrikler alınırken beklenmeyen bir hata oluştu.',
+            source: 'metrics'
           })
         }
       } finally {
@@ -301,7 +409,15 @@ function AppShell() {
         }
       }
     },
-    [fetchSystemCheckData, firstMetricsLoaded, isAuthenticated, logout, sessionMeta?.apiKey, showToast]
+    [
+      fetchSystemCheckData,
+      firstMetricsLoaded,
+      isAuthenticated,
+      logout,
+      sessionMeta?.apiKey,
+      showToast,
+      pushActivity
+    ]
   )
 
   const handleRetryNow = useCallback(() => {
@@ -321,6 +437,16 @@ function AppShell() {
       setSimulationActive(!simulationActive)
       setTimeout(fetchMetrics, 1000)
       setGlobalStatus(null)
+      const nextState = !simulationActive
+      pushActivity({
+        severity: nextState ? 'success' : 'warning',
+        title: nextState ? 'Simülasyon başlatıldı' : 'Simülasyon durduruldu',
+        description: nextState
+          ? 'Botlar yeniden mesaj üretmeye başladı.'
+          : 'Simülasyon isteğe bağlı olarak durduruldu.',
+        source: 'control',
+        meta: { manual: true }
+      })
     } catch (error) {
       console.error('Failed to toggle simulation:', error)
       if ((isApiError(error) && error.status === 401) || error?.message?.includes('401') || !sessionMeta?.apiKey) {
@@ -333,6 +459,13 @@ function AppShell() {
           error?.message
             ? `Simülasyon kontrol edilirken hata oluştu: ${error.message}`
             : 'Simülasyon kontrol edilirken beklenmeyen bir hata oluştu.'
+      })
+      pushActivity({
+        severity: 'error',
+        title: 'Simülasyon kontrol hatası',
+        description: error?.message || 'Simülasyon komutu uygulanamadı.',
+        source: 'control',
+        meta: { manual: true }
       })
     }
   }
@@ -356,6 +489,16 @@ function AppShell() {
               ? 'Tüm kontroller başarıyla geçti.'
               : 'Bazı adımlarda hata oluştu, detayları inceleyin.'
         })
+        pushActivity({
+          severity: data.status === 'passed' ? 'success' : 'warning',
+          title: 'Otomasyon testleri tamamlandı',
+          description:
+            data.status === 'passed'
+              ? 'Kontroller başarıyla tamamlandı.'
+              : 'Bazı kontroller uyarı verdi, detayları inceleyin.',
+          source: 'automation',
+          meta: { manual: true, status: data.status }
+        })
       } catch (error) {
         console.error('Testler çalıştırılırken hata:', error)
         if ((isApiError(error) && error.status === 401) || error?.message?.includes('401')) {
@@ -366,12 +509,19 @@ function AppShell() {
             title: 'Testler başarısız',
             description: error?.message || 'Testler çalıştırılırken beklenmeyen bir hata oluştu.'
           })
+          pushActivity({
+            severity: 'error',
+            title: 'Test çalıştırması başarısız',
+            description: error?.message || 'Otomasyon testi beklenmeyen bir hata verdi.',
+            source: 'automation',
+            meta: { manual: true }
+          })
         }
       } finally {
         setChecksPhase('idle')
       }
     },
-    [checksPhase, fetchSystemCheckData, isAuthenticated, logout, showToast]
+    [checksPhase, fetchSystemCheckData, isAuthenticated, logout, showToast, pushActivity]
   )
 
   useEffect(() => {
@@ -400,6 +550,12 @@ function AppShell() {
     const handleOnline = () => {
       setGlobalStatus((prev) => (prev?.code === 'offline' ? null : prev))
       fetchMetrics()
+      pushActivity({
+        severity: 'success',
+        title: 'Bağlantı geri geldi',
+        description: 'Veriler otomatik olarak yenileniyor.',
+        source: 'network'
+      })
     }
 
     const handleOffline = () => {
@@ -410,6 +566,12 @@ function AppShell() {
         actionLabel: 'Şimdi tekrar dene',
         onAction: handleRetryNow
       })
+      pushActivity({
+        severity: 'warning',
+        title: 'İnternet bağlantısı kesildi',
+        description: 'Dashboard çevrimdışı modda bekliyor.',
+        source: 'network'
+      })
     }
 
     window.addEventListener('online', handleOnline)
@@ -418,7 +580,7 @@ function AppShell() {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
     }
-  }, [fetchMetrics, handleRetryNow, isAuthenticated])
+  }, [fetchMetrics, handleRetryNow, isAuthenticated, pushActivity])
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -584,106 +746,124 @@ function AppShell() {
                 </Badge>
               </div>
 
-              <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-                <div className="flex items-center gap-2">
-                  <Users className="h-4 w-4" />
-                  {firstMetricsLoaded ? (
-                    <span>{metrics.active_bots}/{metrics.total_bots} Bot</span>
-                  ) : (
-                    <span className="flex h-4 w-16 animate-pulse items-center rounded bg-muted/60" aria-hidden="true" />
-                  )}
+              <div className="flex flex-1 flex-wrap items-center justify-end gap-4">
+                <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+                  <div className="flex items-center gap-2">
+                    <Users className="h-4 w-4" />
+                    {firstMetricsLoaded ? (
+                      <span>{metrics.active_bots}/{metrics.total_bots} Bot</span>
+                    ) : (
+                      <span className="flex h-4 w-16 animate-pulse items-center rounded bg-muted/60" aria-hidden="true" />
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4" />
+                    {firstMetricsLoaded ? (
+                      <span>{safeMessagesPerMinute.toFixed(1)} msg/dk</span>
+                    ) : (
+                      <span className="flex h-4 w-20 animate-pulse items-center rounded bg-muted/60" aria-hidden="true" />
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4" />
+                    <span>
+                      Son güncelleme{' '}
+                      {lastUpdatedAt
+                        ? lastUpdatedAt.toLocaleTimeString('tr-TR', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit'
+                          })
+                        : firstMetricsLoaded
+                          ? '—'
+                          : 'yükleniyor…'}
+                    </span>
+                    {isFetchingMetrics && (
+                      <Badge variant="outline" className="flex items-center gap-1 text-xs">
+                        <span className="relative flex h-2 w-2">
+                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                          <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+                        </span>
+                        Güncelleniyor
+                      </Badge>
+                    )}
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <TrendingUp className="h-4 w-4" />
-                  {firstMetricsLoaded ? (
-                    <span>{safeMessagesPerMinute.toFixed(1)} msg/dk</span>
-                  ) : (
-                    <span className="flex h-4 w-20 animate-pulse items-center rounded bg-muted/60" aria-hidden="true" />
-                  )}
-                </div>
+                {sessionMeta?.username && (
+                  <div className="flex flex-col items-end text-sm text-muted-foreground">
+                    <span className="font-medium text-foreground">{sessionMeta.username}</span>
+                    {sessionMeta?.role && <span className="text-xs uppercase tracking-wide">{sessionMeta.role}</span>}
+                  </div>
+                )}
 
-                <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4" />
-                  <span>
-                    Son güncelleme{' '}
-                    {lastUpdatedAt
-                      ? lastUpdatedAt.toLocaleTimeString('tr-TR', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          second: '2-digit'
-                        })
-                      : firstMetricsLoaded
-                        ? '—'
-                        : 'yükleniyor…'}
-                  </span>
-                  {isFetchingMetrics && (
-                    <Badge variant="outline" className="flex items-center gap-1 text-xs">
-                      <span className="relative flex h-2 w-2">
-                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
-                        <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+                <div className="flex items-center gap-2 text-sm">
+                  <Button
+                    type="button"
+                    onClick={handleOpenActivityCenter}
+                    variant="ghost"
+                    size="sm"
+                    className="relative flex items-center gap-2"
+                    aria-label="Etkinlik merkezini aç"
+                  >
+                    <BellRing className="h-4 w-4" />
+                    <span className="hidden sm:inline">Etkinlikler</span>
+                    {unreadCount > 0 ? (
+                      <span className="absolute -right-2 -top-2 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1 text-[11px] font-semibold text-primary-foreground">
+                        {unreadCount > 99 ? '99+' : unreadCount}
                       </span>
-                      Güncelleniyor
-                    </Badge>
-                  )}
-              </div>
+                    ) : null}
+                  </Button>
 
-              {sessionMeta?.username && (
-                <div className="flex flex-col items-end text-sm text-muted-foreground">
-                  <span className="font-medium text-foreground">{sessionMeta.username}</span>
-                  {sessionMeta?.role && <span className="text-xs uppercase tracking-wide">{sessionMeta.role}</span>}
+                  <Button
+                    onClick={manualRefresh}
+                    variant="outline"
+                    size="sm"
+                    disabled={manualRefreshing}
+                    className="flex items-center gap-2"
+                    title="Kısayol: Ctrl+Alt+R"
+                    aria-label="Manuel yenile (Ctrl+Alt+R)"
+                  >
+                    {manualRefreshing ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RotateCw className="h-4 w-4" />
+                    )}
+                    Yenile
+                  </Button>
+                  <span className="hidden text-xs text-muted-foreground xl:inline">Ctrl+Alt+R</span>
+
+                  <Button
+                    onClick={toggleSimulation}
+                    variant={simulationActive ? 'destructive' : 'default'}
+                    size="sm"
+                    title="Kısayol: Ctrl+Alt+S"
+                    aria-label={
+                      simulationActive
+                        ? 'Simülasyonu durdur (Ctrl+Alt+S)'
+                        : 'Simülasyonu başlat (Ctrl+Alt+S)'
+                    }
+                  >
+                    {simulationActive ? (
+                      <>
+                        <Pause className="mr-2 h-4 w-4" />
+                        Durdur
+                      </>
+                    ) : (
+                      <>
+                        <Play className="mr-2 h-4 w-4" />
+                        Başlat
+                      </>
+                    )}
+                  </Button>
+                  <span className="hidden text-xs text-muted-foreground xl:inline">Ctrl+Alt+S</span>
+
+                  <Button onClick={() => logout('')} variant="secondary" size="sm">
+                    Çıkış
+                  </Button>
                 </div>
-              )}
-
-              <Button
-                onClick={manualRefresh}
-                  variant="outline"
-                  size="sm"
-                  disabled={manualRefreshing}
-                  className="flex items-center gap-2"
-                  title="Kısayol: Ctrl+Alt+R"
-                  aria-label="Manuel yenile (Ctrl+Alt+R)"
-                >
-                  {manualRefreshing ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <RotateCw className="h-4 w-4" />
-                  )}
-                  Yenile
-                </Button>
-                <span className="hidden text-xs text-muted-foreground xl:inline">Ctrl+Alt+R</span>
-
-                <Button
-                  onClick={toggleSimulation}
-                  variant={simulationActive ? 'destructive' : 'default'}
-                  size="sm"
-                  title="Kısayol: Ctrl+Alt+S"
-                  aria-label={
-                    simulationActive
-                      ? 'Simülasyonu durdur (Ctrl+Alt+S)'
-                      : 'Simülasyonu başlat (Ctrl+Alt+S)'
-                  }
-                >
-                  {simulationActive ? (
-                    <>
-                      <Pause className="h-4 w-4 mr-2" />
-                      Durdur
-                    </>
-                  ) : (
-                    <>
-                      <Play className="h-4 w-4 mr-2" />
-                      Başlat
-                    </>
-                  )}
-                </Button>
-                <span className="hidden text-xs text-muted-foreground xl:inline">Ctrl+Alt+S</span>
-                <Button
-                  onClick={() => logout('')}
-                  variant="secondary"
-                  size="sm"
-                >
-                  Çıkış
-                </Button>
               </div>
             </div>
           </header>
@@ -720,6 +900,8 @@ function AppShell() {
                     systemSummary={systemSummary}
                     onRunChecks={runSystemChecks}
                     isRunningChecks={checksPhase === 'running'}
+                    sessionRole={sessionMeta?.role}
+                    sessionMeta={sessionMeta}
                   />
                 }
               />
@@ -732,6 +914,14 @@ function AppShell() {
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </main>
+          <ActivityCenter
+            open={activityCenterOpen}
+            onClose={handleCloseActivityCenter}
+            events={activityFeed}
+            onClearEvents={clearActivityFeed}
+            toastHistory={toastHistory}
+            onClearToastHistory={clearToastHistory}
+          />
         </div>
       </div>
     </Router>
@@ -741,7 +931,9 @@ function AppShell() {
 function App() {
   return (
     <ToastProvider>
-      <AppShell />
+      <ThemeProvider>
+        <AppShell />
+      </ThemeProvider>
     </ToastProvider>
   )
 }
