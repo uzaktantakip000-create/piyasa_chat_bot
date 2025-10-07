@@ -13,10 +13,15 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  RotateCcw,
+  Circle,
+  Loader2,
+  Clock3
 } from "lucide-react";
 
 import { apiFetch } from "../apiClient";
+import { useTranslation } from "../localization";
 
 function SectionTitle({ icon: Icon, title, desc }) {
   return (
@@ -63,6 +68,79 @@ function Checkbox({ label, checked, onChange }) {
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
       <span className="text-sm text-muted-foreground">{label}</span>
     </label>
+  );
+}
+
+function formatRelativeTime(locale, timestamp) {
+  if (!timestamp) {
+    return null;
+  }
+  const safeLocale = typeof locale === "string" && locale ? locale : "tr";
+  const diffSeconds = Math.round((timestamp - Date.now()) / 1000);
+  const absoluteSeconds = Math.abs(diffSeconds);
+  const units = [
+    { unit: "second", seconds: 1 },
+    { unit: "minute", seconds: 60 },
+    { unit: "hour", seconds: 60 * 60 },
+    { unit: "day", seconds: 60 * 60 * 24 },
+    { unit: "week", seconds: 60 * 60 * 24 * 7 },
+    { unit: "month", seconds: 60 * 60 * 24 * 30 },
+    { unit: "year", seconds: 60 * 60 * 24 * 365 }
+  ];
+
+  const rtf = new Intl.RelativeTimeFormat(safeLocale, { numeric: "auto" });
+  for (let index = 0; index < units.length; index += 1) {
+    const current = units[index];
+    const next = units[index + 1];
+    if (!next || absoluteSeconds < next.seconds) {
+      const value = Math.round(diffSeconds / current.seconds);
+      return rtf.format(value, current.unit);
+    }
+  }
+  return null;
+}
+
+function AutosaveBadge({ status, savedAt, tf, locale }) {
+  const meta = useMemo(() => {
+    if (status === "saving") {
+      return {
+        icon: Loader2,
+        className: "border-border bg-muted text-muted-foreground",
+        labelKey: "wizard.autosave.saving",
+        fallback: "Taslak kaydediliyor…"
+      };
+    }
+    if (status === "saved") {
+      return {
+        icon: CheckCircle2,
+        className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+        labelKey: "wizard.autosave.saved",
+        fallback: "Taslak güncel"
+      };
+    }
+    return {
+      icon: Clock3,
+      className: "border-border bg-muted/40 text-muted-foreground",
+      labelKey: "wizard.autosave.idle",
+      fallback: "Taslak hazır"
+    };
+  }, [status]);
+
+  const relative = status !== "saving" ? formatRelativeTime(locale, savedAt) : null;
+  const Icon = meta.icon;
+
+  return (
+    <div className="flex flex-col items-end gap-1 text-right">
+      <Badge variant="outline" className={`flex items-center gap-1 text-xs ${meta.className}`}>
+        <Icon className={`h-3.5 w-3.5 ${status === "saving" ? "animate-spin" : ""}`} />
+        {tf(meta.labelKey, meta.fallback)}
+      </Badge>
+      {relative && (
+        <span className="text-[11px] text-muted-foreground">
+          {tf("wizard.autosave.savedHint", "Son kaydetme:")} {relative}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -170,7 +248,156 @@ const INITIAL_HOLDINGS = [
   { symbol: "BIST:AKBNK", avg_price: "63.4", size: "120", note: "uzun vade çekirdek pozisyon" }
 ];
 
+function evaluateBotChat(bot, chat) {
+  const name = bot.name?.trim();
+  if (!name) {
+    return { ok: false, message: "Bot adı zorunludur.", severity: "error" };
+  }
+  const token = bot.token?.trim();
+  if (!token) {
+    return { ok: false, message: "Bot token zorunludur.", severity: "error" };
+  }
+  if (!BOT_TOKEN_PATTERN.test(token)) {
+    return { ok: false, message: "Bot token formatı hatalı görünüyor.", severity: "error" };
+  }
+  const chatId = chat.chat_id?.trim();
+  if (!chatId) {
+    return { ok: false, message: "Chat ID zorunludur.", severity: "error" };
+  }
+  if (!CHAT_ID_PATTERN.test(chatId)) {
+    return { ok: false, message: "Chat ID formatını kontrol edin.", severity: "error" };
+  }
+
+  return {
+    ok: true,
+    message: "Kimlik ve bağlantı adımı hazır görünüyor.",
+    severity: "success",
+    highlights: [
+      `Bot: ${name}`,
+      `Chat ID: ${chatId}`,
+      token ? `Token: ${token.replace(/^(.{4}).+(.{4})$/, "$1…$2")}` : null
+    ].filter(Boolean)
+  };
+}
+
+function evaluatePersona(persona, emotion) {
+  const tone = persona.tone?.trim();
+  if (!tone) {
+    return { ok: false, message: "Persona üslup alanı boş bırakılamaz.", severity: "error" };
+  }
+  const empathy = emotion.empathy?.trim();
+  if (!empathy) {
+    return { ok: false, message: "Empati yaklaşımı tanımlanmalıdır.", severity: "error" };
+  }
+  const emotionTone = emotion.tone?.trim();
+  if (!emotionTone) {
+    return { ok: false, message: "Duygu tonu boş bırakılamaz.", severity: "error" };
+  }
+
+  const personaRisk = persona.risk_profile?.trim();
+  const signatureEmoji = emotion.signatureEmoji?.trim();
+  const highlights = [
+    `Üslup: ${tone}`,
+    personaRisk ? `Risk: ${personaRisk}` : null,
+    `Empati: ${empathy.slice(0, 60)}${empathy.length > 60 ? "…" : ""}`,
+    signatureEmoji ? `Emoji: ${signatureEmoji}` : null
+  ].filter(Boolean);
+
+  return {
+    ok: true,
+    message: "Persona ve duygu profili tamam.",
+    severity: "success",
+    highlights
+  };
+}
+
+function evaluateStances(stances, holdings) {
+  for (const stance of stances) {
+    const hasAny = stance.topic || stance.stance_text || stance.confidence !== "" || stance.cooldown_until;
+    if (hasAny) {
+      if (!stance.topic?.trim() || !stance.stance_text?.trim()) {
+        return { ok: false, message: "Her tutum için konu ve açıklama birlikte girilmelidir.", severity: "error" };
+      }
+      if (stance.confidence !== "") {
+        const confidenceNumber = Number(stance.confidence);
+        if (!Number.isFinite(confidenceNumber) || confidenceNumber < 0 || confidenceNumber > 1) {
+          return { ok: false, message: "Güven değeri 0 ile 1 arasında olmalıdır.", severity: "error" };
+        }
+      }
+    }
+  }
+
+  for (const holding of holdings) {
+    const hasAny = holding.symbol || holding.avg_price !== "" || holding.size !== "" || holding.note;
+    if (hasAny && !holding.symbol?.trim()) {
+      return { ok: false, message: "Pozisyon satırları sembol ile başlamalıdır.", severity: "error" };
+    }
+  }
+
+  const stanceCount = stances.filter((stance) => stance.topic?.trim() && stance.stance_text?.trim()).length;
+  const holdingCount = holdings.filter((holding) => holding.symbol?.trim()).length;
+
+  return {
+    ok: true,
+    message: "Strateji notları ve pozisyonlar hazır.",
+    severity: "success",
+    highlights: [
+      `${stanceCount} tutum kaydı`,
+      `${holdingCount} portföy satırı`
+    ]
+  };
+}
+
+function evaluateSummary(stepResults, payload) {
+  const missingSteps = Object.entries(stepResults)
+    .filter(([key, result]) => key !== "summary" && !result.ok)
+    .map(([key]) => key);
+
+  if (missingSteps.length > 0) {
+    return {
+      ok: false,
+      message: "Eksik adımlar var, özet kontrolünü tamamlayın.",
+      severity: "error",
+      highlights: missingSteps.map((id) => {
+        switch (id) {
+          case "bot-chat":
+            return "Bot & Sohbet adımı eksik";
+          case "persona":
+            return "Persona & Duygu adımı eksik";
+          case "stances":
+            return "Tutumlar & Pozisyonlar adımı eksik";
+          default:
+            return "Eksik adım";
+        }
+      })
+    };
+  }
+
+  const highlights = [];
+  if (payload?.bot?.name) {
+    highlights.push(`Bot: ${payload.bot.name}`);
+  }
+  if (payload?.chat?.chat_id) {
+    highlights.push(`Chat: ${payload.chat.chat_id}`);
+  }
+  if (payload?.persona?.tone) {
+    highlights.push(`Üslup: ${payload.persona.tone}`);
+  }
+  if (payload?.start_simulation) {
+    highlights.push("Kurulumdan sonra simülasyon başlayacak");
+  }
+
+  return {
+    ok: true,
+    message: "Kurulum gönderilmeye hazır.",
+    severity: "success",
+    highlights
+  };
+}
+
 export default function Wizard({ onDone }) {
+  const { t, locale } = useTranslation();
+  const tf = (key, fallback) => t(key) || fallback;
   const [simActive, setSimActive] = useState(false);
   const [scale, setScale] = useState(1.0);
 
@@ -183,7 +410,7 @@ export default function Wizard({ onDone }) {
 
   const [currentStep, setCurrentStep] = useState(0);
   const [stepError, setStepError] = useState("");
-  const [autosaveStatus, setAutosaveStatus] = useState("saved");
+  const [autosaveState, setAutosaveState] = useState({ status: "idle", savedAt: null });
   const autosaveTimeoutRef = useRef(null);
   const [wizardLoaded, setWizardLoaded] = useState(false);
 
@@ -192,12 +419,28 @@ export default function Wizard({ onDone }) {
 
   const wizardSteps = useMemo(
     () => [
-      { id: "bot-chat", title: "Bot & Sohbet", description: "Kimlik ve bağlantı ayarlarını yapılandırın." },
-      { id: "persona", title: "Persona & Duygu", description: "Üslup ve empati ayarlarını belirleyin." },
-      { id: "stances", title: "Tutumlar & Pozisyonlar", description: "Opsiyonel strateji ve portföy notları." },
-      { id: "summary", title: "Özet & Yayınla", description: "Kurulumu tamamlamadan önce son kontrol." }
+      {
+        id: "bot-chat",
+        title: tf("wizard.steps.bot", "Bot & Sohbet"),
+        description: tf("wizard.steps.bot.desc", "Kimlik ve bağlantı ayarlarını yapılandırın.")
+      },
+      {
+        id: "persona",
+        title: tf("wizard.steps.persona", "Persona & Duygu"),
+        description: tf("wizard.steps.persona.desc", "Üslup ve empati ayarlarını belirleyin.")
+      },
+      {
+        id: "stances",
+        title: tf("wizard.steps.stances", "Tutumlar & Pozisyonlar"),
+        description: tf("wizard.steps.stances.desc", "Opsiyonel strateji ve portföy notları.")
+      },
+      {
+        id: "summary",
+        title: tf("wizard.steps.summary", "Özet & Yayınla"),
+        description: tf("wizard.steps.summary.desc", "Kurulumu tamamlamadan önce son kontrol.")
+      }
     ],
-    []
+    [tf]
   );
 
   useEffect(() => {
@@ -267,7 +510,7 @@ export default function Wizard({ onDone }) {
     if (!wizardLoaded || typeof window === "undefined") {
       return;
     }
-    setAutosaveStatus("saving");
+    setAutosaveState((prev) => ({ ...prev, status: "saving" }));
     if (autosaveTimeoutRef.current) {
       window.clearTimeout(autosaveTimeoutRef.current);
     }
@@ -287,17 +530,41 @@ export default function Wizard({ onDone }) {
     } catch (error) {
       console.warn("Wizard taslak kaydedilemedi:", error);
     }
-    autosaveTimeoutRef.current = window.setTimeout(() => {
-      setAutosaveStatus("saved");
+    const timeoutId = window.setTimeout(() => {
+      setAutosaveState({ status: "saved", savedAt: Date.now() });
+      autosaveTimeoutRef.current = null;
     }, 600);
+    autosaveTimeoutRef.current = timeoutId;
     return () => {
       if (autosaveTimeoutRef.current) {
         window.clearTimeout(autosaveTimeoutRef.current);
+        autosaveTimeoutRef.current = null;
       }
     };
   }, [bot, chat, persona, emotion, stances, holdings, simActive, scale, currentStep, wizardLoaded]);
 
   const progressValue = Math.round((currentStep / Math.max(wizardSteps.length - 1, 1)) * 100);
+
+  const clearDraft = () => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const shouldReset = window.confirm(tf("wizard.confirm.clearDraft", "Taslak temizlensin mi?"));
+    if (!shouldReset) {
+      return;
+    }
+    window.localStorage.removeItem(WIZARD_AUTOSAVE_KEY);
+    setBot({ ...INITIAL_BOT });
+    setChat({ ...INITIAL_CHAT });
+    setPersona({ ...INITIAL_PERSONA });
+    setEmotion({ ...INITIAL_EMOTION });
+    setStances(INITIAL_STANCES.map((stance) => ({ ...stance })));
+    setHoldings(INITIAL_HOLDINGS.map((holding) => ({ ...holding })));
+    setCurrentStep(0);
+    setMessage(null);
+    setStepError("");
+    setAutosaveState({ status: "idle", savedAt: null });
+  };
 
   async function fetchMetrics() {
     try {
@@ -435,6 +702,16 @@ export default function Wizard({ onDone }) {
     [bot, chat, persona, emotion, stances, holdings, simActive]
   );
 
+  const stepAssessments = useMemo(() => {
+    const partialResults = {
+      "bot-chat": evaluateBotChat(bot, chat),
+      persona: evaluatePersona(persona, emotion),
+      stances: evaluateStances(stances, holdings)
+    };
+    const summary = evaluateSummary(partialResults, summaryPayload);
+    return { ...partialResults, summary };
+  }, [bot, chat, persona, emotion, stances, holdings, summaryPayload]);
+
   // --- helpers to mutate arrays
   const addStance = () => setStances((arr) => [...arr, { topic: "", stance_text: "", confidence: "", cooldown_until: "" }]);
   const removeStance = () => setStances((arr) => (arr.length > 0 ? arr.slice(0, -1) : arr));
@@ -442,27 +719,9 @@ export default function Wizard({ onDone }) {
   const removeHolding = () => setHoldings((arr) => (arr.length > 0 ? arr.slice(0, -1) : arr));
 
   const validateBotChatStep = () => {
-    const name = bot.name.trim();
-    const token = bot.token.trim();
-    const chatId = chat.chat_id.trim();
-    if (!name) {
-      setStepError("Bot adı zorunludur.");
-      return false;
-    }
-    if (!token) {
-      setStepError("Bot token zorunludur.");
-      return false;
-    }
-    if (!BOT_TOKEN_PATTERN.test(token)) {
-      setStepError("Bot token formatı hatalı görünüyor.");
-      return false;
-    }
-    if (!chatId) {
-      setStepError("Chat ID zorunludur.");
-      return false;
-    }
-    if (!CHAT_ID_PATTERN.test(chatId)) {
-      setStepError("Chat ID formatını kontrol edin.");
+    const result = stepAssessments["bot-chat"];
+    if (!result?.ok) {
+      setStepError(result?.message || "Bu adım eksik görünüyor.");
       return false;
     }
     setStepError("");
@@ -470,16 +729,9 @@ export default function Wizard({ onDone }) {
   };
 
   const validatePersonaStep = () => {
-    if (!persona.tone.trim()) {
-      setStepError("Persona üslup alanı boş bırakılamaz.");
-      return false;
-    }
-    if (!emotion.empathy.trim()) {
-      setStepError("Empati yaklaşımı tanımlanmalıdır.");
-      return false;
-    }
-    if (!emotion.tone.trim()) {
-      setStepError("Duygu tonu boş bırakılamaz.");
+    const result = stepAssessments.persona;
+    if (!result?.ok) {
+      setStepError(result?.message || "Persona ayarlarını kontrol edin.");
       return false;
     }
     setStepError("");
@@ -487,28 +739,10 @@ export default function Wizard({ onDone }) {
   };
 
   const validateStancesStep = () => {
-    for (const stance of stances) {
-      const hasAny = stance.topic || stance.stance_text || stance.confidence !== "" || stance.cooldown_until;
-      if (hasAny) {
-        if (!stance.topic?.trim() || !stance.stance_text?.trim()) {
-          setStepError("Her tutum için konu ve açıklama birlikte girilmelidir.");
-          return false;
-        }
-        if (stance.confidence !== "") {
-          const confidenceNumber = Number(stance.confidence);
-          if (!Number.isFinite(confidenceNumber) || confidenceNumber < 0 || confidenceNumber > 1) {
-            setStepError("Güven değeri 0 ile 1 arasında olmalıdır.");
-            return false;
-          }
-        }
-      }
-    }
-    for (const holding of holdings) {
-      const hasAny = holding.symbol || holding.avg_price !== "" || holding.size !== "" || holding.note;
-      if (hasAny && !holding.symbol?.trim()) {
-        setStepError("Pozisyon satırları sembol ile başlamalıdır.");
-        return false;
-      }
+    const result = stepAssessments.stances;
+    if (!result?.ok) {
+      setStepError(result?.message || "Tutum ve pozisyonları kontrol edin.");
+      return false;
     }
     setStepError("");
     return true;
@@ -800,10 +1034,37 @@ export default function Wizard({ onDone }) {
     );
   };
 
-  const autosaveLabel = autosaveStatus === "saving" ? "Taslak kaydediliyor…" : "Taslak güncel";
-  const autosaveVariant = autosaveStatus === "saving" ? "secondary" : "outline";
+  const autosaveStatus = autosaveState.status;
+  const autosaveSavedAt = autosaveState.savedAt;
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === wizardSteps.length - 1;
+  const currentStepId = wizardSteps[currentStep].id;
+  const currentAssessment = stepAssessments[currentStepId];
+  const assessmentHighlights = currentAssessment?.highlights ?? [];
+  const currentAssessmentMeta = useMemo(() => {
+    if (!currentAssessment) {
+      return null;
+    }
+    if (currentAssessment.ok) {
+      return {
+        icon: CheckCircle2,
+        className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+        label: tf("wizard.feedback.ready", "Adım hazır")
+      };
+    }
+    if (currentAssessment.severity === "error") {
+      return {
+        icon: AlertCircle,
+        className: "border-amber-200 bg-amber-50 text-amber-700",
+        label: tf("wizard.feedback.review", "Kontrol gerekli")
+      };
+    }
+    return {
+      icon: Circle,
+      className: "border-border bg-muted/40 text-muted-foreground",
+      label: tf("wizard.feedback.pending", "Bilgi bekleniyor")
+    };
+  }, [currentAssessment, tf]);
 
   const renderStepContent = () => {
     switch (wizardSteps[currentStep].id) {
@@ -826,15 +1087,23 @@ export default function Wizard({ onDone }) {
         <div className="flex items-center gap-3">
           <Wand2 className="h-6 w-6 text-primary" />
           <div>
-            <h2 className="text-2xl font-semibold">Kurulum (Wizard)</h2>
-            <p className="text-sm text-muted-foreground">Adım adım botunuzu piyasaya hazırlayın.</p>
+            <h2 className="text-2xl font-semibold">{tf("wizard.title", "Kurulum (Wizard)")}</h2>
+            <p className="text-sm text-muted-foreground">
+              {tf("wizard.subtitle", "Adım adım botunuzu piyasaya hazırlayın.")}
+            </p>
           </div>
         </div>
         <div className="flex flex-col items-end gap-2">
-          <Badge variant={autosaveVariant}>{autosaveLabel}</Badge>
+          <AutosaveBadge status={autosaveStatus} savedAt={autosaveSavedAt} tf={tf} locale={locale} />
+          <Button type="button" size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={clearDraft}>
+            <RotateCcw className="h-3.5 w-3.5 mr-1" />
+            {tf("wizard.actions.clearDraft", "Taslağı temizle")}
+          </Button>
           <div className="flex items-center gap-2">
             <Badge variant={simActive ? "default" : "secondary"}>
-              {simActive ? "Simülasyon: Aktif" : "Simülasyon: Kapalı"}
+              {simActive
+                ? tf("wizard.simulation.active", "Simülasyon: Aktif")
+                : tf("wizard.simulation.inactive", "Simülasyon: Kapalı")}
             </Badge>
             <Button onClick={toggleSimulation} variant={simActive ? "destructive" : "default"} size="sm">
               {simActive ? (
@@ -910,12 +1179,68 @@ export default function Wizard({ onDone }) {
             </ol>
           </div>
 
-          <div className="space-y-4">
-            <div>
-              <h3 className="text-lg font-semibold">{wizardSteps[currentStep].title}</h3>
-              <p className="text-sm text-muted-foreground">{wizardSteps[currentStep].description}</p>
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_260px]">
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-lg font-semibold">{wizardSteps[currentStep].title}</h3>
+                <p className="text-sm text-muted-foreground">{wizardSteps[currentStep].description}</p>
+              </div>
+              {renderStepContent()}
             </div>
-            {renderStepContent()}
+            <aside className="space-y-4">
+              <Card className="border-dashed border-border">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Adım Durumları</CardTitle>
+                  <CardDescription>Hangi adımların hazır olduğunu takip edin.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {wizardSteps.map((step) => {
+                    const assessment = stepAssessments[step.id] ?? { ok: false };
+                    const Icon = assessment.ok ? CheckCircle2 : step.id === currentStepId ? AlertCircle : Circle;
+                    const iconClass = assessment.ok
+                      ? "text-emerald-600"
+                      : assessment.severity === "error"
+                      ? "text-amber-600"
+                      : "text-muted-foreground";
+                    return (
+                      <div key={step.id} className="flex items-start gap-3">
+                        <Icon className={`h-4 w-4 mt-1 ${iconClass}`} />
+                        <div>
+                          <div className="text-sm font-medium">{step.title}</div>
+                          <p className="text-xs text-muted-foreground">
+                            {assessment.message || "Bu adım için henüz bilgi yok."}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+              <Card className="border-primary/40 bg-primary/5">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">{wizardSteps[currentStep].title} Özeti</CardTitle>
+                  <CardDescription>Formu doldururken önemli noktaları gözden geçirin.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {currentAssessmentMeta && (
+                    <Badge variant="outline" className={`flex items-center gap-1 text-xs ${currentAssessmentMeta.className}`}>
+                      <currentAssessmentMeta.icon className="h-3.5 w-3.5" />
+                      {currentAssessmentMeta.label}
+                    </Badge>
+                  )}
+                  <p className="text-sm font-medium text-primary">
+                    {currentAssessment?.message || "Bu adım için ilerleme bekleniyor."}
+                  </p>
+                  <ul className="text-xs text-muted-foreground space-y-1">
+                    {assessmentHighlights.length > 0 ? (
+                      assessmentHighlights.map((highlight, index) => <li key={index}>{highlight}</li>)
+                    ) : (
+                      <li>Henüz öne çıkan veri yok.</li>
+                    )}
+                  </ul>
+                </CardContent>
+              </Card>
+            </aside>
           </div>
         </CardContent>
         <CardContent className="border-t bg-muted/40">

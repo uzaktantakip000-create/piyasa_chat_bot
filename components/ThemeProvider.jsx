@@ -16,6 +16,7 @@ export function ThemeProvider({ children }) {
   const [theme, setTheme] = useState('light')
   const [contrast, setContrast] = useState('normal')
   const [fontScale, setFontScale] = useState(1)
+  const [locale, setLocale] = useState('tr')
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
@@ -38,6 +39,9 @@ export function ThemeProvider({ children }) {
       if (parsed?.fontScale) {
         setFontScale(clampFontScale(parsed.fontScale))
       }
+      if (parsed?.locale && typeof parsed.locale === 'string') {
+        setLocale(parsed.locale)
+      }
     } catch (error) {
       console.warn('Tema tercihleri okunamadı:', error)
     } finally {
@@ -55,13 +59,16 @@ export function ThemeProvider({ children }) {
       root.classList.toggle('contrast-high', contrast === 'high')
       root.setAttribute('data-theme', theme)
       root.setAttribute('data-contrast', contrast)
+      root.setAttribute('data-locale', locale)
+      root.setAttribute('lang', locale)
       root.style.setProperty('--app-font-scale', clampFontScale(fontScale).toString())
     }
     if (typeof window !== 'undefined') {
       const payload = {
         theme,
         contrast,
-        fontScale: clampFontScale(fontScale)
+        fontScale: clampFontScale(fontScale),
+        locale
       }
       try {
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
@@ -69,12 +76,13 @@ export function ThemeProvider({ children }) {
         console.warn('Tema tercihleri kaydedilemedi:', error)
       }
     }
-  }, [theme, contrast, fontScale, loaded])
+  }, [theme, contrast, fontScale, locale, loaded])
 
   const resetPreferences = () => {
     setTheme('light')
     setContrast('normal')
     setFontScale(1)
+    setLocale('tr')
   }
 
   const value = useMemo(
@@ -82,12 +90,20 @@ export function ThemeProvider({ children }) {
       theme,
       contrast,
       fontScale,
+      locale,
       setTheme,
       setContrast: (next) => setContrast(next === 'high' ? 'high' : 'normal'),
       setFontScale: (next) => setFontScale(clampFontScale(next)),
+      setLocale: (next) => {
+        if (typeof next !== 'string') {
+          return
+        }
+        const normalized = next.toLowerCase()
+        setLocale(normalized === 'en' ? 'en' : 'tr')
+      },
       resetPreferences
     }),
-    [theme, contrast, fontScale]
+    [theme, contrast, fontScale, locale]
   )
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>

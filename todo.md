@@ -152,12 +152,12 @@
 - [x] **P0:** Kritik iş akışları için rol bazlı görev panoları ve bağlama duyarlı yardım turları tasarla. _Açıklama: Dashboard'a rol tabanlı görev listeleri ve seçilebilir yardım turu paneli eklendi; durum rozeti ve ipucu akışı rol dinamiklerine göre güncelleniyor._
 - [x] **P1:** Gerçek zamanlı bildirimler, toast geçmişi ve sistem durum değişiklikleri için birleşik bir "Etkinlik Merkezi" bileşeni geliştir. _Açıklama: Başlıkta bildirim balonu bulunan yeni Etkinlik Merkezi gerçek zamanlı olay akışı, toast geçmişi ve filtreleme destekleriyle yayınlandı._
 - [x] **P1:** Kişiselleştirilebilir tema seçenekleri (karanlık/aydınlık, yüksek kontrast, yazı tipi boyutu) ekleyerek erişilebilirlik kontrollerini kullanıcıya aç. _Açıklama: Yeni Tema ve Erişilebilirlik sekmesi üzerinden mod geçişleri, yüksek kontrast ve metin ölçekleme ayarları anında uygulanabiliyor; tercihleri kalıcı hale getiren ThemeProvider eklendi._
-- [ ] **P1:** Çok adımlı formlarda ilerleme çubuğu, geri bildirim özetleri ve otomatik taslak kaydı sağlayan sihirbaz bileşeni hazırla.
-- [ ] **P2:** Dashboard ve liste sayfalarında kart/tablo görünümü arasında geçiş yapabilen adaptif düzen sistemi uygula.
-- [ ] **P2:** Kritik metrikler için eşik tabanlı uyarıları e-posta/SMS/push bildirimlerine bağlayan tercih yönetim ekranı tasarla.
-- [ ] **P2:** Kullanıcı davranışını analiz edip proaktif öneriler sunan "akıllı öneri" bannerları ve boş durum içerikleri üret.
-- [ ] **P3:** Uygulama genelinde metin ve ikonografi için çok dillilik desteğini genişletip yerelleştirme iş akışını otomatikleştir.
-- [ ] **P3:** İnteraktif stil rehberi ve bileşen kütüphanesi dokümantasyonu hazırlayarak tasarım-tabanlı geliştirme sürecini standardize et.
+- [x] **P1:** Çok adımlı formlarda ilerleme çubuğu, geri bildirim özetleri ve otomatik taslak kaydı sağlayan sihirbaz bileşeni hazırla.
+- [x] **P2:** Dashboard ve liste sayfalarında kart/tablo görünümü arasında geçiş yapabilen adaptif düzen sistemi uygula.
+- [x] **P2:** Kritik metrikler için eşik tabanlı uyarıları e-posta/SMS/push bildirimlerine bağlayan tercih yönetim ekranı tasarla.
+- [x] **P2:** Kullanıcı davranışını analiz edip proaktif öneriler sunan "akıllı öneri" bannerları ve boş durum içerikleri üret.
+- [x] **P3:** Uygulama genelinde metin ve ikonografi için çok dillilik desteğini genişletip yerelleştirme iş akışını otomatikleştir.
+- [x] **P3:** İnteraktif stil rehberi ve bileşen kütüphanesi dokümantasyonu hazırlayarak tasarım-tabanlı geliştirme sürecini standardize et.
 
 ### Yeni Geliştirme Adımları
 - [x] Sistem kontrolü sonuçlarını 7 günlük periyotta özetleyen `/system/checks/summary` API uç noktasını ekle.

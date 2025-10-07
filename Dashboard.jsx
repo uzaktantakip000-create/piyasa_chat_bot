@@ -30,6 +30,9 @@ import {
   Flag,
   BookOpenCheck
 } from 'lucide-react'
+import { useAdaptiveView, isTableView } from './useAdaptiveView'
+import { useTranslation } from './localization'
+import ViewModeToggle from './components/ViewModeToggle'
 
 const formatRelativeTime = (date) => {
   if (!date) {
@@ -351,6 +354,7 @@ function Dashboard({
   sessionMeta = null
 }) {
   const safeMetrics = metrics || {}
+  const { t, locale } = useTranslation()
   const botUtilization = safeMetrics.total_bots > 0 ? (safeMetrics.active_bots / safeMetrics.total_bots) * 100 : 0
   const rateLimit429Rate = safeMetrics.messages_last_hour > 0
     ? (safeMetrics.telegram_429_count / safeMetrics.messages_last_hour) * 100
@@ -372,6 +376,7 @@ function Dashboard({
         ? 'text-amber-600'
         : 'text-emerald-600'
   const rateLimitAccent = rateLimit429Rate >= 10 ? 'text-destructive' : rateLimit429Rate >= 5 ? 'text-amber-600' : 'text-muted-foreground'
+  const [metricsView, , metricsViewActions] = useAdaptiveView('dashboard.metrics', 'cards')
 
   const renderValue = (value, width) => {
     if (isLoading) {
@@ -386,6 +391,72 @@ function Dashboard({
     }
     return value
   }
+
+  const metricsItems = [
+    {
+      id: 'total-bots',
+      title: 'Toplam Bot',
+      icon: Bot,
+      iconClass: `h-4 w-4 ${isLoading ? 'text-muted-foreground' : utilisationAccent}`,
+      valueNode: renderValue(safeMetrics.total_bots, 'w-16'),
+      subNode: renderSubtle(`${safeMetrics.active_bots} aktif`, 'w-20'),
+      subClass: 'text-muted-foreground',
+      footerNode: <Progress value={botUtilization} />
+    },
+    {
+      id: 'messages-hour',
+      title: 'Saatlik Mesaj',
+      icon: MessageSquare,
+      iconClass: `h-4 w-4 ${
+        messageRateStatus === 'destructive'
+          ? 'text-destructive'
+          : messageRateStatus === 'warning'
+            ? 'text-amber-600'
+            : 'text-muted-foreground'
+      }`,
+      valueNode: renderValue(safeMetrics.messages_last_hour, 'w-20'),
+      valueClass:
+        messageRateStatus === 'destructive'
+          ? 'text-destructive'
+          : messageRateStatus === 'warning'
+            ? 'text-amber-700'
+            : '',
+      subNode: renderSubtle(`${safeMetrics.messages_per_minute?.toFixed?.(1) ?? '0.0'} msg/dk`, 'w-24'),
+      subClass:
+        messageRateStatus === 'destructive'
+          ? 'text-destructive'
+          : messageRateStatus === 'warning'
+            ? 'text-amber-700'
+            : 'text-muted-foreground',
+      cardClass:
+        messageRateStatus === 'destructive'
+          ? 'border-destructive/40 bg-destructive/5'
+          : messageRateStatus === 'warning'
+            ? 'border-amber-200/70 bg-amber-50/60'
+            : '',
+      footerNode: null
+    },
+    {
+      id: 'total-chats',
+      title: 'Aktif Sohbet',
+      icon: Users,
+      iconClass: 'h-4 w-4 text-muted-foreground',
+      valueNode: renderValue(safeMetrics.total_chats, 'w-16'),
+      subNode: renderSubtle('Toplam sohbet sayısı', 'w-28'),
+      subClass: 'text-muted-foreground',
+      footerNode: null
+    },
+    {
+      id: 'scale-factor',
+      title: 'Ölçek Faktörü',
+      icon: Zap,
+      iconClass: `h-4 w-4 ${safeMetrics.scale_factor > 1.5 ? 'text-primary' : 'text-muted-foreground'}`,
+      valueNode: renderValue(`${safeMetrics.scale_factor}x`, 'w-16'),
+      subNode: renderSubtle('Hız çarpanı', 'w-20'),
+      subClass: 'text-muted-foreground',
+      footerNode: null
+    }
+  ]
 
   const summaryPending = !systemSummary && (isLoading || isRefreshing)
   const summaryRuns = systemSummary?.total_runs ?? 0
@@ -520,6 +591,90 @@ function Dashboard({
 
   const summaryStatus = systemSummary?.overall_status ?? (summaryRuns === 0 ? 'empty' : 'healthy')
   const summaryStatusInfo = summaryStatusMeta[summaryStatus] ?? summaryStatusMeta.empty
+  const suggestionAppearance = useMemo(
+    () => ({
+      critical: {
+        container: 'border border-rose-200/80 bg-rose-50/80',
+        badgeClass: 'border border-rose-200 bg-rose-100 text-rose-700',
+        label: t('dashboard.suggestions.label.critical') || 'Kritik'
+      },
+      warning: {
+        container: 'border border-amber-200/80 bg-amber-50/80',
+        badgeClass: 'border border-amber-200 bg-amber-100 text-amber-700',
+        label: t('dashboard.suggestions.label.warning') || 'Uyarı'
+      },
+      info: {
+        container: 'border border-sky-200/80 bg-sky-50/80',
+        badgeClass: 'border border-sky-200 bg-sky-100 text-sky-700',
+        label: t('dashboard.suggestions.label.info') || 'Bilgi'
+      },
+      success: {
+        container: 'border border-emerald-200/80 bg-emerald-50/80',
+        badgeClass: 'border border-emerald-200 bg-emerald-100 text-emerald-700',
+        label: t('dashboard.suggestions.label.success') || 'Stabil'
+      },
+      neutral: {
+        container: 'border border-border/70 bg-muted/30',
+        badgeClass: 'border border-border bg-background text-muted-foreground',
+        label: t('dashboard.suggestions.label.neutral') || 'Bilgi'
+      }
+    }),
+    [t, locale]
+  )
+  const suggestionEntries = useMemo(() => {
+    const entries = []
+    if ((safeMetrics.total_bots ?? 0) < 2) {
+      entries.push({
+        icon: Bot,
+        iconClass: 'text-primary',
+        title: t('dashboard.suggestions.lowBot.title') || 'Bot sayınız sınırlı görünüyor',
+        body: t('dashboard.suggestions.lowBot.body') || 'Kurulum sihirbazından yeni bir persona ekleyerek sohbet yoğunluğunu dengeleyebilirsiniz.',
+        action: t('dashboard.suggestions.lowBot.action') || 'Kurulum > Bot & Sohbet adımı üzerinden yeni bot oluşturun.',
+        severity: 'info'
+      })
+    }
+    if (rateLimit429Rate >= 5) {
+      entries.push({
+        icon: AlertTriangle,
+        iconClass: rateLimit429Rate >= 10 ? 'text-rose-600' : 'text-amber-600',
+        title: t('dashboard.suggestions.rateLimit.title') || 'Telegram 429 oranı yükseliyor',
+        body: t('dashboard.suggestions.rateLimit.body') || 'Dakikadaki mesaj limiti ile prime hours ayarlarını düşürmek throttling riskini azaltır.',
+        action: t('dashboard.suggestions.rateLimit.action') || 'Ayarlar > Zamanlama sekmesinden limitleri düşürün veya prime hours aralığını daraltın.',
+        severity: rateLimit429Rate >= 10 ? 'critical' : 'warning'
+      })
+    }
+    if (summaryStatus === 'critical' || summaryStatus === 'warning') {
+      entries.push({
+        icon: FlaskConical,
+        iconClass: summaryStatus === 'critical' ? 'text-rose-600' : 'text-amber-600',
+        title: t('dashboard.suggestions.tests.title') || 'Test özetinde açık maddeler var',
+        body: t('dashboard.suggestions.tests.body') || 'Son otomasyon koşusundaki başarısız adımlar için runbook aksiyonlarını gözden geçirin.',
+        action: t('dashboard.suggestions.tests.action') || 'Etkinlik Merkezi ve Runbook kartlarından ilgili kayıtları inceleyin.',
+        severity: summaryStatus === 'critical' ? 'critical' : 'warning'
+      })
+    }
+    if (!entries.length && summaryRuns === 0) {
+      entries.push({
+        icon: CalendarDays,
+        iconClass: 'text-muted-foreground',
+        title: t('dashboard.suggestions.noRuns.title') || 'Henüz doğrulama koşusu yapılmadı',
+        body: t('dashboard.suggestions.noRuns.body') || 'İlk otomasyon koşusunu çalıştırmak sistem sağlığını takip etmenizi kolaylaştırır.',
+        action: t('dashboard.suggestions.noRuns.action') || 'Dashboard sağ üstündeki "Kontrolleri Çalıştır" butonuyla testi başlatın.',
+        severity: 'neutral'
+      })
+    }
+    if (!entries.length) {
+      entries.push({
+        icon: Sparkles,
+        iconClass: 'text-primary',
+        title: t('dashboard.suggestions.stable.title') || 'Sistem stabil görünüyor',
+        body: t('dashboard.suggestions.stable.body') || 'Davranış ayarlarını deneysel olarak güncelleyip kullanıcı segmentleri için A/B çalıştırabilirsiniz.',
+        action: t('dashboard.suggestions.stable.action') || 'Ayarlar > Davranış sekmesinden persona farklılaştırmaları yapmayı deneyin.',
+        severity: 'success'
+      })
+    }
+    return entries
+  }, [safeMetrics.total_bots, rateLimit429Rate, summaryStatus, summaryRuns, t, locale])
   const SummaryStatusIcon = summaryStatusInfo.icon
   const summaryStatusIconClass = summaryStatusInfo.iconClass ?? 'text-muted-foreground'
   const summaryMessage = systemSummary?.overall_message ??
@@ -728,70 +883,115 @@ function Dashboard({
         </CardContent>
       </Card>
 
-      <div id="metrics-grid" className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Toplam Bot</CardTitle>
-            <Bot className={`h-4 w-4 ${isLoading ? 'text-muted-foreground' : utilisationAccent}`} />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {renderValue(safeMetrics.total_bots, 'w-16')}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {renderSubtle(`${safeMetrics.active_bots} aktif`, 'w-20')}
-            </p>
-            <div className="mt-2">
-              <Progress value={botUtilization} />
-            </div>
-          </CardContent>
-        </Card>
+      <section id="metrics-grid" className="space-y-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <h3 className="text-base font-semibold text-muted-foreground">Metrik görünümü</h3>
+          <ViewModeToggle
+            mode={metricsView}
+            onChange={metricsViewActions.set}
+            cardsLabel={tf('view.cards', 'Kartlar')}
+            tableLabel={tf('view.table', 'Tablo')}
+            ariaLabel={tf('view.modeLabel', 'Görünüm modu')}
+          />
+        </div>
 
-        <Card className={messageRateStatus === 'destructive' ? 'border-destructive/40 bg-destructive/5' : messageRateStatus === 'warning' ? 'border-amber-200/70 bg-amber-50/60' : ''}>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Saatlik Mesaj</CardTitle>
-            <MessageSquare className={`h-4 w-4 ${messageRateStatus === 'destructive' ? 'text-destructive' : messageRateStatus === 'warning' ? 'text-amber-600' : 'text-muted-foreground'}`} />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {renderValue(safeMetrics.messages_last_hour, 'w-20')}
-            </div>
-            <p className={`text-xs ${messageRateStatus === 'destructive' ? 'text-destructive' : messageRateStatus === 'warning' ? 'text-amber-700' : 'text-muted-foreground'}`}>
-              {renderSubtle(`${safeMetrics.messages_per_minute?.toFixed?.(1) ?? '0.0'} msg/dk`, 'w-24')}
-            </p>
-          </CardContent>
-        </Card>
+        {isTableView(metricsView) ? (
+          <div className="overflow-hidden rounded-lg border border-border bg-background">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-3 text-left font-medium">Metrik</th>
+                  <th className="px-4 py-3 text-right font-medium">Değer</th>
+                  <th className="px-4 py-3 text-left font-medium">Detay</th>
+                </tr>
+              </thead>
+              <tbody>
+                {metricsItems.map((item) => (
+                  <tr key={item.id} className="border-t border-border/60">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <item.icon className={`${item.iconClass}`} />
+                        <span className="font-medium">{item.title}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className={`flex justify-end text-sm font-semibold ${item.valueClass ?? ''}`}>
+                        {item.valueNode}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className={`text-xs ${item.subClass ?? 'text-muted-foreground'}`}>{item.subNode || '—'}</div>
+                      {item.footerNode ? <div className="mt-2 max-w-xs">{item.footerNode}</div> : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+            {metricsItems.map((item) => {
+              const Icon = item.icon
+              return (
+                <Card key={item.id} className={item.cardClass ?? ''}>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">{item.title}</CardTitle>
+                    <Icon className={item.iconClass} />
+                  </CardHeader>
+                  <CardContent>
+                    <div className={`text-2xl font-bold ${item.valueClass ?? ''}`}>{item.valueNode}</div>
+                    <div className={`mt-1 text-xs ${item.subClass ?? 'text-muted-foreground'}`}>{item.subNode}</div>
+                    {item.footerNode ? <div className="mt-2">{item.footerNode}</div> : null}
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+        )}
+      </section>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Aktif Sohbet</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {renderValue(safeMetrics.total_chats, 'w-16')}
+      <Card className="border-primary/40 bg-primary/5">
+        <CardHeader className="gap-2 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-primary" /> {t('dashboard.suggestions.title') || 'Akıllı Öneriler'}
+            </CardTitle>
+            <CardDescription>
+              {t('dashboard.suggestions.description') || 'Canlı metrikler ve test sonuçlarına göre proaktif aksiyon önerileri.'}
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {suggestionEntries.length === 0 ? (
+            <div className="rounded-md border border-dashed border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+              {t('dashboard.suggestions.empty', 'Şu anda gösterilecek öneri yok.')}
             </div>
-            <p className="text-xs text-muted-foreground">
-              {renderSubtle('Toplam sohbet sayısı', 'w-28')}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Ölçek Faktörü</CardTitle>
-            <Zap className={`h-4 w-4 ${safeMetrics.scale_factor > 1.5 ? 'text-primary' : 'text-muted-foreground'}`} />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {renderValue(`${safeMetrics.scale_factor}x`, 'w-16')}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {renderSubtle('Hız çarpanı', 'w-20')}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+          ) : (
+            suggestionEntries.map((entry, index) => {
+              const Icon = entry.icon
+              const appearance = suggestionAppearance[entry.severity] ?? suggestionAppearance.neutral
+              return (
+                <div
+                  key={index}
+                  className={`flex items-start gap-3 rounded-md px-3 py-3 shadow-sm ${appearance.container}`}
+                >
+                  <Icon className={`h-4 w-4 mt-1 ${entry.iconClass}`} />
+                  <div className="space-y-1">
+                    <Badge variant="outline" className={`h-5 rounded-sm px-2 text-[10px] uppercase tracking-wide ${appearance.badgeClass}`}>
+                      {appearance.label}
+                    </Badge>
+                    <p className="text-sm font-medium text-foreground">{entry.title}</p>
+                    <p className="text-xs text-muted-foreground">{entry.body}</p>
+                    {entry.action ? (
+                      <p className="text-xs font-medium text-primary">{entry.action}</p>
+                    ) : null}
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </CardContent>
+      </Card>
 
       <Card id="role-guides" className="border-primary/40 bg-primary/5">
         <CardHeader className="gap-2 lg:flex-row lg:items-center lg:justify-between">

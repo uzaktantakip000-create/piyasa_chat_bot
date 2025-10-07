@@ -29,11 +29,15 @@ import {
   CheckSquare,
   Square,
   Loader2,
-  ArrowUpDown
+  ArrowUpDown,
+  ListChecks
 } from 'lucide-react'
 
 import { apiFetch } from './apiClient'
 import { useToast } from './components/ToastProvider'
+import { useAdaptiveView, isTableView } from './useAdaptiveView'
+import { useTranslation } from './localization'
+import ViewModeToggle from './components/ViewModeToggle'
 
 const BOT_FILTER_STORAGE_KEY = 'piyasa.bots.filters'
 
@@ -98,6 +102,10 @@ const buildEmotionPayload = (draft) => {
 }
 
 function Bots() {
+  const { t } = useTranslation()
+  const tf = (key, fallback) => t(key) || fallback
+  const enableLabel = tf('common.actions.enable', 'Aktifleştir')
+  const disableLabel = tf('common.actions.disable', 'Pasifleştir')
   const { showToast } = useToast()
   const [bots, setBots] = useState([])
   const [loading, setLoading] = useState(true)
@@ -151,6 +159,7 @@ function Bots() {
     speed_profile: {}
   })
   const [emotionDraft, setEmotionDraft] = useState(() => createEmotionDraft())
+  const [listView, , listViewActions] = useAdaptiveView('bots.list', 'table')
 
   // Fetch bots
   const fetchBots = async () => {
@@ -163,8 +172,9 @@ function Bots() {
       console.error('Failed to fetch bots:', error)
       showToast({
         type: 'error',
-        title: 'Botlar yüklenemedi',
-        description: error?.message || 'Bot listesi alınırken beklenmeyen bir hata oluştu.'
+        title: tf('bots.toast.loadErrorTitle', 'Botlar yüklenemedi'),
+        description:
+          error?.message || tf('bots.toast.loadErrorMessage', 'Bot listesi alınırken beklenmeyen bir hata oluştu.')
       })
     } finally {
       setLoading(false)
@@ -181,13 +191,16 @@ function Bots() {
     const trimmedToken = formData.token.trim()
 
     if (!trimmedName || trimmedName.length < 3) {
-      errors.name = 'Bot adı en az 3 karakter olmalı.'
+      errors.name = tf('bots.validation.nameLength', 'Bot adı en az 3 karakter olmalı.')
     }
 
     if (!normalizedUsername) {
-      errors.username = 'Kullanıcı adı zorunludur.'
+      errors.username = tf('bots.validation.usernameRequired', 'Kullanıcı adı zorunludur.')
     } else if (!/^[A-Za-z0-9_]{5,}$/.test(normalizedUsername)) {
-      errors.username = 'Kullanıcı adı en az 5 karakter olmalı ve yalnızca harf/rakam/içermelidir.'
+      errors.username = tf(
+        'bots.validation.usernameFormat',
+        'Kullanıcı adı en az 5 karakter olmalı ve yalnızca harf/rakam/içermelidir.'
+      )
     }
 
     if (!editingBot || trimmedToken) {
@@ -506,6 +519,10 @@ function Bots() {
   const hasSelection = selectedBotIds.length > 0
   const allVisibleSelected = filteredBots.length > 0 && filteredBots.every((bot) => selectedBotIds.includes(bot.id))
   const noBots = bots.length === 0
+  const tableViewActive = isTableView(listView)
+  const selectAllLabel = allVisibleSelected
+    ? tf('common.selection.clearVisible', 'Seçimleri bırak')
+    : tf('common.selection.selectVisible', 'Görünürleri seç')
 
   if (loading) {
     return <div className="flex items-center justify-center h-64">Yükleniyor...</div>
@@ -769,48 +786,90 @@ function Bots() {
             </div>
           </div>
 
-          <div className="mb-4 flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleBulkStatus(true)}
-              disabled={!hasSelection || bulkProcessing}
-              className="flex items-center gap-2"
-            >
-              {bulkProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckSquare className="h-4 w-4" />}
-              Seçilileri Aktifleştir
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleBulkStatus(false)}
-              disabled={!hasSelection || bulkProcessing}
-              className="flex items-center gap-2"
-            >
-              {bulkProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
-              Seçilileri Pasifleştir
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={clearSelection}
-              disabled={!hasSelection || bulkProcessing}
-            >
-              Seçimleri Temizle
-            </Button>
+          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <ViewModeToggle
+                mode={listView}
+                onChange={listViewActions.set}
+                cardsLabel={tf('view.cards', 'Kartlar')}
+                tableLabel={tf('view.table', 'Tablo')}
+                ariaLabel={tf('view.modeLabel', 'Görünüm modu')}
+              />
+              {filteredBots.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="flex items-center gap-2"
+                  onClick={toggleSelectAllVisible}
+                >
+                  <ListChecks className="h-4 w-4" /> {selectAllLabel}
+                </Button>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleBulkStatus(true)}
+                disabled={!hasSelection || bulkProcessing}
+                className="flex items-center gap-2"
+              >
+                {bulkProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckSquare className="h-4 w-4" />}
+                {tf('bots.bulk.activate', 'Seçilileri Aktifleştir')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleBulkStatus(false)}
+                disabled={!hasSelection || bulkProcessing}
+                className="flex items-center gap-2"
+              >
+                {bulkProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
+                {tf('bots.bulk.deactivate', 'Seçilileri Pasifleştir')}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={clearSelection} disabled={!hasSelection || bulkProcessing}>
+                {tf('common.actions.clearSelection', 'Seçimleri Temizle')}
+              </Button>
+            </div>
           </div>
 
           {noBots ? (
-            <div className="py-8 text-center">
-              <Bot className="mb-4 h-12 w-12 text-muted-foreground" />
-              <p className="text-muted-foreground">Henüz bot eklenmemiş</p>
-              <p className="text-sm text-muted-foreground">Simülasyonu başlatmak için en az bir bot ekleyin</p>
+            <div className="py-10 text-center space-y-4">
+              <Bot className="mx-auto h-12 w-12 text-muted-foreground" />
+              <div className="space-y-1">
+                <p className="text-muted-foreground text-lg font-medium">{tf('bots.empty.primaryTitle', 'Henüz bot eklenmemiş')}</p>
+                <p className="text-sm text-muted-foreground">
+                  {tf('bots.empty.primaryBody', 'Kurulum sihirbazı veya hızlı ekleme diyaloğu ile ilk botunuzu oluşturun.')}
+                </p>
+              </div>
+              <div className="mx-auto max-w-md space-y-2 text-xs text-muted-foreground">
+                <p>• {tf('bots.empty.tipPersona', 'Persona ve duygu profillerini tanımlayarak ilk sohbet deneyimini kişiselleştirin.')}</p>
+                <p>• {tf('bots.empty.tipSetup', 'Simülasyonu başlatmadan önce sohbet başlıklarını ve izleme listesini güncelleyin.')}</p>
+              </div>
+              <div className="flex justify-center gap-3">
+                <Button size="sm" onClick={() => setDialogOpen(true)}>
+                  {tf('bots.actions.add', 'Yeni Bot Ekle')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                >
+                  {tf('bots.actions.openWizard', 'Kurulum Sihirbazına Git')}
+                </Button>
+              </div>
             </div>
           ) : filteredBots.length === 0 ? (
-            <div className="rounded-md border border-dashed border-border bg-muted/30 p-6 text-center text-sm text-muted-foreground">
-              Filtre kriterlerine uygun bot bulunamadı.
+            <div className="rounded-md border border-dashed border-border bg-muted/30 p-6 text-center text-sm text-muted-foreground space-y-3">
+              <div>{tf('bots.empty.noResults', 'Filtre kriterlerine uygun bot bulunamadı.')}</div>
+              <div className="text-xs text-muted-foreground">
+                <p>{tf('bots.empty.tipHeader', 'Akıllı öneri:')}</p>
+                <p>• {tf('bots.empty.tipClear', 'Arama kutusunu temizleyin veya durum filtresini "Tümü" konumuna getirin.')}</p>
+                <p>• {tf('bots.empty.tipPersonaSearch', 'Aradığınız botu kolayca bulmak için kullanıcı adı yerine persona ipuçlarını deneyin.')}</p>
+              </div>
             </div>
-          ) : (
+          ) : tableViewActive ? (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -896,7 +955,7 @@ function Bots() {
                             variant="ghost"
                             size="sm"
                             onClick={() => toggleBot(bot)}
-                            aria-label={bot.is_enabled ? 'Pasifleştir' : 'Aktifleştir'}
+                    aria-label={bot.is_enabled ? disableLabel : enableLabel}
                           >
                             {bot.is_enabled ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
                           </Button>
@@ -923,6 +982,85 @@ function Bots() {
                 })}
               </TableBody>
             </Table>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {filteredBots.map((bot) => {
+                const isSelected = selectedBotIds.includes(bot.id)
+                const activeHours = Array.isArray(bot.active_hours) ? bot.active_hours.join(', ') : ''
+                const speedMode = bot.speed_profile?.mode || bot.speed_profile?.label || ''
+                return (
+                  <div
+                    key={bot.id}
+                    className={`rounded-lg border bg-background p-4 shadow-sm transition ${
+                      isSelected ? 'border-primary ring-1 ring-primary/50' : 'border-border'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg font-semibold text-foreground">{bot.name}</span>
+                          <Badge variant={bot.is_enabled ? 'default' : 'secondary'}>
+                            {bot.is_enabled ? 'Aktif' : 'Pasif'}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {bot.username ? `@${bot.username}` : 'Kullanıcı adı tanımlı değil'}
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-muted-foreground"
+                        checked={isSelected}
+                        onChange={() => toggleSelectBot(bot.id)}
+                        aria-label={`${bot.name} seçimi`}
+                      />
+                    </div>
+                    <div className="mt-3 space-y-2 text-sm text-muted-foreground">
+                      <div>
+                        <span className="font-medium text-foreground">Persona:</span> {bot.persona_hint || 'Varsayılan'}
+                      </div>
+                      {activeHours ? (
+                        <div>
+                          <span className="font-medium text-foreground">Aktif saatler:</span> {activeHours}
+                        </div>
+                      ) : null}
+                      {speedMode ? (
+                        <div>
+                          <span className="font-medium text-foreground">Hız profili:</span> {speedMode}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex items-center gap-1"
+                        onClick={() => toggleBot(bot)}
+                      >
+                        {bot.is_enabled ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
+                    {bot.is_enabled ? disableLabel : enableLabel}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="flex items-center gap-1"
+                        onClick={() => openEditDialog(bot)}
+                      >
+                        <Edit className="h-4 w-4" /> Düzenle
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="flex items-center gap-1"
+                        onClick={() => requestDeleteBot(bot)}
+                      >
+                        <Trash2 className="h-4 w-4" /> Sil
+                      </Button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           )}
         </CardContent>
       </Card>
