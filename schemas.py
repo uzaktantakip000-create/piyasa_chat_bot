@@ -257,3 +257,26 @@ class SystemCheckSummaryResponse(BaseModel):
     insights: List[SystemCheckSummaryInsight] = Field(default_factory=list)
     recommended_actions: List[str] = Field(default_factory=list)
     recent_runs: List[SystemCheckSummaryRun] = Field(default_factory=list)
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+    totp: Optional[str] = Field(None, description="6 haneli MFA kodu")
+
+
+class LoginResponse(BaseModel):
+    api_key: str
+    role: str
+
+
+class RotateApiKeyRequest(BaseModel):
+    username: str
+    password: str
+    totp: Optional[str] = None
+
+
+class UserInfoResponse(BaseModel):
+    username: str
+    role: str
+    api_key_last_rotated: datetime
