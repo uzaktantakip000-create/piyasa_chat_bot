@@ -61,6 +61,35 @@ def format_persona_hint(persona_hint: Optional[str]) -> str:
     return f"Tarz ipucu: {hint}"
 
 
+def summarize_emotion_profile(profile: Optional[Dict[str, Any]]) -> str:
+    if not profile:
+        return "—"
+
+    parts: List[str] = []
+    tone = profile.get("tone")
+    empathy = profile.get("empathy")
+    energy = profile.get("energy")
+    signature_emoji = profile.get("signature_emoji")
+    if tone:
+        parts.append(f"Ton: {tone}")
+    if empathy:
+        parts.append(f"Empati: {empathy}")
+    if energy:
+        parts.append(f"Tempo: {energy}")
+    if signature_emoji:
+        parts.append(f"Emoji: {signature_emoji}")
+
+    phrases = profile.get("signature_phrases") or []
+    if phrases:
+        parts.append("İmza ifadeler: " + ", ".join(map(str, phrases[:3])))
+
+    anecdotes = profile.get("anecdotes") or []
+    if anecdotes:
+        parts.append("Anekdot havuzu: " + "; ".join(map(str, anecdotes[:2])))
+
+    return " | ".join(parts) if parts else "—"
+
+
 def summarize_stances(stances: Optional[List[Dict[str, Any]]]) -> str:
     if not stances:
         return "—"
@@ -103,6 +132,9 @@ USER_TEMPLATE = """\
 {persona_summary}
 {persona_hint_section}
 
+[DUYGU PROFİLİ]
+{emotion_summary}
+
 [STANCE]
 {stance_summary}
 
@@ -117,11 +149,20 @@ Aşağıdaki satırlar kronolojik sırada konuşmacı ve mesaj içerir.
 Formatı aynen yorumla ve gerektiğinde doğrudan referans al (örn. "[Ali]: ..."):
 {history_excerpt}
 
+[ÖRNEK DİYALOG PARÇALARI]
+{contextual_examples}
+
 [CEVAP BAĞLAMI]
 {reply_context}
 
 [HABER/TETİKLEYİCİ]
 {market_trigger}
+
+[TEPKİ REHBERİ]
+{reaction_guidance}
+
+[PERSONA YENİLEME NOTU]
+{persona_refresh_note}
 
 [MOD]
 {mode}  # "reply" ise kibarca yanıtla; "new" ise sohbeti doğal biçimde ilerlet.
@@ -147,6 +188,10 @@ def generate_user_prompt(
     mode: str,
     mention_context: str = "",
     persona_profile: Optional[Dict[str, Any]] = None,
+    reaction_guidance: str = "",
+    emotion_profile: Optional[Dict[str, Any]] = None,
+    contextual_examples: str = "",
+    persona_refresh_note: str = "",
     stances: Optional[List[Dict[str, Any]]] = None,
     holdings: Optional[List[Dict[str, Any]]] = None,
     length_hint: str = "gerekirse 2-3 cümle",
@@ -157,18 +202,23 @@ def generate_user_prompt(
     botun tutarlılığını artırmak için prompt'a eklenir.
     """
     p_summary = summarize_persona(persona_profile)
+    e_summary = summarize_emotion_profile(emotion_profile)
     s_summary = summarize_stances(stances)
     h_summary = summarize_holdings(holdings)
 
     prompt = USER_TEMPLATE.format(
         persona_summary=p_summary,
         persona_hint_section=format_persona_hint(persona_hint),
+        emotion_summary=e_summary,
         stance_summary=s_summary,
         holdings_summary=h_summary,
         topic_name=(topic_name or "").strip()[:120],
         history_excerpt=(history_excerpt or "").strip()[:900],
+        contextual_examples=(contextual_examples or "—"),
         reply_context=(reply_context or "").strip()[:400],
         market_trigger=(market_trigger or "").strip()[:240],
+        reaction_guidance=(reaction_guidance or "Haberi empatiyle yumuşat."),
+        persona_refresh_note=(persona_refresh_note or "—"),
         mode=(mode or "new"),
         mention_context=(mention_context or "").strip()[:80],
         length_hint=(length_hint or "gerekirse 2-3 cümle"),

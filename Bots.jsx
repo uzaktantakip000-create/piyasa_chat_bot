@@ -37,6 +37,66 @@ import { useToast } from './components/ToastProvider'
 
 const BOT_FILTER_STORAGE_KEY = 'piyasa.bots.filters'
 
+const createEmotionDraft = () => ({
+  tone: '',
+  empathy: '',
+  energy: '',
+  signatureEmoji: '',
+  signaturePhrases: '',
+  anecdotes: ''
+})
+
+const normalizeEmotionDraft = (profile) => {
+  if (!profile || typeof profile !== 'object') {
+    return createEmotionDraft()
+  }
+  return {
+    tone: profile.tone || '',
+    empathy: profile.empathy || '',
+    energy: profile.energy || '',
+    signatureEmoji: profile.signature_emoji || '',
+    signaturePhrases: Array.isArray(profile.signature_phrases)
+      ? profile.signature_phrases.join('\n')
+      : (profile.signature_phrases || ''),
+    anecdotes: Array.isArray(profile.anecdotes)
+      ? profile.anecdotes.join('\n')
+      : (profile.anecdotes || ''),
+  }
+}
+
+const parseListInput = (value) => {
+  if (!value) {
+    return []
+  }
+  return value
+    .split(/\r?\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+const buildEmotionPayload = (draft) => {
+  if (!draft) {
+    return undefined
+  }
+
+  const tone = draft.tone.trim()
+  const empathy = draft.empathy.trim()
+  const energy = draft.energy.trim()
+  const signatureEmoji = draft.signatureEmoji.trim()
+  const signaturePhrases = parseListInput(draft.signaturePhrases)
+  const anecdotes = parseListInput(draft.anecdotes)
+
+  const payload = {}
+  if (tone) payload.tone = tone
+  if (empathy) payload.empathy = empathy
+  if (energy) payload.energy = energy
+  if (signatureEmoji) payload.signature_emoji = signatureEmoji
+  if (signaturePhrases.length > 0) payload.signature_phrases = signaturePhrases
+  if (anecdotes.length > 0) payload.anecdotes = anecdotes
+
+  return Object.keys(payload).length > 0 ? payload : undefined
+}
+
 function Bots() {
   const { showToast } = useToast()
   const [bots, setBots] = useState([])
@@ -90,6 +150,7 @@ function Bots() {
     active_hours: [],
     speed_profile: {}
   })
+  const [emotionDraft, setEmotionDraft] = useState(() => createEmotionDraft())
 
   // Fetch bots
   const fetchBots = async () => {
@@ -147,10 +208,20 @@ function Bots() {
       const url = editingBot ? `/bots/${editingBot.id}` : '/bots'
       const method = editingBot ? 'PATCH' : 'POST'
       const payload = {
-        ...formData,
         name: trimmedName,
         token: trimmedToken,
-        username: normalizedUsername
+        username: normalizedUsername,
+        is_enabled: formData.is_enabled,
+        persona_hint: formData.persona_hint,
+        active_hours: formData.active_hours,
+        speed_profile: formData.speed_profile,
+      }
+
+      const emotionPayload = buildEmotionPayload(emotionDraft)
+      if (emotionPayload) {
+        payload.emotion_profile = emotionPayload
+      } else if (editingBot && editingBot.emotion_profile && Object.keys(editingBot.emotion_profile || {}).length > 0) {
+        payload.emotion_profile = {}
       }
 
       if (editingBot && !payload.token) {
@@ -239,6 +310,7 @@ function Bots() {
       active_hours: [],
       speed_profile: {}
     })
+    setEmotionDraft(createEmotionDraft())
     setEditingBot(null)
     setFormErrors({})
   }
@@ -254,6 +326,7 @@ function Bots() {
       active_hours: bot.active_hours || [],
       speed_profile: bot.speed_profile || {}
     })
+    setEmotionDraft(normalizeEmotionDraft(bot.emotion_profile))
     setFormErrors({})
     setDialogOpen(true)
   }
@@ -535,6 +608,99 @@ function Bots() {
                     rows={3}
                   />
                   <p className="text-xs text-muted-foreground">Mesaj tonu ve hitap şeklini anlatan kısa bir not ekleyin.</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 items-start gap-4">
+                <Label htmlFor="emotion-tone" className="text-right">
+                  Duygu Tonu
+                </Label>
+                <div className="col-span-3 space-y-1">
+                  <Input
+                    id="emotion-tone"
+                    value={emotionDraft.tone}
+                    onChange={(e) => setEmotionDraft((prev) => ({ ...prev, tone: e.target.value }))}
+                    placeholder="Örn: sıcak ve umutlu"
+                  />
+                  <p className="text-xs text-muted-foreground">Mesajların temel duygusal atmosferini tanımlayın.</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 items-start gap-4">
+                <Label htmlFor="emotion-empathy" className="text-right">
+                  Empati Yaklaşımı
+                </Label>
+                <div className="col-span-3 space-y-1">
+                  <Textarea
+                    id="emotion-empathy"
+                    value={emotionDraft.empathy}
+                    onChange={(e) => setEmotionDraft((prev) => ({ ...prev, empathy: e.target.value }))}
+                    placeholder="Örn: Kullanıcının duygusunu aynala, ardından umut ver"
+                    rows={2}
+                  />
+                  <p className="text-xs text-muted-foreground">Haber ve sohbetlere verirken kullanılacak empatik yaklaşımı özetleyin.</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 items-start gap-4">
+                <Label htmlFor="emotion-energy" className="text-right">
+                  Tempo / Enerji
+                </Label>
+                <div className="col-span-3 space-y-1">
+                  <Input
+                    id="emotion-energy"
+                    value={emotionDraft.energy}
+                    onChange={(e) => setEmotionDraft((prev) => ({ ...prev, energy: e.target.value }))}
+                    placeholder="Örn: orta tempo, sakin"
+                  />
+                  <p className="text-xs text-muted-foreground">Konuşma hızını veya vurgulanacak enerjiyi belirtin.</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 items-start gap-4">
+                <Label htmlFor="emotion-emoji" className="text-right">
+                  İmza Emoji
+                </Label>
+                <div className="col-span-3 space-y-1">
+                  <Input
+                    id="emotion-emoji"
+                    value={emotionDraft.signatureEmoji}
+                    onChange={(e) => setEmotionDraft((prev) => ({ ...prev, signatureEmoji: e.target.value }))}
+                    placeholder="Örn: 😊"
+                  />
+                  <p className="text-xs text-muted-foreground">Mesajlara ara sıra eklenecek imza emojiyi belirleyin.</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 items-start gap-4">
+                <Label htmlFor="emotion-phrases" className="text-right">
+                  İmza İfadeler
+                </Label>
+                <div className="col-span-3 space-y-1">
+                  <Textarea
+                    id="emotion-phrases"
+                    value={emotionDraft.signaturePhrases}
+                    onChange={(e) => setEmotionDraft((prev) => ({ ...prev, signaturePhrases: e.target.value }))}
+                    placeholder="Her satıra bir ifade yazın"
+                    rows={3}
+                  />
+                  <p className="text-xs text-muted-foreground">Sık kullanılacak kısa ifadeleri satır satır yazın (örn. “şahsi fikrim”).</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 items-start gap-4">
+                <Label htmlFor="emotion-anecdotes" className="text-right">
+                  Anekdot Havuzu
+                </Label>
+                <div className="col-span-3 space-y-1">
+                  <Textarea
+                    id="emotion-anecdotes"
+                    value={emotionDraft.anecdotes}
+                    onChange={(e) => setEmotionDraft((prev) => ({ ...prev, anecdotes: e.target.value }))}
+                    placeholder="Gerçekçi kısa hikâyeleri her satıra bir adet yazın"
+                    rows={3}
+                  />
+                  <p className="text-xs text-muted-foreground">Botun ara sıra referans verebileceği kişisel hikâye kesitlerini ekleyin.</p>
                 </div>
               </div>
 

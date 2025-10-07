@@ -39,6 +39,15 @@ def main():
         else:
             print("[=] persona_profile zaten var, değişiklik yapılmadı.")
 
+        if not has_column(conn, "bots", "emotion_profile"):
+            print("[i] bots.emotion_profile sütunu ekleniyor...")
+            conn.execute("ALTER TABLE bots ADD COLUMN emotion_profile TEXT")
+            conn.execute("UPDATE bots SET emotion_profile='{}' WHERE emotion_profile IS NULL")
+            conn.commit()
+            print("[ok] emotion_profile eklendi.")
+        else:
+            print("[=] emotion_profile zaten var, değişiklik yapılmadı.")
+
         # (İsteğe bağlı güvenlik) Diğer beklenen sütunlar için de kontrol:
         for col in ("speed_profile", "active_hours", "persona_hint"):
             if not has_column(conn, "bots", col):

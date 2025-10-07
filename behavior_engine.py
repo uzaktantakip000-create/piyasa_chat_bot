@@ -7,6 +7,7 @@ import logging
 import os
 import random
 import re
+from dataclasses import dataclass
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Sequence
@@ -49,6 +50,164 @@ TOPIC_KEYWORDS: Dict[str, set] = {
     "kripto": {"kripto", "crypto", "bitcoin", "btc", "eth", "ethereum", "altcoin", "coin"},
     "makro": {"makro", "enflasyon", "faiz", "ekonomi", "gsyih", "büyüme", "veri"},
 }
+
+
+@dataclass
+class ReactionPlan:
+    instructions: str
+    signature_phrase: Optional[str] = None
+    anecdote: Optional[str] = None
+    emoji: Optional[str] = None
+
+
+def _choose_text_item(values: Optional[Sequence[Any]]) -> Optional[str]:
+    if not values:
+        return None
+    cleaned = [str(v).strip() for v in values if isinstance(v, str) and str(v).strip()]
+    if not cleaned:
+        return None
+    return random.choice(cleaned)
+
+
+def synthesize_reaction_plan(
+    *, emotion_profile: Optional[Dict[str, Any]], market_trigger: str
+) -> ReactionPlan:
+    if not market_trigger:
+        return ReactionPlan(instructions="")
+
+    profile = emotion_profile or {}
+    tone = profile.get("tone")
+    empathy = profile.get("empathy")
+    energy = profile.get("energy")
+    emoji = (profile.get("signature_emoji") or "").strip() or None
+    signature_phrase = _choose_text_item(profile.get("signature_phrases"))
+    anecdote = _choose_text_item(profile.get("anecdotes"))
+
+    directives: List[str] = [
+        "Haberi kısaca yankıla ve okuyucunun duygusunu paylaş.",
+        "Panikten kaçın, sakinleştirici bir ton tuttur.",
+    ]
+
+    if empathy:
+        directives.append(empathy)
+    if tone:
+        directives.append(f"Genel ton: {tone}.")
+    if energy:
+        directives.append(f"Tempo ipucu: {energy}.")
+    if signature_phrase:
+        directives.append(f"Uygun bir cümlede şu imza ifadeyi doğal biçimde kullan: \"{signature_phrase}\".")
+    if anecdote:
+        directives.append(f"Yer uygunsa kısa bir kişisel not paylaş: \"{anecdote}\".")
+    if emoji:
+        directives.append(f"Duyguyu pekiştirmek için {emoji} emojisini aşırıya kaçmadan ekleyebilirsin.")
+
+    instructions = " ".join(directives)
+    return ReactionPlan(
+        instructions=instructions,
+        signature_phrase=signature_phrase,
+        anecdote=anecdote,
+        emoji=emoji,
+    )
+
+
+def derive_tempo_multiplier(
+    emotion_profile: Optional[Dict[str, Any]], plan: ReactionPlan
+) -> float:
+    profile = emotion_profile or {}
+    energy_bits = " ".join(
+        filter(
+            None,
+            [
+                str(profile.get("energy") or ""),
+                str(profile.get("tone") or ""),
+                plan.instructions,
+            ],
+        )
+    ).lower()
+
+    if any(keyword in energy_bits for keyword in ["yüksek", "canlı", "enerjik", "hızlı"]):
+        return 0.85
+    if any(keyword in energy_bits for keyword in ["sakin", "yumuşak", "yavaş", "dingin"]):
+        return 1.15
+    return 1.0
+
+
+def compose_persona_refresh_note(
+    persona_profile: Dict[str, Any],
+    persona_hint: str,
+    emotion_profile: Dict[str, Any],
+) -> str:
+    parts: List[str] = []
+    summary = summarize_persona(persona_profile)
+    if summary and summary != "—":
+        parts.append(summary)
+
+    hint = (persona_hint or "").strip()
+    if hint:
+        parts.append(f"Tarz ipucu: {hint}")
+
+    phrases = emotion_profile.get("signature_phrases") if isinstance(emotion_profile, dict) else None
+    if isinstance(phrases, list) and phrases:
+        parts.append("İmza ifadeler: " + ", ".join(map(str, phrases[:2])))
+
+    return " | ".join(parts)
+
+
+def _normalize_refresh_state(state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    data = dict(state or {})
+    messages_since = data.get("messages_since", 0)
+    try:
+        messages_since = int(messages_since)
+    except Exception:
+        messages_since = 0
+
+    last = data.get("last")
+    if not isinstance(last, datetime):
+        last = datetime.min.replace(tzinfo=UTC)
+
+    return {"messages_since": max(0, messages_since), "last": last}
+
+
+def should_refresh_persona(
+    state: Optional[Dict[str, Any]],
+    *,
+    refresh_interval: int,
+    refresh_minutes: int,
+    now: Optional[datetime] = None,
+) -> tuple[bool, Dict[str, Any]]:
+    """Return (should_refresh, normalized_state)."""
+
+    normalized = _normalize_refresh_state(state)
+    now = now or now_utc()
+
+    interval = max(1, int(refresh_interval or 0))
+    minutes = max(1, int(refresh_minutes or 0))
+
+    should_refresh = normalized["messages_since"] >= interval
+    if not should_refresh:
+        if (now - normalized["last"]) > timedelta(minutes=minutes):
+            should_refresh = True
+
+    return should_refresh, normalized
+
+
+def update_persona_refresh_state(
+    state: Dict[str, Any],
+    *,
+    triggered: bool,
+    now: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    normalized = _normalize_refresh_state(state)
+    now = now or now_utc()
+
+    if triggered:
+        normalized["messages_since"] = 0
+        normalized["last"] = now
+    else:
+        normalized["messages_since"] += 1
+
+    return normalized
+
 
 def now_utc() -> datetime:
     return datetime.now(UTC)
@@ -181,6 +340,44 @@ def build_history_transcript(messages: Sequence[Any]) -> str:
         lines.append(f"[{speaker}]: {snippet}")
 
     return "\n".join(lines)
+
+
+_ANON_HANDLE_RE = re.compile(r"@\w+")
+
+
+def _anonymize_example_text(text: str) -> str:
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return ""
+    cleaned = _ANON_HANDLE_RE.sub("@kullanici", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return shorten(cleaned, 140)
+
+
+def build_contextual_examples(
+    messages: Sequence[Any], *, bot_id: int, max_pairs: int = 3
+) -> str:
+    pairs: List[str] = []
+    pending_user: Optional[str] = None
+
+    for msg in messages:
+        if msg is None:
+            continue
+
+        msg_text = _anonymize_example_text(getattr(msg, "text", ""))
+        if not msg_text:
+            continue
+
+        if getattr(msg, "bot_id", None) == bot_id:
+            if pending_user:
+                pairs.append(f"- Kullanıcı: \"{pending_user}\" -> Bot: \"{msg_text}\"")
+                if len(pairs) >= max_pairs:
+                    break
+            pending_user = None
+        else:
+            pending_user = msg_text
+
+    return "\n".join(pairs)
 
 
 def _tokenize_messages(messages: Sequence[Any]) -> Counter:
@@ -408,6 +605,9 @@ class BehaviorEngine:
         self._redis_url: Optional[str] = os.getenv("REDIS_URL") or None
         self._redis = None  # type: ignore
         self._redis_task: Optional[asyncio.Task] = None
+
+        # Persona yenileme takibi (bot bazlı)
+        self._persona_refresh: Dict[int, Dict[str, Any]] = {}
 
     # ---- Settings cache ----
     def settings(self, db: Session) -> Dict[str, Any]:
@@ -712,7 +912,14 @@ class BehaviorEngine:
         )
         return clamp(delay, min_delay, max_delay)
 
-    def typing_seconds(self, db: Session, est_chars: int, *, bot: Optional[Bot] = None) -> float:
+    def typing_seconds(
+        self,
+        db: Session,
+        est_chars: int,
+        *,
+        bot: Optional[Bot] = None,
+        tempo_multiplier: float = 1.0,
+    ) -> float:
         wpm = self.settings(db).get("typing_speed_wpm", {"min": 2.5, "max": 4.5})
         min_wpm = _safe_float(wpm.get("min"), 2.5)
         max_wpm = _safe_float(wpm.get("max"), 4.5)
@@ -759,7 +966,9 @@ class BehaviorEngine:
             ),
             8.0,
         )
-        return clamp(seconds, min_seconds, max_seconds)
+        seconds = clamp(seconds, min_seconds, max_seconds)
+        tempo_multiplier = clamp(float(tempo_multiplier or 1.0), 0.5, 1.6)
+        return seconds * tempo_multiplier
 
     def _resolve_delay_profile(self, bot: Optional[Bot]) -> Dict[str, Any]:
         profile = getattr(bot, "speed_profile", None) if bot else None
@@ -793,9 +1002,10 @@ class BehaviorEngine:
         db: Session,
         bot: Bot,
         topic_hint: Optional[str],
-    ) -> tuple[Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]], str]:
-        """Bot için persona_profile + stances + holdings verilerini oku ve sadeleştir."""
+    ) -> tuple[Dict[str, Any], Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]], str]:
+        """Bot için persona/emotion profilleri ile stance/holding verilerini oku ve sadeleştir."""
         persona_profile = bot.persona_profile or {}
+        emotion_profile = bot.emotion_profile or {}
         persona_hint = (bot.persona_hint or "").strip()
 
         # Stance'ler: son güncellenene öncelik
@@ -836,7 +1046,7 @@ class BehaviorEngine:
                 "updated_at": h.updated_at.isoformat() if h.updated_at else None,
             })
 
-        return persona_profile, stances, holdings, persona_hint
+        return persona_profile, emotion_profile, stances, holdings, persona_hint
 
     # ---- Tutarlılık koruması ----
     def apply_consistency_guard(
@@ -885,6 +1095,65 @@ class BehaviorEngine:
             return None
 
         return revised
+
+    def apply_reaction_overrides(self, text: str, plan: ReactionPlan) -> str:
+        if not text or not plan:
+            return text
+
+        updated = text.strip()
+
+        phrase = (plan.signature_phrase or "").strip()
+        if phrase and phrase.lower() not in updated.lower():
+            if updated.endswith(('.', '!', '?')):
+                updated = f"{updated} {phrase}".strip()
+            else:
+                updated = f"{updated}. {phrase}".strip()
+
+        anecdote = (plan.anecdote or "").strip()
+        if anecdote and anecdote.lower() not in updated.lower():
+            if updated.endswith(('.', '!', '?')):
+                updated = f"{updated} {anecdote}".strip()
+            else:
+                updated = f"{updated}. {anecdote}".strip()
+
+        emoji = (plan.emoji or "").strip()
+        if emoji and emoji not in updated:
+            updated = f"{updated} {emoji}".strip()
+
+        return updated
+
+    def apply_micro_behaviors(
+        self,
+        text: str,
+        *,
+        emotion_profile: Dict[str, Any],
+        plan: ReactionPlan,
+    ) -> str:
+        if not text:
+            return text
+
+        updated = text
+        tone = str((emotion_profile or {}).get("tone") or "").lower()
+        energy = str((emotion_profile or {}).get("energy") or "").lower()
+
+        if any(keyword in (tone + " " + energy) for keyword in ["sakin", "yumuşak", "dingin"]) and "…" not in updated:
+            if random.random() < 0.35:
+                if "," in updated:
+                    updated = updated.replace(",", "…", 1)
+                else:
+                    updated = updated + "…"
+
+        emoji = (plan.emoji or "").strip()
+        if emoji and emoji in updated and random.random() < 0.5:
+            updated = updated.replace(f" {emoji}", "", 1).strip()
+            parts = re.split(r"([.!?])", updated)
+            if len(parts) > 1:
+                parts[0] = parts[0].strip() + f" {emoji}"
+                updated = "".join(parts).strip()
+            else:
+                updated = f"{emoji} {updated}".strip()
+
+        return updated
 
     # ---- Dedup (tekrar) kontrolü ----
     def is_duplicate_recent(self, db: Session, *, bot_id: int, text: str, hours: int) -> bool:
@@ -948,10 +1217,35 @@ METİN:
 
             (
                 persona_profile,
+                emotion_profile,
                 stances,
                 holdings,
                 persona_hint,
             ) = self.fetch_psh(db, bot, topic_hint=None)
+
+            refresh_state = self._persona_refresh.setdefault(
+                bot.id,
+                {
+                    "messages_since": 0,
+                    "last": datetime.min.replace(tzinfo=UTC),
+                },
+            )
+            now = now_utc()
+            refresh_interval = int(s.get("persona_refresh_interval", 8))
+            refresh_minutes = int(s.get("persona_refresh_minutes", 30))
+            should_refresh, normalized_state = should_refresh_persona(
+                refresh_state,
+                refresh_interval=refresh_interval,
+                refresh_minutes=refresh_minutes,
+                now=now,
+            )
+            refresh_state.update(normalized_state)
+
+            persona_refresh_note = (
+                compose_persona_refresh_note(persona_profile, persona_hint, emotion_profile)
+                if should_refresh
+                else ""
+            )
 
             # Cooldown filtre: cooldown'da olan konuları pool'dan çıkar
             if bool(s.get("cooldown_filter_enabled", True)):
@@ -1006,20 +1300,24 @@ METİN:
             mode = "reply" if reply_msg else "new"
             mention_ctx = f"@{mention_handle}" if mention_handle else ""
 
-            # Geçmiş özet (son 6 mesaj)
-            last_msgs = (
+            # Geçmiş özet (son mesajlardan örnekler)
+            recent_msgs = (
                 db.query(Message)
                 .filter(Message.chat_db_id == chat.id)
                 .order_by(Message.created_at.desc())
-                .limit(6)
+                .limit(40)
                 .all()
             )
-            # Son mesajlardan çok satırlı diyalog transkripti oluştur
-            history_excerpt = build_history_transcript(list(reversed(last_msgs)))
+            history_source = list(recent_msgs[:6])
+            history_excerpt = build_history_transcript(list(reversed(history_source)))
             reply_excerpt = shorten(reply_msg.text if reply_msg else "", 240)
 
+            contextual_examples = build_contextual_examples(
+                list(reversed(recent_msgs)), bot_id=bot.id, max_pairs=3
+            )
+
             # Topic seç (cooldown filtreli havuzdan)
-            topic = choose_topic_from_messages(last_msgs, topic_hint_pool)
+            topic = choose_topic_from_messages(history_source, topic_hint_pool)
 
             # ---- HABER TETIKLEYICI ----
             market_trigger = ""
@@ -1032,6 +1330,12 @@ METİN:
                             market_trigger = brief
             except Exception as e:
                 logger.debug("news trigger error: %s", e)
+
+            reaction_plan = synthesize_reaction_plan(
+                emotion_profile=emotion_profile,
+                market_trigger=market_trigger,
+            )
+            tempo_multiplier = derive_tempo_multiplier(emotion_profile, reaction_plan)
 
             # (prompt için) Stance/holding özetleri; topic'i ipucu olarak veriyoruz
             selected_length_category = choose_message_length_category(
@@ -1049,10 +1353,14 @@ METİN:
                 mode=mode,
                 mention_context=mention_ctx,
                 persona_profile=persona_profile,
+                reaction_guidance=reaction_plan.instructions,
+                emotion_profile=emotion_profile,
+                contextual_examples=contextual_examples,
                 stances=stances,
                 holdings=holdings,
                 length_hint=length_hint,
                 persona_hint=persona_hint,
+                persona_refresh_note=persona_refresh_note,
             )
 
             # LLM üretimi (taslak)
@@ -1071,6 +1379,14 @@ METİN:
                 )
                 if revised:
                     text = revised
+
+            text = self.apply_reaction_overrides(text, reaction_plan)
+
+            text = self.apply_micro_behaviors(
+                text,
+                emotion_profile=emotion_profile,
+                plan=reaction_plan,
+            )
 
             # Mention'ı metne kibarca ekle (başta değilse)
             if mention_ctx and mention_ctx not in text:
@@ -1101,7 +1417,12 @@ METİN:
                 await self.tg.send_typing(
                     bot.token,
                     chat.chat_id,
-                    self.typing_seconds(db, len(text), bot=bot),
+                    self.typing_seconds(
+                        db,
+                        len(text),
+                        bot=bot,
+                        tempo_multiplier=tempo_multiplier,
+                    ),
                 )
 
             # Mesajı gönder
@@ -1122,6 +1443,12 @@ METİN:
                 reply_to_message_id=reply_msg.telegram_message_id if reply_msg else None,
             ))
             db.commit()
+
+            self._persona_refresh[bot.id] = update_persona_refresh_state(
+                refresh_state,
+                triggered=should_refresh,
+                now=now_utc(),
+            )
 
             # Sonraki gecikme
             await asyncio.sleep(self.next_delay_seconds(db, bot=bot))

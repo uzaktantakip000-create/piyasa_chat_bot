@@ -164,6 +164,13 @@
 - [x] Yeni uç noktayı kapsayan birim testi yazarak API davranışını doğrula.
 - [x] Dashboard'da sistem kontrolü özetini gösteren yeni kart ekle.
 
+### Botları Daha İnsancıl Hale Getirme Önerileri
+- [x] **P1:** Bot mesajlarında kişisel anekdot ve duygusal ton katmanı üretecek "duygu profili" parametresi ekle; profil ayarları panelden düzenlenebilir olsun.
+- [x] **P1:** Davranış motoruna, haber akışına verilen tepkileri kullanıcıyla empati kuran kalıplarla zenginleştiren bir "tepki sentezi" modülü ekle.
+- [x] **P2:** LLM istemlerine gerçek kullanıcı sohbetlerinden (anonimleştirilmiş) örnek replikler ekleyerek daha doğal geçişler sağlayan bağlamsal bellek geliştirmesi yap.
+- [x] **P2:** Botların konuşma temposunu insana benzetmek için dinamik yazma gecikmesi (ör. duygu durumuna göre hız değişimi) ve ara emojiler uygulayan mikro davranışlar tasarla.
+- [x] **P3:** Uzun diyaloglarda karakter tutarlılığı için kişilik özetini periyodik olarak LLM'e hatırlatan otomatize bir "persona yenileme" rutini ekle.
+
 ### Kullanıcı Dostu Takip İyileştirmeleri
 - [x] Sistem sağlık özet kartına veri kapsamı ve son çalıştırma zamanını açıkça gösteren yardımcı içerik ekle.
 - [x] Öne çıkan noktalar ve önerilen aksiyonları özet/expandable hale getirip aksiyonları panoya kopyalama kısayolu ekle.

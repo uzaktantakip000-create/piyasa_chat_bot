@@ -61,6 +61,8 @@ class Bot(Base):
     persona_hint = Column(Text, default="")
     # Yeni: kalıcı persona profili (örn. üslup, risk profili, ilgi alanları, yasaklar vb.)
     persona_profile = Column(JSON, default=dict)
+    # Yeni: duygusal ton, anekdot havuzu ve imza ifadeleri
+    emotion_profile = Column(JSON, default=dict)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -291,6 +293,10 @@ def init_default_settings() -> None:
             # Kontrol & metrikler
             "simulation_active": False,
             "scale_factor": 1.0,
+
+            # Persona yenileme
+            "persona_refresh_interval": 8,
+            "persona_refresh_minutes": 30,
 
             # Metrikler
             "rate_limit_hits": 0,        # (deprecated) geriye dönük uyumluluk

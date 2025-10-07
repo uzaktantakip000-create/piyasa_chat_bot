@@ -51,6 +51,7 @@ from schemas import (
     ChatCreate, ChatUpdate, ChatResponse,
     SettingResponse, MetricsResponse,
     PersonaProfile,
+    EmotionProfile,
     StanceCreate, StanceUpdate, StanceResponse,
     HoldingCreate, HoldingUpdate, HoldingResponse,
     HealthCheckStatus,
@@ -245,6 +246,7 @@ def _bot_to_response(db_bot: Bot) -> BotResponse:
         speed_profile=db_bot.speed_profile or {},
         active_hours=db_bot.active_hours or [],
         persona_hint=db_bot.persona_hint,
+        emotion_profile=db_bot.emotion_profile or {},
         created_at=db_bot.created_at,
     )
 
@@ -334,6 +336,7 @@ def create_bot(bot: BotCreate, db: Session = Depends(get_db)):
         speed_profile=bot.speed_profile,
         active_hours=bot.active_hours,
         persona_hint=bot.persona_hint,
+        emotion_profile=bot.emotion_profile or {},
     )
     db.add(db_bot)
     db.commit()
@@ -1041,6 +1044,25 @@ def put_persona(bot_id: int, profile: PersonaProfile, db: Session = Depends(get_
     publish_config_update(get_redis(), {"type": "persona_updated", "bot_id": bot_id})
     return {"ok": True, "bot_id": bot_id, "persona_profile": bot.persona_profile}
 
+
+@app.get("/bots/{bot_id}/emotion", dependencies=viewer_dependencies)
+def get_emotion_profile(bot_id: int, db: Session = Depends(get_db)):
+    bot = db.query(Bot).filter(Bot.id == bot_id).first()
+    if not bot:
+        raise HTTPException(404, "Bot not found")
+    return bot.emotion_profile or {}
+
+
+@app.put("/bots/{bot_id}/emotion", dependencies=operator_dependencies)
+def put_emotion_profile(bot_id: int, profile: EmotionProfile, db: Session = Depends(get_db)):
+    bot = db.query(Bot).filter(Bot.id == bot_id).first()
+    if not bot:
+        raise HTTPException(404, "Bot not found")
+    bot.emotion_profile = profile.dict(exclude_unset=True)
+    db.commit()
+    publish_config_update(get_redis(), {"type": "emotion_updated", "bot_id": bot_id})
+    return {"ok": True, "bot_id": bot_id, "emotion_profile": bot.emotion_profile}
+
 # ----- Stances -----
 @app.get("/bots/{bot_id}/stances", response_model=List[StanceResponse], dependencies=viewer_dependencies)
 def list_stances(bot_id: int, db: Session = Depends(get_db)):
@@ -1200,6 +1222,7 @@ class WizardSetup(BaseModel):
     bot: WizardBot
     chat: WizardChat
     persona: Optional[PersonaProfile] = None
+    emotion: Optional[EmotionProfile] = None
     stances: Optional[List[StanceCreate]] = None
     holdings: Optional[List[HoldingCreate]] = None
     start_simulation: bool = True
@@ -1224,6 +1247,17 @@ def wizard_example():
             "watchlist": ["BIST:AKBNK","XAUUSD","BTCUSDT"],
             "never_do": ["garanti kazanç vaadi","kaynak vermeden kesin rakam"],
             "style": {"emojis": True, "length": "kısa-orta", "disclaimer": "yatırım tavsiyesi değildir"}
+        },
+        "emotion": {
+            "tone": "sıcak ve umutlu",
+            "empathy": "kullanıcının duygusunu aynala, sonra umut ver",
+            "signature_emoji": "😊",
+            "signature_phrases": ["şahsi fikrim", "seninle aynı hissediyorum"],
+            "anecdotes": [
+                "Geçen ayki dalgalanmada sakin kalıp planıma sadık kaldım",
+                "2008 krizinde paniğe kapılmadan portföyümü korumuştum"
+            ],
+            "energy": "orta"
         },
         "stances": [
             {"topic": "Bankacılık", "stance_text": "Orta vadede temkinli; geri çekilmeleri kademeli toplarım.", "confidence": 0.7},
@@ -1292,6 +1326,11 @@ def wizard_setup(payload: WizardSetup, db: Session = Depends(get_db)):
         bot.persona_profile = payload.persona.dict(exclude_unset=True)
         db.commit()
         publish_config_update(r, {"type": "persona_updated", "bot_id": bot.id})
+
+    if payload.emotion is not None:
+        bot.emotion_profile = payload.emotion.dict(exclude_unset=True)
+        db.commit()
+        publish_config_update(r, {"type": "emotion_updated", "bot_id": bot.id})
 
     # --- Stances (opsiyonel, upsert)---
     created_stances: List[int] = []

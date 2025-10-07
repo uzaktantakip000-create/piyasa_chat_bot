@@ -84,6 +84,35 @@ function toFloatOrNull(v) {
   return Number.isFinite(n) ? n : undefined;
 }
 
+function parseMultiline(value) {
+  if (!value) return [];
+  return String(value)
+    .split(/\r?\n|,/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function buildEmotionProfileDraft(emotion) {
+  if (!emotion) return undefined;
+
+  const tone = emotion.tone?.trim();
+  const empathy = emotion.empathy?.trim();
+  const energy = emotion.energy?.trim();
+  const signatureEmoji = emotion.signatureEmoji?.trim();
+  const phrases = parseMultiline(emotion.signaturePhrases);
+  const anecdotes = parseMultiline(emotion.anecdotes);
+
+  const payload = {};
+  if (tone) payload.tone = tone;
+  if (empathy) payload.empathy = empathy;
+  if (energy) payload.energy = energy;
+  if (signatureEmoji) payload.signature_emoji = signatureEmoji;
+  if (phrases.length) payload.signature_phrases = phrases;
+  if (anecdotes.length) payload.anecdotes = anecdotes;
+
+  return Object.keys(payload).length ? payload : undefined;
+}
+
 export default function Wizard({ onDone }) {
   const [simActive, setSimActive] = useState(false);
   const [scale, setScale] = useState(1.0);
@@ -112,6 +141,16 @@ export default function Wizard({ onDone }) {
     emojis: true,
     length: "kısa-orta",
     disclaimer: "yatırım tavsiyesi değildir",
+  });
+
+  // --- EMOTION ---
+  const [emotion, setEmotion] = useState({
+    tone: "sıcak ve umutlu",
+    empathy: "kullanıcının duygusunu aynala, ardından umut ver",
+    energy: "orta tempo, sakin",
+    signatureEmoji: "😊",
+    signaturePhrases: "şahsi fikrim\nseninle aynı hissediyorum",
+    anecdotes: "Geçen ayki sert dalgada planıma sadık kaldım\n2008'de paniğe kapılmadan portföyümü korudum",
   });
 
   // --- STANCES ---
@@ -209,6 +248,8 @@ export default function Wizard({ onDone }) {
       }))
       .filter((h) => h.symbol);
 
+    const emotionProfile = buildEmotionProfileDraft(emotion);
+
     return {
       bot: {
         name: bot.name.trim(),
@@ -222,6 +263,7 @@ export default function Wizard({ onDone }) {
         topics: toArray(chat.topics) || ["BIST", "FX", "Kripto", "Makro"],
       },
       persona: isPersonaEmpty ? undefined : personaProfile,
+      emotion: emotionProfile,
       stances: stanceBody.length ? stanceBody : undefined,
       holdings: holdingBody.length ? holdingBody : undefined,
       start_simulation: simActive,
@@ -350,6 +392,28 @@ export default function Wizard({ onDone }) {
                 <Checkbox label="Emoji kullan" checked={!!persona.emojis} onChange={(v) => setPersona({ ...persona, emojis: v })} />
                 <TextInput label="Mesaj Uzunluğu" placeholder="kısa-orta" value={persona.length} onChange={(e) => setPersona({ ...persona, length: e.target.value })} />
                 <TextInput label="Kısa Dipnot (opsiyonel)" placeholder="yatırım tavsiyesi değildir" value={persona.disclaimer} onChange={(e) => setPersona({ ...persona, disclaimer: e.target.value })} />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* EMOTION */}
+        <Card className="mt-6">
+          <CardHeader className="pb-3">
+            <CardTitle>Duygu Profili</CardTitle>
+            <CardDescription>Empati tonu, anekdotlar ve imza ifadeler.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-2 gap-6">
+              <div>
+                <TextInput label="Duygu Tonu" placeholder="sıcak ve umutlu" value={emotion.tone} onChange={(e) => setEmotion({ ...emotion, tone: e.target.value })} />
+                <TextArea label="Empati Yaklaşımı" rows={2} placeholder="Kullanıcının duygusunu aynala, ardından umut ver" value={emotion.empathy} onChange={(e) => setEmotion({ ...emotion, empathy: e.target.value })} />
+                <TextInput label="Tempo / Enerji" placeholder="orta tempo, sakin" value={emotion.energy} onChange={(e) => setEmotion({ ...emotion, energy: e.target.value })} />
+              </div>
+              <div>
+                <TextInput label="İmza Emoji" placeholder="😊" value={emotion.signatureEmoji} onChange={(e) => setEmotion({ ...emotion, signatureEmoji: e.target.value })} />
+                <TextArea label="İmza İfadeler" rows={3} placeholder="Her satıra bir ifade yazın" value={emotion.signaturePhrases} onChange={(e) => setEmotion({ ...emotion, signaturePhrases: e.target.value })} />
+                <TextArea label="Anekdot Havuzu" rows={3} placeholder="Kısa kişisel hikâyeleri her satıra bir adet yazın" value={emotion.anecdotes} onChange={(e) => setEmotion({ ...emotion, anecdotes: e.target.value })} />
               </div>
             </div>
           </CardContent>
