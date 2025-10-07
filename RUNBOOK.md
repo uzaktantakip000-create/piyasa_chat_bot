@@ -39,11 +39,11 @@ cp .env.example .env
 
 ### Panel giriş akışı
 
-Panel ilk açıldığında kullanıcıyı basit bir giriş formu karşılar:
+Panel ilk açıldığında kullanıcıyı RBAC + MFA destekli bir giriş formu karşılar:
 
-1. API anahtarı (`VITE_API_KEY` env değerinden veya daha önce kaydedilen localStorage verisinden okunur) giriş alanına otomatik taşınır.
-2. `VITE_DASHBOARD_PASSWORD` tanımlı ise ikinci bir şifre alanı görünür. Şifre eşleşmezse oturum açılmaz.
-3. Başarılı doğrulama sonrası ana uygulama yüklenir ve oturum bilgisi localStorage'da saklanır. API 401 döndürdüğünde oturum otomatik olarak sonlandırılır ve kullanıcı giriş ekranına yönlendirilir.
+1. Kullanıcı adı ve parola alanları zorunludur. Çok faktörlü doğrulama aktifse 6 haneli TOTP kodu girilir; aksi halde alan boş bırakılabilir.
+2. Başarılı girişte API anahtarı arka uçta döndürülür, yalnızca mevcut tarayıcı sekmesinin `sessionStorage` alanında tutulur ve paralel olarak HttpOnly bir çerez ile oturum bağlanır.
+3. Oturum kapatıldığında veya sekme kapandığında sessionStorage temizlenir; HttpOnly çerez silinir ve tekrar erişim için kullanıcıdan giriş yapması istenir.
 
 İlk çalıştırmada `TOKEN_ENCRYPTION_KEY` sağlanmışsa, veritabanındaki mevcut düz metin tokenlar otomatik olarak şifrelenir.
 

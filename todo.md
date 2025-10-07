@@ -70,12 +70,12 @@
 - [x] Dashboard'da son test özetini ve stres testi kontrollerini gösteren yeni kart ekle.
 
 ### Sistem Doğrulama Sonrası Aksiyonlar
-- [ ] **P0:** Panelde API anahtarını `localStorage` yerine oturum bazlı (örn. `sessionStorage` + HttpOnly session) sakla ve XSS’ye dayanıklı hale getir.
+- [x] **P0:** Panelde API anahtarını `localStorage` yerine oturum bazlı (örn. `sessionStorage` + HttpOnly session) sakla ve XSS’ye dayanıklı hale getir.
   - Açıklama: Kimlik doğrulama anahtarını kalıcı depolamadan taşıyarak saldırı yüzeyini daralt.
   - Beklenen Fayda: Anahtar sızıntı riskini azaltarak yönetim paneli güvenliğini artırır.
   - Kabul Kriteri: Güvenlik testinde `localStorage` anahtarı bulunmuyor, XSS simülasyonunda anahtar ele geçirilemiyor.
   - Efor: M
-- [ ] **P0:** `_startup` loglarında dönen varsayılan admin API anahtarı ve MFA sırrını maskele veya yalnızca tek seferlik CLI çıktısı olarak göster.
+- [x] **P0:** `_startup` loglarında dönen varsayılan admin API anahtarı ve MFA sırrını maskele veya yalnızca tek seferlik CLI çıktısı olarak göster.
   - Açıklama: Başlatma loglarında gizli bilgiler yerine güvenli placeholder kullan.
   - Beklenen Fayda: Üretim log’larında gizli veri tutmayarak mevzuat uyumu ve güvenlik sağlar.
   - Kabul Kriteri: Uygulama başlatıldığında loglarda API anahtarı/MFA sırrı görünmez; güvenlik taraması bunu doğrular.
@@ -85,7 +85,7 @@
   - Beklenen Fayda: Güvenlik yamalarını almak ve Python 3.11+ uyumluluğunu korumak.
   - Kabul Kriteri: `pytest` ve `preflight` güncel sürümle geçer; bağımlılık güvenlik taraması kritik açık göstermiyor.
   - Efor: M
-- [ ] **P1:** `apiFetch` için offline/timeout hata yakalayıcıları ekle; kullanıcıya yeniden dene / bağlantı durumu bildirimi göster.
+- [x] **P1:** `apiFetch` için offline/timeout hata yakalayıcıları ekle; kullanıcıya yeniden dene / bağlantı durumu bildirimi göster.
   - Açıklama: Ağ hata senaryolarında kullanıcıya rehberlik eden dayanıklı istemci davranışı ekle.
   - Beklenen Fayda: Kullanıcı deneyimini iyileştirir, ağ kesintilerinde destek taleplerini azaltır.
   - Kabul Kriteri: Ağ bağlantısı kesildiğinde UI’da anlamlı uyarı/yeniden dene butonu görülür; manuel testte doğrulanır.

@@ -1,14 +1,16 @@
 import { useState } from 'react'
 
-function LoginPanel({ onSubmit, submitting, error, requiresPassword, defaultApiKey }) {
-  const [apiKey, setApiKey] = useState(defaultApiKey || '')
+function LoginPanel({ onSubmit, submitting, error, defaultApiKey }) {
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [apiKeyVisible, setApiKeyVisible] = useState(false)
+  const [totp, setTotp] = useState('')
   const [passwordVisible, setPasswordVisible] = useState(false)
+  const [totpVisible, setTotpVisible] = useState(false)
+  const [apiKeyVisible, setApiKeyVisible] = useState(false)
 
   const handleSubmit = (event) => {
     event.preventDefault()
-    onSubmit({ apiKey: apiKey.trim(), password: password.trim() })
+    onSubmit({ username: username.trim(), password: password.trim(), totp: totp.trim() })
   }
 
   return (
@@ -20,76 +22,121 @@ function LoginPanel({ onSubmit, submitting, error, requiresPassword, defaultApiK
         <div className="space-y-3 text-center">
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Yönetim Paneli Girişi</h1>
           <p className="text-sm text-muted-foreground">
-            API anahtarını ve (tanımlıysa) panel şifresini girerek devam edin. Oturumunuz tarayıcınızda saklanan bir anahtar ile
-            korunur.
+            RBAC destekli yönetim paneline erişmek için kullanıcı adı, parola ve (tanımlıysa) MFA kodunuzu girin. Oturum, tarayıcı
+            sekmesi kapatıldığında sona eren HttpOnly çerez + sessionStorage kombinasyonu ile korunur.
           </p>
           <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-left text-xs leading-relaxed text-blue-800">
             <p className="font-semibold text-blue-900">Güvenlik ipuçları</p>
             <ul className="mt-1 list-disc space-y-1 pl-4">
-              <li>API anahtarınız yalnızca bu cihazdaki yerel depoda tutulur ve "Çıkış" yaptığınızda otomatik olarak temizlenir.</li>
-              <li>Panel şifreniz en az 12 karakter olmalı ve büyük/küçük harf, rakam ve özel karakter içermelidir.</li>
-              <li>Paylaşımlı cihazlarda işi bitince tarayıcı sekmesini kapatıp yeniden giriş yaparak oturumu doğrulayın.</li>
+              <li>Giriş sonrası API anahtarınız yalnızca oturum boyunca sessionStorage'da tutulur; pencereyi kapattığınızda temizlenir.</li>
+              <li>HttpOnly oturum çerezi, komut dosyalarının anahtarınızı ele geçirmesini engeller; XSS durumda bile anahtar çerez olmadan kullanılamaz.</li>
+              <li>Paylaşımlı cihazlarda işiniz bittiğinde "Çıkış" yaparak ve tarayıcıyı kapatarak oturumu sonlandırın.</li>
             </ul>
           </div>
         </div>
 
         <div className="space-y-1">
-          <label htmlFor="apiKey" className="text-sm font-medium text-foreground">
-            API Anahtarı
+          <label htmlFor="username" className="text-sm font-medium text-foreground">
+            Kullanıcı Adı
+          </label>
+          <input
+            id="username"
+            name="username"
+            type="text"
+            autoComplete="username"
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            placeholder="admin"
+            required
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label htmlFor="password" className="text-sm font-medium text-foreground">
+            Parola
           </label>
           <div className="flex items-center gap-2">
             <input
-              id="apiKey"
-              name="apiKey"
-              type={apiKeyVisible ? 'text' : 'password'}
-              autoComplete="off"
+              id="password"
+              name="password"
+              type={passwordVisible ? 'text' : 'password'}
+              autoComplete="current-password"
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
-              placeholder="XXXXXXXXXXXX"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="••••••••"
               required
             />
             <button
               type="button"
               className="text-xs font-medium text-primary underline-offset-2 hover:underline"
-              onClick={() => setApiKeyVisible((prev) => !prev)}
-              aria-pressed={apiKeyVisible}
+              onClick={() => setPasswordVisible((prev) => !prev)}
+              aria-pressed={passwordVisible}
             >
-              {apiKeyVisible ? 'Gizle' : 'Göster'}
+              {passwordVisible ? 'Gizle' : 'Göster'}
             </button>
           </div>
           <p className="text-xs text-muted-foreground">
-            Anahtar, arka uç API’si ile tüm çağrılarınızı imzalamak için kullanılır; anahtarınızı kimseyle paylaşmayın.
+            Parolanız PBKDF2 ile sunucuda saklanır; istemci tarafında yalnızca giriş sırasında kullanılır.
           </p>
         </div>
 
-        {requiresPassword && (
+        <div className="space-y-1">
+          <label htmlFor="totp" className="text-sm font-medium text-foreground">
+            MFA Kodu (varsa)
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              id="totp"
+              name="totp"
+              type={totpVisible ? 'text' : 'password'}
+              inputMode="numeric"
+              pattern="\d{6}"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              value={totp}
+              onChange={(event) => setTotp(event.target.value)}
+              placeholder="123456"
+            />
+            <button
+              type="button"
+              className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+              onClick={() => setTotpVisible((prev) => !prev)}
+              aria-pressed={totpVisible}
+            >
+              {totpVisible ? 'Gizle' : 'Göster'}
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Çok faktörlü doğrulama etkinse 6 haneli kodu girin; aksi halde bu alanı boş bırakabilirsiniz.
+          </p>
+        </div>
+
+        {defaultApiKey && (
           <div className="space-y-1">
-            <label htmlFor="password" className="text-sm font-medium text-foreground">
-              Panel Şifresi
+            <label htmlFor="currentApiKey" className="text-sm font-medium text-foreground">
+              Mevcut API Anahtarınız
             </label>
             <div className="flex items-center gap-2">
               <input
-                id="password"
-                name="password"
-                type={passwordVisible ? 'text' : 'password'}
+                id="currentApiKey"
+                name="currentApiKey"
+                type={apiKeyVisible ? 'text' : 'password'}
+                readOnly
+                value={defaultApiKey}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder="••••••••"
-                required
               />
               <button
                 type="button"
                 className="text-xs font-medium text-primary underline-offset-2 hover:underline"
-                onClick={() => setPasswordVisible((prev) => !prev)}
-                aria-pressed={passwordVisible}
+                onClick={() => setApiKeyVisible((prev) => !prev)}
+                aria-pressed={apiKeyVisible}
               >
-                {passwordVisible ? 'Gizle' : 'Göster'}
+                {apiKeyVisible ? 'Gizle' : 'Göster'}
               </button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Panel şifresi yalnızca doğrulama için kullanılır; giriş yaptıktan sonra istemcide saklanmaz.
+              API anahtarı yalnızca bu tarayıcı sekmesinin sessionStorage alanında tutulur ve oturum kapandığında otomatik silinir.
             </p>
           </div>
         )}

@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
-import { apiFetch, getApiKey } from './apiClient'
+import { apiFetch, getStoredApiKey } from './apiClient'
 import InlineNotice from './components/InlineNotice'
 import dashboardLogin from './docs/dashboard-login.svg'
 
@@ -85,7 +85,7 @@ const defaultProgressState = {
 }
 
 function resolveProgressStorageKey() {
-  const apiKey = typeof getApiKey === 'function' ? getApiKey() : null
+  const apiKey = typeof getStoredApiKey === 'function' ? getStoredApiKey() : null
   if (!apiKey) {
     return QUICKSTART_PROGRESS_BASE_KEY
   }

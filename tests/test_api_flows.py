@@ -1,14 +1,11 @@
-import base64  # Required so _generate_key can use base64.urlsafe_b64encode
-import os
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
 
-from .conftest import auth_headers
 
-
-def test_create_and_toggle_bot(api_client):
+def test_create_and_toggle_bot(authenticated_client):
+    client = authenticated_client
     payload = {
         "name": "Test Bot",
         "token": "12345:ABCDEF",
@@ -16,37 +13,33 @@ def test_create_and_toggle_bot(api_client):
         "is_enabled": True,
         "speed_profile": {"mode": "normal"},
         "active_hours": ["09:00-18:00"],
-        "persona_hint": "temkinli"
+        "persona_hint": "temkinli",
     }
 
-    response = api_client.post("/bots", json=payload, headers=auth_headers())
+    response = client.post("/bots", json=payload)
     assert response.status_code == 201
     data = response.json()
     assert data["name"] == "Test Bot"
     assert data["is_enabled"] is True
     assert data["token_masked"].startswith("1234")
 
-    # Disable bot
-    response = api_client.patch(
+    response = client.patch(
         f"/bots/{data['id']}",
         json={"is_enabled": False},
-        headers=auth_headers(),
     )
     assert response.status_code == 200
-    patched = response.json()
-    assert patched["is_enabled"] is False
+    assert response.json()["is_enabled"] is False
 
-    # Re-enable bot to complete the toggle scenario
-    response = api_client.patch(
+    response = client.patch(
         f"/bots/{data['id']}",
         json={"is_enabled": True},
-        headers=auth_headers(),
     )
     assert response.status_code == 200
     assert response.json()["is_enabled"] is True
 
 
-def test_create_chat_and_metrics_flow(api_client):
+def test_create_chat_and_metrics_flow(authenticated_client):
+    client = authenticated_client
     chat_payload = {
         "chat_id": "-100123",
         "title": "Test Chat",
@@ -54,33 +47,31 @@ def test_create_chat_and_metrics_flow(api_client):
         "topics": ["BIST", "Kripto"],
     }
 
-    response = api_client.post("/chats", json=chat_payload, headers=auth_headers())
+    response = client.post("/chats", json=chat_payload)
     assert response.status_code == 201
 
-    metrics = api_client.get("/metrics", headers=auth_headers())
+    metrics = client.get("/metrics")
     assert metrics.status_code == 200
     payload = metrics.json()
     assert payload["total_chats"] == 1
 
 
-def test_control_endpoints_update_settings(api_client):
-    # Ensure simulation starts and stops cleanly
-    start_resp = api_client.post("/control/start", headers=auth_headers())
+def test_control_endpoints_update_settings(authenticated_client):
+    client = authenticated_client
+
+    start_resp = client.post("/control/start")
     assert start_resp.status_code == 200
 
-    stop_resp = api_client.post("/control/stop", headers=auth_headers())
+    stop_resp = client.post("/control/stop")
     assert stop_resp.status_code == 200
 
-    scale_resp = api_client.post(
-        "/control/scale",
-        json={"factor": 1.5},
-        headers=auth_headers(),
-    )
+    scale_resp = client.post("/control/scale", json={"factor": 1.5})
     assert scale_resp.status_code == 200
     assert scale_resp.json()["factor"] == pytest.approx(1.5)
 
 
-def test_message_length_profile_normalization(api_client):
+def test_message_length_profile_normalization(authenticated_client):
+    client = authenticated_client
     payload = {
         "value": {
             "short": 0.9,
@@ -89,11 +80,7 @@ def test_message_length_profile_normalization(api_client):
         }
     }
 
-    response = api_client.patch(
-        "/settings/message_length_profile",
-        json=payload,
-        headers=auth_headers(),
-    )
+    response = client.patch("/settings/message_length_profile", json=payload)
     assert response.status_code == 200
     body = response.json()
     profile = body["value"]["value"]
@@ -102,7 +89,7 @@ def test_message_length_profile_normalization(api_client):
     assert profile["long"] == pytest.approx(0.10, abs=1e-6)
     assert profile["short"] + profile["medium"] + profile["long"] == pytest.approx(1.0)
 
-    settings = api_client.get("/settings", headers=auth_headers())
+    settings = client.get("/settings")
     assert settings.status_code == 200
     stored = None
     for item in settings.json():
@@ -115,42 +102,39 @@ def test_message_length_profile_normalization(api_client):
     assert stored["long"] == pytest.approx(profile["long"])
 
 
-def _create_bot(api_client):
+def _create_bot(client):
     payload = {
         "name": "Stance Bot",
         "token": "98765:ABCDE",
         "username": "stance_bot",
         "is_enabled": True,
     }
-    response = api_client.post("/bots", json=payload, headers=auth_headers())
+    response = client.post("/bots", json=payload)
     assert response.status_code == 201
     return response.json()["id"]
 
 
-def test_stance_updated_at_refreshes(api_client):
-    bot_id = _create_bot(api_client)
+def test_stance_updated_at_refreshes(authenticated_client):
+    client = authenticated_client
+    bot_id = _create_bot(client)
     payload = {
         "topic": "Kripto",
         "stance_text": "Pozitif",
         "confidence": 0.7,
     }
 
-    create_resp = api_client.post(
-        f"/bots/{bot_id}/stances", json=payload, headers=auth_headers()
-    )
+    create_resp = client.post(f"/bots/{bot_id}/stances", json=payload)
     assert create_resp.status_code == 201
     stance_first = create_resp.json()
     first_updated_at = datetime.fromisoformat(stance_first["updated_at"])
 
     update_payload = {
         "topic": "Kripto",
-        "stance_text": "Daha temkinli",  # triggers upsert update
+        "stance_text": "Daha temkinli",
         "confidence": 0.5,
     }
 
-    update_resp = api_client.post(
-        f"/bots/{bot_id}/stances", json=update_payload, headers=auth_headers()
-    )
+    update_resp = client.post(f"/bots/{bot_id}/stances", json=update_payload)
     assert update_resp.status_code == 201
     stance_updated = update_resp.json()
     second_updated_at = datetime.fromisoformat(stance_updated["updated_at"])
@@ -158,7 +142,8 @@ def test_stance_updated_at_refreshes(api_client):
     assert second_updated_at > first_updated_at
 
 
-def test_system_check_flow(api_client):
+def test_system_check_flow(authenticated_client):
+    client = authenticated_client
     payload = {
         "status": "passed",
         "total_steps": 3,
@@ -177,7 +162,7 @@ def test_system_check_flow(api_client):
         ],
     }
 
-    create_resp = api_client.post("/system/checks", json=payload, headers=auth_headers())
+    create_resp = client.post("/system/checks", json=payload)
     assert create_resp.status_code == 201
     created = create_resp.json()
     assert created["status"] == "passed"
@@ -185,7 +170,7 @@ def test_system_check_flow(api_client):
     assert len(created["steps"]) == 3
     assert created["health_checks"][0]["name"] == "api"
 
-    latest = api_client.get("/system/checks/latest", headers=auth_headers())
+    latest = client.get("/system/checks/latest")
     assert latest.status_code == 200
     latest_body = latest.json()
     assert latest_body["id"] == created["id"]
@@ -193,7 +178,8 @@ def test_system_check_flow(api_client):
     assert latest_body["health_checks"][0]["name"] == "api"
 
 
-def test_system_check_summary(api_client):
+def test_system_check_summary(authenticated_client):
+    client = authenticated_client
     payload = {
         "status": "passed",
         "total_steps": 3,
@@ -209,19 +195,19 @@ def test_system_check_summary(api_client):
         "health_checks": [],
     }
 
-    first = api_client.post("/system/checks", json=payload, headers=auth_headers())
+    first = client.post("/system/checks", json=payload)
     assert first.status_code == 201
     first_id = first.json()["id"]
 
     second_payload = dict(payload)
     second_payload.update({"status": "failed", "failed_steps": 1, "passed_steps": 2, "duration": 6.0})
-    second = api_client.post("/system/checks", json=second_payload, headers=auth_headers())
+    second = client.post("/system/checks", json=second_payload)
     assert second.status_code == 201
     second_id = second.json()["id"]
 
     old_payload = dict(payload)
     old_payload.update({"duration": 8.0})
-    old = api_client.post("/system/checks", json=old_payload, headers=auth_headers())
+    old = client.post("/system/checks", json=old_payload)
     assert old.status_code == 201
     old_id = old.json()["id"]
 
@@ -244,7 +230,7 @@ def test_system_check_summary(api_client):
     finally:
         session.close()
 
-    summary_resp = api_client.get("/system/checks/summary", headers=auth_headers())
+    summary_resp = client.get("/system/checks/summary")
     assert summary_resp.status_code == 200
     summary = summary_resp.json()
 
@@ -277,9 +263,10 @@ def test_system_check_summary(api_client):
     assert totals == [1, 1]
 
 
-def test_run_system_checks_endpoint(api_client, monkeypatch):
+def test_run_system_checks_endpoint(authenticated_client, monkeypatch):
     import main
 
+    client = authenticated_client
     dummy_result = SimpleNamespace(returncode=0, stdout="ok", stderr="")
 
     def fake_run(cmd, cwd=None, env=None, capture_output=None, text=None):
@@ -287,15 +274,16 @@ def test_run_system_checks_endpoint(api_client, monkeypatch):
 
     monkeypatch.setattr(main, "subprocess", SimpleNamespace(run=fake_run))
 
-    resp = api_client.post("/system/checks/run", headers=auth_headers())
+    resp = client.post("/system/checks/run")
     assert resp.status_code == 202
     data = resp.json()
     assert data["status"] == "passed"
     assert data["total_steps"] == 3
 
 
-def test_holding_updated_at_refreshes(api_client):
-    bot_id = _create_bot(api_client)
+def test_holding_updated_at_refreshes(authenticated_client):
+    client = authenticated_client
+    bot_id = _create_bot(client)
     payload = {
         "symbol": "BIST:AKBNK",
         "avg_price": 12.5,
@@ -303,9 +291,7 @@ def test_holding_updated_at_refreshes(api_client):
         "note": "Uzun vade",
     }
 
-    create_resp = api_client.post(
-        f"/bots/{bot_id}/holdings", json=payload, headers=auth_headers()
-    )
+    create_resp = client.post(f"/bots/{bot_id}/holdings", json=payload)
     assert create_resp.status_code == 201
     holding_first = create_resp.json()
     first_updated_at = datetime.fromisoformat(holding_first["updated_at"])
@@ -317,9 +303,7 @@ def test_holding_updated_at_refreshes(api_client):
         "note": "Pozisyon artırıldı",
     }
 
-    update_resp = api_client.post(
-        f"/bots/{bot_id}/holdings", json=update_payload, headers=auth_headers()
-    )
+    update_resp = client.post(f"/bots/{bot_id}/holdings", json=update_payload)
     assert update_resp.status_code == 201
     holding_updated = update_resp.json()
     second_updated_at = datetime.fromisoformat(holding_updated["updated_at"])

@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 
 import { cn } from './ui/utils'
+import { Button } from './ui/button'
 
 const variantStyles = {
   error: 'bg-red-100 text-red-800 border border-red-200',
@@ -18,7 +19,11 @@ export default function InlineNotice({
   supportHref = '/help',
   supportLabel = 'Destek rehberini aç',
   contactHref = 'mailto:destek@piyasa-sim.dev',
-  contactLabel = 'destek ekibiyle iletişime geç'
+  contactLabel = 'destek ekibiyle iletişime geç',
+  actionLabel,
+  onAction,
+  actionVariant = 'outline',
+  actionDisabled = false
 }) {
   const content = message ?? children
 
@@ -28,21 +33,37 @@ export default function InlineNotice({
 
   const variantClass = variantStyles[type] ?? variantStyles.info
   const showSupport = withSupportLinks ?? type === 'error'
+  const canShowAction = Boolean(actionLabel && onAction)
 
   return (
     <div className={cn('rounded-md px-4 py-3 text-sm font-medium space-y-2', variantClass, className)}>
       <div>{content}</div>
-      {showSupport ? (
-        <div className="flex flex-wrap items-center gap-2 text-xs font-normal">
-          <Link className="underline underline-offset-2" to={supportHref}>
-            {supportLabel}
-          </Link>
-          <span aria-hidden="true">•</span>
-          <a className="underline underline-offset-2" href={contactHref} target="_blank" rel="noreferrer">
-            {contactLabel}
-          </a>
+      {(canShowAction || showSupport) && (
+        <div className="flex flex-wrap items-center gap-3">
+          {canShowAction ? (
+            <Button
+              type="button"
+              size="sm"
+              variant={actionVariant}
+              onClick={onAction}
+              disabled={actionDisabled}
+            >
+              {actionLabel}
+            </Button>
+          ) : null}
+          {showSupport ? (
+            <div className="flex flex-wrap items-center gap-2 text-xs font-normal">
+              <Link className="underline underline-offset-2" to={supportHref}>
+                {supportLabel}
+              </Link>
+              <span aria-hidden="true">•</span>
+              <a className="underline underline-offset-2" href={contactHref} target="_blank" rel="noreferrer">
+                {contactLabel}
+              </a>
+            </div>
+          ) : null}
         </div>
-      ) : null}
+      )}
     </div>
   )
 }
