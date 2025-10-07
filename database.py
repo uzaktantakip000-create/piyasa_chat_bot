@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime
-from typing import Generator, Any, Dict
+from typing import Generator, Any, Dict, Optional
 
 from sqlalchemy import (
     create_engine, Column, Integer, BigInteger, String, Boolean, Text, DateTime,
@@ -11,6 +11,13 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker, Session
 
+from auth_utils import (
+    hash_secret,
+    verify_secret,
+    generate_api_key,
+    generate_totp_secret,
+    verify_totp,
+)
 from security import decrypt_token, encrypt_token, SecurityConfigError
 from settings_utils import DEFAULT_MESSAGE_LENGTH_PROFILE
 from news_client import DEFAULT_FEEDS
@@ -178,6 +185,24 @@ class SystemCheck(Base):
     )
 
 
+class ApiUser(Base):
+    """RBAC destekli panel/API kullanıcı modeli."""
+
+    __tablename__ = "api_users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String(64), nullable=False, unique=True, index=True)
+    role = Column(String(32), nullable=False, default="viewer")
+    password_hash = Column(String(256), nullable=False)
+    password_salt = Column(String(32), nullable=False)
+    mfa_secret = Column(String(32), nullable=True)
+    api_key_hash = Column(String(128), nullable=False)
+    api_key_salt = Column(String(32), nullable=False)
+    api_key_last_rotated = Column(DateTime, default=datetime.utcnow, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 # --------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------
@@ -280,6 +305,144 @@ def migrate_news_feed_urls_setting() -> None:
             row.value = list(DEFAULT_FEEDS)
             db.commit()
             logger.info("Normalized news_feed_urls setting to list value.")
+    finally:
+        db.close()
+
+
+def ensure_default_admin_user() -> Optional[Dict[str, str]]:
+    """Create the default admin user with MFA and API key if requested."""
+
+    username = os.getenv("DEFAULT_ADMIN_USERNAME", "admin")
+    password = os.getenv("DEFAULT_ADMIN_PASSWORD")
+    role = os.getenv("DEFAULT_ADMIN_ROLE", "admin")
+    mfa_secret = os.getenv("DEFAULT_ADMIN_MFA_SECRET")
+    provided_api_key = os.getenv("DEFAULT_ADMIN_API_KEY")
+
+    if not password:
+        logger.warning("DEFAULT_ADMIN_PASSWORD not set; skipping default admin creation.")
+        return None
+
+    db = SessionLocal()
+    try:
+        existing = db.query(ApiUser).filter(ApiUser.username == username).first()
+        if existing:
+            if not existing.is_active:
+                existing.is_active = True
+                db.commit()
+            return None
+
+        password_hash, password_salt = hash_secret(password)
+        if provided_api_key:
+            api_key_plain = provided_api_key
+            api_key_hash, api_key_salt = hash_secret(provided_api_key)
+        else:
+            api_key_plain, api_key_hash, api_key_salt = generate_api_key()
+
+        if not mfa_secret:
+            mfa_secret = generate_totp_secret()
+
+        user = ApiUser(
+            username=username,
+            role=role,
+            password_hash=password_hash,
+            password_salt=password_salt,
+            mfa_secret=mfa_secret,
+            api_key_hash=api_key_hash,
+            api_key_salt=api_key_salt,
+            api_key_last_rotated=datetime.utcnow(),
+            is_active=True,
+        )
+        db.add(user)
+        db.commit()
+        logger.info("Default admin user '%s' created with role '%s'.", username, role)
+        return {
+            "username": username,
+            "api_key": api_key_plain,
+            "mfa_secret": mfa_secret,
+        }
+    finally:
+        db.close()
+
+
+def get_user_by_api_key(db: Session, api_key: str) -> Optional[ApiUser]:
+    if not api_key:
+        return None
+    candidates = db.query(ApiUser).filter(ApiUser.is_active.is_(True)).all()
+    for candidate in candidates:
+        if verify_secret(api_key, candidate.api_key_hash, candidate.api_key_salt):
+            return candidate
+    return None
+
+
+def authenticate_user(db: Session, username: str, password: str, totp: Optional[str]) -> Optional[ApiUser]:
+    user = db.query(ApiUser).filter(ApiUser.username == username, ApiUser.is_active.is_(True)).first()
+    if not user:
+        return None
+    if not verify_secret(password, user.password_hash, user.password_salt):
+        return None
+    if user.mfa_secret:
+        if not totp or not verify_totp(user.mfa_secret, totp):
+            return None
+    return user
+
+
+def rotate_user_api_key(db: Session, user: ApiUser) -> str:
+    api_key, api_key_hash, api_key_salt = generate_api_key()
+    user.api_key_hash = api_key_hash
+    user.api_key_salt = api_key_salt
+    user.api_key_last_rotated = datetime.utcnow()
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return api_key
+
+
+def update_user_password(db: Session, user: ApiUser, new_password: str) -> None:
+    password_hash, password_salt = hash_secret(new_password)
+    user.password_hash = password_hash
+    user.password_salt = password_salt
+    db.add(user)
+    db.commit()
+
+
+def create_api_user(
+    username: str,
+    password: str,
+    role: str = "viewer",
+    *,
+    mfa_secret: Optional[str] = None,
+    api_key: Optional[str] = None,
+) -> Dict[str, str]:
+    """Helper for provisioning API users programmatically."""
+
+    db = SessionLocal()
+    try:
+        if db.query(ApiUser).filter(ApiUser.username == username).first():
+            raise ValueError(f"User '{username}' already exists")
+
+        password_hash, password_salt = hash_secret(password)
+        if api_key:
+            api_plain = api_key
+            api_key_hash, api_key_salt = hash_secret(api_key)
+        else:
+            api_plain, api_key_hash, api_key_salt = generate_api_key()
+        if not mfa_secret:
+            mfa_secret = generate_totp_secret()
+
+        user = ApiUser(
+            username=username,
+            role=role,
+            password_hash=password_hash,
+            password_salt=password_salt,
+            mfa_secret=mfa_secret,
+            api_key_hash=api_key_hash,
+            api_key_salt=api_key_salt,
+            api_key_last_rotated=datetime.utcnow(),
+            is_active=True,
+        )
+        db.add(user)
+        db.commit()
+        return {"api_key": api_plain, "mfa_secret": mfa_secret, "role": role}
     finally:
         db.close()
 

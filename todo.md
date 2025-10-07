@@ -70,8 +70,8 @@
 - [x] Dashboard'da son test özetini ve stres testi kontrollerini gösteren yeni kart ekle.
 
 ### Profesyonel Geliştirme Fırsatları
-- [ ] **P0:** RBAC, çok faktörlü kimlik doğrulama ve API anahtarı rotasyonu içeren kapsamlı bir erişim yönetimi katmanı tasarlayıp uygulamaya alma.
-- [ ] **P0:** Dashboard verilerini WebSocket tabanlı canlı akışa taşıyarak test sonuçları ve uyarıları gecikmesiz güncelle.
+- [x] **P0:** RBAC, çok faktörlü kimlik doğrulama ve API anahtarı rotasyonu içeren kapsamlı bir erişim yönetimi katmanı tasarlayıp uygulamaya alma. _Açıklama: Yeni `api_users` modeli, PBKDF2 tabanlı parola/anahtar saklama, TOTP doğrulaması ve rol hiyerarşisi ile login/anahtar döndürme uçları eklendi; tüm yetki kontrolleri FastAPI tarafında role göre sınırlandı._
+- [x] **P0:** Dashboard verilerini WebSocket tabanlı canlı akışa taşıyarak test sonuçları ve uyarıları gecikmesiz güncelle. _Açıklama: `/ws/dashboard` WebSocket kanalında rol doğrulamalı canlı metrik ve sistem kontrolü özetleri yayınlanıyor; istemci bağlantıları periyodik JSON snapshot alıyor._
 - [ ] **P1:** Sistem sağlık verilerinden yola çıkarak haftalık özet e-posta/slack raporları ve dışa aktarılabilir PDF/CSV üretimi yapan kurumsal raporlama modülü oluştur.
 - [ ] **P1:** WCAG 2.1 AA uyumluluğu için kontrast, klavye navigasyonu ve ekran okuyucu etiketlerini kapsayan kapsamlı erişilebilirlik iyileştirmeleri planla ve uygula.
 - [ ] **P1:** Yeni kullanıcılar için rehberli turlar, bağlamsal yardım makaleleri ve arama yapılabilir bilgi tabanını entegre ederek self-servis destek deneyimini güçlendir.

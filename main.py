@@ -6,6 +6,7 @@ import json
 import logging
 import subprocess
 import time
+import asyncio
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -16,14 +17,29 @@ load_dotenv()  # .env dosyasını yükler
 
 import redis
 from fastapi import Body, Depends, HTTPException, Query, Response, status
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Header, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.websockets import WebSocketState
 from pydantic import BaseModel, Field, AnyHttpUrl, ValidationError, parse_obj_as
 from sqlalchemy.orm import Session
 
 from database import (
-    Bot, Chat, Setting, Message, SystemCheck, get_db, create_tables, init_default_settings,
-    BotStance, BotHolding, migrate_plain_tokens,
+    Bot,
+    Chat,
+    Setting,
+    Message,
+    SystemCheck,
+    get_db,
+    SessionLocal,
+    create_tables,
+    init_default_settings,
+    BotStance,
+    BotHolding,
+    migrate_plain_tokens,
+    ensure_default_admin_user,
+    get_user_by_api_key,
+    authenticate_user,
+    rotate_user_api_key,
 )
 from schemas import (
     BotCreate, BotUpdate, BotResponse,
@@ -39,8 +55,12 @@ from schemas import (
     SystemCheckSummaryResponse,
     SystemCheckSummaryInsight,
     SystemCheckSummaryRun,
+    LoginRequest,
+    LoginResponse,
+    RotateApiKeyRequest,
+    UserInfoResponse,
 )
-from security import mask_token, require_api_key, SecurityConfigError
+from security import mask_token, SecurityConfigError
 from settings_utils import normalize_message_length_profile, unwrap_setting_value
 
 logger = logging.getLogger("api")
@@ -73,6 +93,57 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+class AuthenticatedUser(BaseModel):
+    username: str
+    role: str
+
+
+_ROLE_PRIORITY = {
+    "viewer": 1,
+    "operator": 2,
+    "admin": 3,
+}
+
+
+def _role_allows(user_role: str, required_role: str) -> bool:
+    user_score = _ROLE_PRIORITY.get(user_role, 0)
+    required_score = _ROLE_PRIORITY.get(required_role, 0)
+    return user_score >= required_score
+
+
+def require_role(required_role: str = "viewer"):
+    async def dependency(
+        request: Request,
+        x_api_key: str = Header(None, alias="X-API-Key"),
+        db: Session = Depends(get_db),
+    ) -> AuthenticatedUser:
+        if request.method == "OPTIONS":
+            viewer = AuthenticatedUser(username="cors", role="viewer")
+            request.state.user = viewer
+            return viewer
+
+        expected = os.getenv("API_KEY")
+        if expected and x_api_key == expected:
+            env_user = AuthenticatedUser(username="env-admin", role="admin")
+            request.state.user = env_user
+            return env_user
+
+        user = get_user_by_api_key(db, x_api_key or "")
+        if not user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing API key")
+        if not _role_allows(user.role, required_role):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
+        request.state.user = user
+        return AuthenticatedUser(username=user.username, role=user.role)
+
+    return dependency
+
+
+viewer_dependencies = [Depends(require_role("viewer"))]
+operator_dependencies = [Depends(require_role("operator"))]
+admin_dependencies = [Depends(require_role("admin"))]
+
 # ----------------------
 # Redis util (optional)
 # ----------------------
@@ -102,6 +173,14 @@ def _startup():
     create_tables()
     init_default_settings()
     migrate_plain_tokens()
+    admin_info = ensure_default_admin_user()
+    if admin_info:
+        logger.warning(
+            "Default admin user '%s' created. Store the API key and MFA secret securely. API Key: %s, MFA Secret: %s",
+            admin_info["username"],
+            admin_info["api_key"],
+            admin_info["mfa_secret"],
+        )
     logger.info("API started. Tables ensured; default settings loaded.")
 
 
@@ -133,11 +212,42 @@ def _bot_to_response(db_bot: Bot) -> BotResponse:
 def healthz():
     return {"ok": True, "ts": datetime.utcnow().isoformat()}
 
+
+@app.post("/auth/login", response_model=LoginResponse)
+def login(payload: LoginRequest, db: Session = Depends(get_db)):
+    user = authenticate_user(db, payload.username, payload.password, payload.totp)
+    if not user:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid credentials or MFA code")
+    api_key = rotate_user_api_key(db, user)
+    logger.info("User %s performed login and API key rotation", user.username)
+    return LoginResponse(api_key=api_key, role=user.role)
+
+
+@app.post("/auth/rotate-api-key", response_model=LoginResponse)
+def rotate_api_key(payload: RotateApiKeyRequest, db: Session = Depends(get_db)):
+    user = authenticate_user(db, payload.username, payload.password, payload.totp)
+    if not user:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid credentials or MFA code")
+    api_key = rotate_user_api_key(db, user)
+    logger.info("User %s manually rotated API key", user.username)
+    return LoginResponse(api_key=api_key, role=user.role)
+
+
+@app.get("/auth/me", response_model=UserInfoResponse, dependencies=viewer_dependencies)
+def me(request: Request):
+    user = getattr(request.state, "user", None)
+    if not user:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing user context")
+    return UserInfoResponse(
+        username=user.username,
+        role=user.role,
+        api_key_last_rotated=user.api_key_last_rotated,
+    )
+
 # ----- Bots -----
-api_dependencies = [Depends(require_api_key)]
 
 
-@app.post("/bots", response_model=BotResponse, status_code=status.HTTP_201_CREATED, dependencies=api_dependencies)
+@app.post("/bots", response_model=BotResponse, status_code=status.HTTP_201_CREATED, dependencies=operator_dependencies)
 def create_bot(bot: BotCreate, db: Session = Depends(get_db)):
     db_bot = Bot(
         name=bot.name,
@@ -154,12 +264,12 @@ def create_bot(bot: BotCreate, db: Session = Depends(get_db)):
     publish_config_update(get_redis(), {"type": "bot_added", "bot_id": db_bot.id})
     return _bot_to_response(db_bot)
 
-@app.get("/bots", response_model=List[BotResponse], dependencies=api_dependencies)
+@app.get("/bots", response_model=List[BotResponse], dependencies=viewer_dependencies)
 def list_bots(db: Session = Depends(get_db)):
     bots = db.query(Bot).order_by(Bot.id.asc()).all()
     return [_bot_to_response(bot) for bot in bots]
 
-@app.patch("/bots/{bot_id}", response_model=BotResponse, dependencies=api_dependencies)
+@app.patch("/bots/{bot_id}", response_model=BotResponse, dependencies=operator_dependencies)
 def update_bot(bot_id: int, patch: BotUpdate, db: Session = Depends(get_db)):
     db_bot = db.query(Bot).filter(Bot.id == bot_id).first()
     if not db_bot:
@@ -173,7 +283,7 @@ def update_bot(bot_id: int, patch: BotUpdate, db: Session = Depends(get_db)):
     publish_config_update(get_redis(), {"type": "bot_updated", "bot_id": db_bot.id})
     return _bot_to_response(db_bot)
 
-@app.delete("/bots/{bot_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=api_dependencies)
+@app.delete("/bots/{bot_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=admin_dependencies)
 def delete_bot(bot_id: int, db: Session = Depends(get_db)):
     db_bot = db.query(Bot).filter(Bot.id == bot_id).first()
     if not db_bot:
@@ -184,7 +294,7 @@ def delete_bot(bot_id: int, db: Session = Depends(get_db)):
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 # ----- Chats -----
-@app.post("/chats", response_model=ChatResponse, status_code=status.HTTP_201_CREATED, dependencies=api_dependencies)
+@app.post("/chats", response_model=ChatResponse, status_code=status.HTTP_201_CREATED, dependencies=operator_dependencies)
 def create_chat(chat: ChatCreate, db: Session = Depends(get_db)):
     db_chat = Chat(chat_id=chat.chat_id, title=chat.title, is_enabled=chat.is_enabled, topics=chat.topics)
     db.add(db_chat)
@@ -193,13 +303,13 @@ def create_chat(chat: ChatCreate, db: Session = Depends(get_db)):
     publish_config_update(get_redis(), {"type": "chat_added", "chat_id": db_chat.id})
     return db_chat
 
-@app.get("/chats", response_model=List[ChatResponse], dependencies=api_dependencies)
+@app.get("/chats", response_model=List[ChatResponse], dependencies=viewer_dependencies)
 def list_chats(db: Session = Depends(get_db)):
     chats = db.query(Chat).order_by(Chat.id.asc()).all()
     return chats
 
 
-@app.patch("/chats/{chat_id}", response_model=ChatResponse, dependencies=api_dependencies)
+@app.patch("/chats/{chat_id}", response_model=ChatResponse, dependencies=operator_dependencies)
 def update_chat(chat_id: int, patch: ChatUpdate, db: Session = Depends(get_db)):
     db_chat = db.query(Chat).filter(Chat.id == chat_id).first()
     if not db_chat:
@@ -214,7 +324,7 @@ def update_chat(chat_id: int, patch: ChatUpdate, db: Session = Depends(get_db)):
     return db_chat
 
 
-@app.delete("/chats/{chat_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=api_dependencies)
+@app.delete("/chats/{chat_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=operator_dependencies)
 def delete_chat(chat_id: int, db: Session = Depends(get_db)):
     db_chat = db.query(Chat).filter(Chat.id == chat_id).first()
     if not db_chat:
@@ -244,7 +354,7 @@ def _system_check_to_response(db_obj: SystemCheck) -> SystemCheckResponse:
     )
 
 
-@app.post("/system/checks", response_model=SystemCheckResponse, status_code=status.HTTP_201_CREATED, dependencies=api_dependencies)
+@app.post("/system/checks", response_model=SystemCheckResponse, status_code=status.HTTP_201_CREATED, dependencies=operator_dependencies)
 def create_system_check(payload: SystemCheckCreate, db: Session = Depends(get_db)):
     db_obj = SystemCheck(
         status=payload.status,
@@ -264,7 +374,7 @@ def create_system_check(payload: SystemCheckCreate, db: Session = Depends(get_db
     return _system_check_to_response(db_obj)
 
 
-@app.get("/system/checks/latest", response_model=Optional[SystemCheckResponse], dependencies=api_dependencies)
+@app.get("/system/checks/latest", response_model=Optional[SystemCheckResponse], dependencies=viewer_dependencies)
 def get_latest_system_check(db: Session = Depends(get_db)):
     obj = (
         db.query(SystemCheck)
@@ -279,7 +389,7 @@ def get_latest_system_check(db: Session = Depends(get_db)):
 @app.get(
     "/system/checks/summary",
     response_model=SystemCheckSummaryResponse,
-    dependencies=api_dependencies,
+    dependencies=viewer_dependencies,
 )
 def get_system_check_summary(
     window_days: int = Query(7, ge=1, le=90),
@@ -464,7 +574,7 @@ def _run_step(name: str, cmd: List[str], env: Optional[Dict[str, Any]] = None) -
     }
 
 
-@app.post("/system/checks/run", response_model=SystemCheckResponse, status_code=status.HTTP_202_ACCEPTED, dependencies=api_dependencies)
+@app.post("/system/checks/run", response_model=SystemCheckResponse, status_code=status.HTTP_202_ACCEPTED, dependencies=operator_dependencies)
 def run_system_checks(db: Session = Depends(get_db)):
     env = os.environ.copy()
     env.setdefault("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
@@ -595,7 +705,7 @@ def _normalize_news_feed_urls(value: Any) -> List[str]:
     return normalized
 
 
-@app.get("/settings", response_model=List[SettingResponse], dependencies=api_dependencies)
+@app.get("/settings", response_model=List[SettingResponse], dependencies=viewer_dependencies)
 def list_settings(db: Session = Depends(get_db)):
     rows = db.query(Setting).order_by(Setting.key.asc()).all()
     return [_setting_to_response(row) for row in rows]
@@ -616,7 +726,7 @@ def _set_setting(db: Session, key: str, value: Any):
 class SettingsBulkUpdate(BaseModel):
     updates: Dict[str, Any] = Field(default_factory=dict)
 
-@app.put("/settings/bulk", response_model=List[SettingResponse], dependencies=api_dependencies)
+@app.put("/settings/bulk", response_model=List[SettingResponse], dependencies=admin_dependencies)
 def update_settings_bulk(body: SettingsBulkUpdate, db: Session = Depends(get_db)):
     if not body.updates:
         raise HTTPException(400, "No updates provided")
@@ -646,7 +756,7 @@ class SettingUpdate(BaseModel):
     value: Any
 
 
-@app.patch("/settings/{key}", response_model=SettingResponse, dependencies=api_dependencies)
+@app.patch("/settings/{key}", response_model=SettingResponse, dependencies=admin_dependencies)
 def update_setting(key: str, payload: SettingUpdate, db: Session = Depends(get_db)):
     value = payload.value
     if key == "message_length_profile":
@@ -665,13 +775,13 @@ def update_setting(key: str, payload: SettingUpdate, db: Session = Depends(get_d
     return _setting_to_response(row)
 
 # Control: start/stop/scale
-@app.post("/control/start", dependencies=api_dependencies)
+@app.post("/control/start", dependencies=operator_dependencies)
 def control_start(db: Session = Depends(get_db)):
     _set_setting(db, "simulation_active", True)
     publish_config_update(get_redis(), {"type": "control", "simulation_active": True})
     return {"ok": True}
 
-@app.post("/control/stop", dependencies=api_dependencies)
+@app.post("/control/stop", dependencies=operator_dependencies)
 def control_stop(db: Session = Depends(get_db)):
     _set_setting(db, "simulation_active", False)
     publish_config_update(get_redis(), {"type": "control", "simulation_active": False})
@@ -681,7 +791,7 @@ class ScalePayload(BaseModel):
     factor: float = Field(1.0, gt=0)
 
 
-@app.post("/control/scale", dependencies=api_dependencies)
+@app.post("/control/scale", dependencies=operator_dependencies)
 def control_scale(
     factor: Optional[float] = Query(default=None, gt=0),
     body: Optional[ScalePayload] = Body(default=None),
@@ -700,8 +810,7 @@ def control_scale(
     return {"ok": True, "factor": factor_value}
 
 # ----- Metrics -----
-@app.get("/metrics", response_model=MetricsResponse, dependencies=api_dependencies)
-def metrics(db: Session = Depends(get_db)):
+def _calculate_metrics(db: Session) -> MetricsResponse:
     total_bots = db.query(Bot).count()
     active_bots = db.query(Bot).filter(Bot.is_enabled.is_(True)).count()
     total_chats = db.query(Chat).count()
@@ -740,6 +849,62 @@ def metrics(db: Session = Depends(get_db)):
         telegram_5xx_count=telegram_5xx_count,
     )
 
+
+@app.get("/metrics", response_model=MetricsResponse, dependencies=viewer_dependencies)
+def metrics(db: Session = Depends(get_db)):
+    return _calculate_metrics(db)
+
+
+def _build_dashboard_snapshot() -> Dict[str, Any]:
+    db = SessionLocal()
+    try:
+        metrics_model = _calculate_metrics(db)
+        latest_check = db.query(SystemCheck).order_by(SystemCheck.created_at.desc()).first()
+        latest_payload = (
+            json.loads(_system_check_to_response(latest_check).json()) if latest_check else None
+        )
+        return {
+            "type": "dashboard_snapshot",
+            "generated_at": datetime.utcnow().isoformat(),
+            "metrics": json.loads(metrics_model.json()),
+            "latest_check": latest_payload,
+        }
+    finally:
+        db.close()
+
+
+@app.websocket("/ws/dashboard")
+async def dashboard_stream(websocket: WebSocket):
+    interval = float(os.getenv("DASHBOARD_STREAM_INTERVAL", "5"))
+    api_key = websocket.headers.get("X-API-Key") or websocket.query_params.get("api_key")
+    db = SessionLocal()
+    try:
+        user = get_user_by_api_key(db, api_key or "")
+    finally:
+        db.close()
+
+    if not api_key or not user:
+        await websocket.close(code=4401)
+        return
+    if not _role_allows(user.role, "viewer"):
+        await websocket.close(code=4403)
+        return
+
+    await websocket.accept()
+    logger.info("Dashboard websocket connected for user %s", user.username)
+    try:
+        while True:
+            payload = _build_dashboard_snapshot()
+            await websocket.send_json(payload)
+            await asyncio.sleep(interval)
+    except WebSocketDisconnect:
+        logger.info("Dashboard websocket disconnected for user %s", user.username)
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.error("Dashboard websocket error for user %s: %s", user.username, exc)
+    finally:
+        if websocket.client_state != WebSocketState.DISCONNECTED:
+            await websocket.close()
+
 # ----- Logs (recent) -----
 def _serialize_log(message: Message) -> Dict[str, Any]:
     text = message.text or ""
@@ -755,14 +920,14 @@ def _serialize_log(message: Message) -> Dict[str, Any]:
     }
 
 
-@app.get("/logs", dependencies=api_dependencies)
+@app.get("/logs", dependencies=viewer_dependencies)
 def list_logs(limit: int = 100, db: Session = Depends(get_db)):
     limit = min(max(limit, 1), 1000)
     rows = db.query(Message).order_by(Message.created_at.desc()).limit(limit).all()
     return [_serialize_log(row) for row in rows]
 
 
-@app.get("/logs/recent", dependencies=api_dependencies)
+@app.get("/logs/recent", dependencies=viewer_dependencies)
 def recent_logs(limit: int = 20, db: Session = Depends(get_db)):
     return list_logs(limit=limit, db=db)
 
@@ -771,14 +936,14 @@ def recent_logs(limit: int = 20, db: Session = Depends(get_db)):
 # ==========================================================
 
 # ----- Persona -----
-@app.get("/bots/{bot_id}/persona", dependencies=api_dependencies)
+@app.get("/bots/{bot_id}/persona", dependencies=viewer_dependencies)
 def get_persona(bot_id: int, db: Session = Depends(get_db)):
     bot = db.query(Bot).filter(Bot.id == bot_id).first()
     if not bot:
         raise HTTPException(404, "Bot not found")
     return bot.persona_profile or {}
 
-@app.put("/bots/{bot_id}/persona", dependencies=api_dependencies)
+@app.put("/bots/{bot_id}/persona", dependencies=operator_dependencies)
 def put_persona(bot_id: int, profile: PersonaProfile, db: Session = Depends(get_db)):
     bot = db.query(Bot).filter(Bot.id == bot_id).first()
     if not bot:
@@ -789,7 +954,7 @@ def put_persona(bot_id: int, profile: PersonaProfile, db: Session = Depends(get_
     return {"ok": True, "bot_id": bot_id, "persona_profile": bot.persona_profile}
 
 # ----- Stances -----
-@app.get("/bots/{bot_id}/stances", response_model=List[StanceResponse], dependencies=api_dependencies)
+@app.get("/bots/{bot_id}/stances", response_model=List[StanceResponse], dependencies=viewer_dependencies)
 def list_stances(bot_id: int, db: Session = Depends(get_db)):
     bot = db.query(Bot).filter(Bot.id == bot_id).first()
     if not bot:
@@ -802,7 +967,7 @@ def list_stances(bot_id: int, db: Session = Depends(get_db)):
     )
     return rows
 
-@app.post("/bots/{bot_id}/stances", response_model=StanceResponse, status_code=201, dependencies=api_dependencies)
+@app.post("/bots/{bot_id}/stances", response_model=StanceResponse, status_code=201, dependencies=operator_dependencies)
 def upsert_stance(bot_id: int, body: StanceCreate, db: Session = Depends(get_db)):
     bot = db.query(Bot).filter(Bot.id == bot_id).first()
     if not bot:
@@ -833,7 +998,7 @@ def upsert_stance(bot_id: int, body: StanceCreate, db: Session = Depends(get_db)
     publish_config_update(get_redis(), {"type": "stance_upserted", "bot_id": bot_id, "stance_id": row.id})
     return row
 
-@app.patch("/stances/{stance_id}", response_model=StanceResponse, dependencies=api_dependencies)
+@app.patch("/stances/{stance_id}", response_model=StanceResponse, dependencies=operator_dependencies)
 def update_stance(stance_id: int, patch: StanceUpdate, db: Session = Depends(get_db)):
     row = db.query(BotStance).filter(BotStance.id == stance_id).first()
     if not row:
@@ -846,7 +1011,7 @@ def update_stance(stance_id: int, patch: StanceUpdate, db: Session = Depends(get
     publish_config_update(get_redis(), {"type": "stance_updated", "bot_id": row.bot_id, "stance_id": row.id})
     return row
 
-@app.delete("/stances/{stance_id}", status_code=204, dependencies=api_dependencies)
+@app.delete("/stances/{stance_id}", status_code=204, dependencies=operator_dependencies)
 def delete_stance(stance_id: int, db: Session = Depends(get_db)):
     row = db.query(BotStance).filter(BotStance.id == stance_id).first()
     if not row:
@@ -858,7 +1023,7 @@ def delete_stance(stance_id: int, db: Session = Depends(get_db)):
     return {"ok": True}
 
 # ----- Holdings -----
-@app.get("/bots/{bot_id}/holdings", response_model=List[HoldingResponse], dependencies=api_dependencies)
+@app.get("/bots/{bot_id}/holdings", response_model=List[HoldingResponse], dependencies=viewer_dependencies)
 def list_holdings(bot_id: int, db: Session = Depends(get_db)):
     bot = db.query(Bot).filter(Bot.id == bot_id).first()
     if not bot:
@@ -871,7 +1036,7 @@ def list_holdings(bot_id: int, db: Session = Depends(get_db)):
     )
     return rows
 
-@app.post("/bots/{bot_id}/holdings", response_model=HoldingResponse, status_code=201, dependencies=api_dependencies)
+@app.post("/bots/{bot_id}/holdings", response_model=HoldingResponse, status_code=201, dependencies=operator_dependencies)
 def upsert_holding(bot_id: int, body: HoldingCreate, db: Session = Depends(get_db)):
     bot = db.query(Bot).filter(Bot.id == bot_id).first()
     if not bot:
@@ -905,7 +1070,7 @@ def upsert_holding(bot_id: int, body: HoldingCreate, db: Session = Depends(get_d
     publish_config_update(get_redis(), {"type": "holding_upserted", "bot_id": bot_id, "holding_id": row.id})
     return row
 
-@app.patch("/holdings/{holding_id}", response_model=HoldingResponse, dependencies=api_dependencies)
+@app.patch("/holdings/{holding_id}", response_model=HoldingResponse, dependencies=operator_dependencies)
 def update_holding(holding_id: int, patch: HoldingUpdate, db: Session = Depends(get_db)):
     row = db.query(BotHolding).filter(BotHolding.id == holding_id).first()
     if not row:
@@ -918,7 +1083,7 @@ def update_holding(holding_id: int, patch: HoldingUpdate, db: Session = Depends(
     publish_config_update(get_redis(), {"type": "holding_updated", "bot_id": row.bot_id, "holding_id": row.id})
     return row
 
-@app.delete("/holdings/{holding_id}", status_code=204, dependencies=api_dependencies)
+@app.delete("/holdings/{holding_id}", status_code=204, dependencies=operator_dependencies)
 def delete_holding(holding_id: int, db: Session = Depends(get_db)):
     row = db.query(BotHolding).filter(BotHolding.id == holding_id).first()
     if not row:
@@ -951,7 +1116,7 @@ class WizardSetup(BaseModel):
     holdings: Optional[List[HoldingCreate]] = None
     start_simulation: bool = True
 
-@app.get("/wizard/example", dependencies=api_dependencies)
+@app.get("/wizard/example", dependencies=viewer_dependencies)
 def wizard_example():
     example = {
         "bot": {
@@ -983,7 +1148,7 @@ def wizard_example():
     }
     return example
 
-@app.post("/wizard/setup", dependencies=api_dependencies)
+@app.post("/wizard/setup", dependencies=admin_dependencies)
 def wizard_setup(payload: WizardSetup, db: Session = Depends(get_db)):
     r = get_redis()
 
