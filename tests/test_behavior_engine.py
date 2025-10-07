@@ -2,8 +2,9 @@ import base64
 import importlib
 import sys
 import asyncio
+import random
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 import pytest
 
@@ -174,6 +175,14 @@ def test_generate_user_prompt_includes_persona_hint():
         market_trigger="",
         mode="new",
         persona_profile=None,
+        emotion_profile={
+            "tone": "sıcak",
+            "signature_emoji": "😊",
+            "signature_phrases": ["şahsi fikrim"],
+        },
+        reaction_guidance="Habere empatiyle yaklaş",
+        contextual_examples="- Kullanıcı: 'örnek' -> Bot: 'cevap'",
+        persona_refresh_note="Kişilik hatırlatma",
         stances=None,
         holdings=None,
         length_hint="kısa",
@@ -181,6 +190,183 @@ def test_generate_user_prompt_includes_persona_hint():
     )
 
     assert "iyimser ve temkinli" in prompt
+    assert "Ton: sıcak" in prompt
+    assert "Habere empatiyle yaklaş" in prompt
+    assert "örnek" in prompt
+    assert "Kişilik hatırlatma" in prompt
+
+
+def test_synthesize_reaction_plan_uses_emotion_profile(monkeypatch):
+    from behavior_engine import synthesize_reaction_plan
+
+    monkeypatch.setattr(random, "choice", lambda seq: seq[0])
+
+    plan = synthesize_reaction_plan(
+        emotion_profile={
+            "tone": "yumuşak",
+            "empathy": "okuyucunun endişesini paylaş",
+            "signature_phrases": ["şahsi fikrim"],
+            "anecdotes": ["2008'de sakin kalmıştım"],
+            "signature_emoji": "😊",
+            "energy": "orta tempo",
+        },
+        market_trigger="Borsa gün içinde %4 düştü",
+    )
+
+    assert "yumuşak" in plan.instructions
+    assert "okuyucunun endişesini paylaş" in plan.instructions
+    assert plan.signature_phrase == "şahsi fikrim"
+    assert plan.anecdote == "2008'de sakin kalmıştım"
+    assert plan.emoji == "😊"
+
+
+def test_apply_reaction_overrides_adds_phrase_and_anecdote(monkeypatch, tmp_path):
+    behavior_engine_module, _ = setup_behavior_engine(tmp_path, monkeypatch)
+    engine = behavior_engine_module.BehaviorEngine()
+
+    plan = behavior_engine_module.ReactionPlan(
+        instructions="",
+        signature_phrase="şahsi fikrim",
+        anecdote="2008'de sakin kalmıştım",
+        emoji="😊",
+    )
+
+    text = engine.apply_reaction_overrides("Piyasa biraz gerildi", plan)
+
+    assert "şahsi fikrim" in text
+    assert "2008'de sakin kalmıştım" in text
+    assert "😊" in text
+
+
+def test_derive_tempo_multiplier_respects_energy():
+    from behavior_engine import ReactionPlan, derive_tempo_multiplier
+
+    fast_plan = ReactionPlan(instructions="Tempo ipucu: hızlı aksiyon al.")
+    slow_plan = ReactionPlan(instructions="Ton sakin ve yumuşak olsun.")
+
+    assert derive_tempo_multiplier({"energy": "yüksek tempo"}, fast_plan) < 1.0
+    assert derive_tempo_multiplier({"tone": "yumuşak"}, slow_plan) > 1.0
+
+
+def test_compose_persona_refresh_note_combines_parts():
+    from behavior_engine import compose_persona_refresh_note
+
+    note = compose_persona_refresh_note(
+        {"tone": "samimi"},
+        "iyimser",
+        {"signature_phrases": ["şahsi fikrim", "birlikte ilerleyelim"]},
+    )
+
+    assert "samimi" in note
+    assert "Tarz ipucu" in note
+    assert "şahsi fikrim" in note
+
+
+def test_should_refresh_persona_triggers_on_interval():
+    from behavior_engine import should_refresh_persona
+
+    now = datetime.now(timezone.utc)
+    should_refresh, normalized = should_refresh_persona(
+        {"messages_since": 5, "last": now},
+        refresh_interval=4,
+        refresh_minutes=60,
+        now=now,
+    )
+
+    assert should_refresh is True
+    assert normalized["messages_since"] == 5
+    assert normalized["last"] == now
+
+
+def test_should_refresh_persona_triggers_on_time_gap():
+    from behavior_engine import should_refresh_persona
+
+    now = datetime.now(timezone.utc)
+    old = now - timedelta(minutes=90)
+    should_refresh, normalized = should_refresh_persona(
+        {"messages_since": 1, "last": old},
+        refresh_interval=10,
+        refresh_minutes=30,
+        now=now,
+    )
+
+    assert should_refresh is True
+    assert normalized["messages_since"] == 1
+    assert normalized["last"] == old
+
+
+def test_update_persona_refresh_state_resets_and_increments():
+    from behavior_engine import update_persona_refresh_state
+
+    now = datetime.now(timezone.utc)
+    state = {"messages_since": 3, "last": now - timedelta(minutes=10)}
+
+    progressed = update_persona_refresh_state(state, triggered=False, now=now)
+    assert progressed["messages_since"] == 4
+    assert progressed["last"] <= now
+
+    refreshed = update_persona_refresh_state(progressed, triggered=True, now=now)
+    assert refreshed["messages_since"] == 0
+    assert refreshed["last"] == now
+
+
+def test_apply_micro_behaviors_inserts_ellipsis_and_moves_emoji(monkeypatch, tmp_path):
+    behavior_engine_module, _ = setup_behavior_engine(tmp_path, monkeypatch)
+    engine = behavior_engine_module.BehaviorEngine()
+
+    plan = behavior_engine_module.ReactionPlan(instructions="", signature_phrase="", anecdote="", emoji="😊")
+    monkeypatch.setattr(behavior_engine_module.random, "random", lambda: 0.2)
+
+    output = engine.apply_micro_behaviors(
+        "Piyasa biraz dalgalı, ama planımız net 😊",
+        emotion_profile={"tone": "sakin", "energy": "dingin"},
+        plan=plan,
+    )
+
+    assert "…" in output
+    assert output.count("😊") == 1
+    assert not output.endswith("😊")
+
+
+def test_typing_seconds_respects_tempo(tmp_path, monkeypatch):
+    behavior_engine_module, database = setup_behavior_engine(tmp_path, monkeypatch)
+    engine = behavior_engine_module.BehaviorEngine()
+    SessionLocal = database.SessionLocal
+    Bot = database.Bot
+
+    session = SessionLocal()
+    try:
+        bot = Bot(name="Tempo", username="tempo_bot", is_enabled=True)
+        bot.token = "12345:TEMPO"
+        session.add(bot)
+        session.commit()
+        session.refresh(bot)
+
+        base = engine.typing_seconds(session, est_chars=40, bot=bot, tempo_multiplier=1.0)
+        faster = engine.typing_seconds(session, est_chars=40, bot=bot, tempo_multiplier=0.8)
+        slower = engine.typing_seconds(session, est_chars=40, bot=bot, tempo_multiplier=1.2)
+
+        assert faster < base
+        assert slower > base
+    finally:
+        session.close()
+
+
+def test_build_contextual_examples_pairs_messages():
+    from behavior_engine import build_contextual_examples
+
+    messages = [
+        SimpleNamespace(text="Merhaba @ali", bot_id=None),
+        SimpleNamespace(text="Selam, sakin kalalım", bot_id=1),
+        SimpleNamespace(text="Planı değiştirsek mi?", bot_id=None),
+        SimpleNamespace(text="Şahsi fikrim: adım adım ilerleyelim", bot_id=1),
+    ]
+
+    output = build_contextual_examples(messages, bot_id=1, max_pairs=2)
+
+    assert "Kullanıcı" in output
+    assert "@kullanici" in output
+    assert "Bot" in output
 
 
 def _first_choice(seq):
@@ -508,7 +694,7 @@ def test_short_reaction_skips_self_messages(tmp_path, monkeypatch):
     monkeypatch.setattr(
         engine, "pick_bot", lambda _db, hourly_limit=None, chat=None: bot_stub
     )
-    monkeypatch.setattr(engine, "fetch_psh", lambda _db, _bot, topic_hint: (None, [], [], None))
+    monkeypatch.setattr(engine, "fetch_psh", lambda _db, _bot, topic_hint: ({}, {}, [], [], ""))
     monkeypatch.setattr(engine, "next_delay_seconds", lambda _db, bot=None: 0.0)
     monkeypatch.setattr(engine, "apply_consistency_guard", lambda **_: None)
     monkeypatch.setattr(engine, "is_duplicate_recent", lambda *_, **__: False)

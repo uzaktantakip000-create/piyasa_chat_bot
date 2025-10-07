@@ -13,6 +13,7 @@ const typeStyles = {
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([])
   const timeoutsRef = useRef({})
+  const [history, setHistory] = useState([])
 
   const dismissToast = useCallback((id) => {
     setToasts((current) => current.filter((toast) => toast.id !== id))
@@ -22,8 +23,12 @@ export function ToastProvider({ children }) {
     }
   }, [])
 
+  const clearHistory = useCallback(() => {
+    setHistory([])
+  }, [])
+
   const showToast = useCallback(
-    ({ title, description, type = 'info', duration = 4000 }) => {
+    ({ title, description, type = 'info', duration = 4000, source = 'ui' }) => {
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       setToasts((current) => [
         ...current,
@@ -34,6 +39,18 @@ export function ToastProvider({ children }) {
           type
         }
       ])
+
+      setHistory((current) => {
+        const record = {
+          id,
+          title: title ?? '',
+          description: description ?? '',
+          type,
+          source,
+          timestamp: new Date().toISOString()
+        }
+        return [record, ...current].slice(0, 60)
+      })
 
       if (duration > 0 && typeof window !== 'undefined') {
         timeoutsRef.current[id] = window.setTimeout(() => {
@@ -49,9 +66,11 @@ export function ToastProvider({ children }) {
   const value = useMemo(
     () => ({
       showToast,
-      dismissToast
+      dismissToast,
+      history,
+      clearHistory
     }),
-    [showToast, dismissToast]
+    [showToast, dismissToast, history, clearHistory]
   )
 
   useEffect(() => {

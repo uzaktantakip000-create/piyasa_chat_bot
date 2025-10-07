@@ -17,6 +17,10 @@ class BotCreate(BaseModel):
     speed_profile: Dict[str, Any] = Field(default_factory=dict, description="Davranış profili")
     active_hours: List[str] = Field(default_factory=list, description="Aktif saat aralıkları")
     persona_hint: Optional[str] = Field("", description="Kişilik ipucu (örn: iyimser, kısa yazar)")
+    emotion_profile: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Duygusal ton, anekdotlar ve imza ifadeler",
+    )
     # Yeni alan opsiyonel olarak kabul edilir (API ile dolduracağız)
     # persona_profile JSON alanı ayrı uçtan yönetilecek
 
@@ -29,6 +33,7 @@ class BotUpdate(BaseModel):
     speed_profile: Optional[Dict[str, Any]] = None
     active_hours: Optional[List[str]] = None
     persona_hint: Optional[str] = None
+    emotion_profile: Optional[Dict[str, Any]] = None
     # persona_profile bu uçta güncellenmez (ayrı endpoint)
 
 
@@ -42,6 +47,7 @@ class BotResponse(BaseModel):
     speed_profile: Dict[str, Any]
     active_hours: List[str]
     persona_hint: Optional[str]
+    emotion_profile: Dict[str, Any]
     # DB tarafında JSON; API'de ayrı uçtan alınır/güncellenir
     created_at: datetime
 
@@ -122,6 +128,21 @@ class PersonaProfile(BaseModel):
     watchlist: Optional[List[str]] = Field(None, description="Örn: ['BIST:AKBNK','XAUUSD','BTCUSDT']")
     never_do: Optional[List[str]] = Field(None, description="Kaçınılacak içerikler/ifadeler")
     style: Optional[PersonaStyle] = None
+
+
+class EmotionProfile(BaseModel):
+    tone: Optional[str] = Field(None, description="Varsayılan duygu tonu (örn. sıcak ve umutlu)")
+    empathy: Optional[str] = Field(None, description="Empati düzeyi veya yaklaşım (örn. kullanıcıyla aynı duyguyu paylaş)")
+    anecdotes: Optional[List[str]] = Field(
+        None,
+        description="Paylaşılabilecek kısa kişisel anekdot havuzu",
+    )
+    signature_emoji: Optional[str] = Field(None, description="Mesajlara serpiştirilecek imza emoji")
+    signature_phrases: Optional[List[str]] = Field(
+        None,
+        description="Tekrarlı kullanılabilecek sıcak ifadeler",
+    )
+    energy: Optional[str] = Field(None, description="Enerji seviyesi veya tempo ipucu")
 
 
 # ---------------- Stance ----------------

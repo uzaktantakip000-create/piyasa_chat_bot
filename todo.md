@@ -148,21 +148,28 @@
 - [x] Dashboard kartlarında eşik temelli tema/ikon göstergeleri ile anlam katmanı oluştur.
 
 ### Planlanan UI/UX Profesyonel Geliştirmeleri
-- [ ] **P0:** Panel ve dashboard için kapsamlı kullanıcı araştırması + kullanılabilirlik testleri düzenleyip bulguları aksiyon planına dönüştür.
-- [ ] **P0:** Kritik iş akışları için rol bazlı görev panoları ve bağlama duyarlı yardım turları tasarla.
-- [ ] **P1:** Gerçek zamanlı bildirimler, toast geçmişi ve sistem durum değişiklikleri için birleşik bir "Etkinlik Merkezi" bileşeni geliştir.
-- [ ] **P1:** Kişiselleştirilebilir tema seçenekleri (karanlık/aydınlık, yüksek kontrast, yazı tipi boyutu) ekleyerek erişilebilirlik kontrollerini kullanıcıya aç.
-- [ ] **P1:** Çok adımlı formlarda ilerleme çubuğu, geri bildirim özetleri ve otomatik taslak kaydı sağlayan sihirbaz bileşeni hazırla.
-- [ ] **P2:** Dashboard ve liste sayfalarında kart/tablo görünümü arasında geçiş yapabilen adaptif düzen sistemi uygula.
-- [ ] **P2:** Kritik metrikler için eşik tabanlı uyarıları e-posta/SMS/push bildirimlerine bağlayan tercih yönetim ekranı tasarla.
-- [ ] **P2:** Kullanıcı davranışını analiz edip proaktif öneriler sunan "akıllı öneri" bannerları ve boş durum içerikleri üret.
-- [ ] **P3:** Uygulama genelinde metin ve ikonografi için çok dillilik desteğini genişletip yerelleştirme iş akışını otomatikleştir.
-- [ ] **P3:** İnteraktif stil rehberi ve bileşen kütüphanesi dokümantasyonu hazırlayarak tasarım-tabanlı geliştirme sürecini standardize et.
+- [x] **P0:** Panel ve dashboard için kapsamlı kullanıcı araştırması + kullanılabilirlik testleri düzenleyip bulguları aksiyon planına dönüştür. _Açıklama: Görüşme/tarayıcı analizi yöntemlerini içeren kapsamlı plan ve önceliklendirilmiş aksiyon listesi `docs/ui_ux_research_plan.md` dosyasında yayınlandı._
+- [x] **P0:** Kritik iş akışları için rol bazlı görev panoları ve bağlama duyarlı yardım turları tasarla. _Açıklama: Dashboard'a rol tabanlı görev listeleri ve seçilebilir yardım turu paneli eklendi; durum rozeti ve ipucu akışı rol dinamiklerine göre güncelleniyor._
+- [x] **P1:** Gerçek zamanlı bildirimler, toast geçmişi ve sistem durum değişiklikleri için birleşik bir "Etkinlik Merkezi" bileşeni geliştir. _Açıklama: Başlıkta bildirim balonu bulunan yeni Etkinlik Merkezi gerçek zamanlı olay akışı, toast geçmişi ve filtreleme destekleriyle yayınlandı._
+- [x] **P1:** Kişiselleştirilebilir tema seçenekleri (karanlık/aydınlık, yüksek kontrast, yazı tipi boyutu) ekleyerek erişilebilirlik kontrollerini kullanıcıya aç. _Açıklama: Yeni Tema ve Erişilebilirlik sekmesi üzerinden mod geçişleri, yüksek kontrast ve metin ölçekleme ayarları anında uygulanabiliyor; tercihleri kalıcı hale getiren ThemeProvider eklendi._
+- [x] **P1:** Çok adımlı formlarda ilerleme çubuğu, geri bildirim özetleri ve otomatik taslak kaydı sağlayan sihirbaz bileşeni hazırla.
+- [x] **P2:** Dashboard ve liste sayfalarında kart/tablo görünümü arasında geçiş yapabilen adaptif düzen sistemi uygula.
+- [x] **P2:** Kritik metrikler için eşik tabanlı uyarıları e-posta/SMS/push bildirimlerine bağlayan tercih yönetim ekranı tasarla.
+- [x] **P2:** Kullanıcı davranışını analiz edip proaktif öneriler sunan "akıllı öneri" bannerları ve boş durum içerikleri üret.
+- [x] **P3:** Uygulama genelinde metin ve ikonografi için çok dillilik desteğini genişletip yerelleştirme iş akışını otomatikleştir.
+- [x] **P3:** İnteraktif stil rehberi ve bileşen kütüphanesi dokümantasyonu hazırlayarak tasarım-tabanlı geliştirme sürecini standardize et.
 
 ### Yeni Geliştirme Adımları
 - [x] Sistem kontrolü sonuçlarını 7 günlük periyotta özetleyen `/system/checks/summary` API uç noktasını ekle.
 - [x] Yeni uç noktayı kapsayan birim testi yazarak API davranışını doğrula.
 - [x] Dashboard'da sistem kontrolü özetini gösteren yeni kart ekle.
+
+### Botları Daha İnsancıl Hale Getirme Önerileri
+- [x] **P1:** Bot mesajlarında kişisel anekdot ve duygusal ton katmanı üretecek "duygu profili" parametresi ekle; profil ayarları panelden düzenlenebilir olsun.
+- [x] **P1:** Davranış motoruna, haber akışına verilen tepkileri kullanıcıyla empati kuran kalıplarla zenginleştiren bir "tepki sentezi" modülü ekle.
+- [x] **P2:** LLM istemlerine gerçek kullanıcı sohbetlerinden (anonimleştirilmiş) örnek replikler ekleyerek daha doğal geçişler sağlayan bağlamsal bellek geliştirmesi yap.
+- [x] **P2:** Botların konuşma temposunu insana benzetmek için dinamik yazma gecikmesi (ör. duygu durumuna göre hız değişimi) ve ara emojiler uygulayan mikro davranışlar tasarla.
+- [x] **P3:** Uzun diyaloglarda karakter tutarlılığı için kişilik özetini periyodik olarak LLM'e hatırlatan otomatize bir "persona yenileme" rutini ekle.
 
 ### Kullanıcı Dostu Takip İyileştirmeleri
 - [x] Sistem sağlık özet kartına veri kapsamı ve son çalıştırma zamanını açıkça gösteren yardımcı içerik ekle.

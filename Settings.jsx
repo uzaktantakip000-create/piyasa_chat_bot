@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,51 +10,77 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   Clock,
   MessageSquare,
-  Zap
+  Zap,
+  Palette,
+  SunMedium,
+  Moon,
+  Contrast,
+  Type,
+  RefreshCcw,
+  BellRing,
+  Mail,
+  Smartphone,
+  Bell
 } from 'lucide-react'
 
 import { apiFetch } from './apiClient'
 import InlineNotice from './components/InlineNotice'
+import { useThemePreferences } from './components/ThemeProvider'
+import { useTranslation } from './localization'
+import {
+  DEFAULT_MESSAGE_LENGTH_PROFILE,
+  createAlertChannelOptions,
+  createDefaultAlertMetrics,
+  normalizeAlertPreferences,
+  normalizeAlertDestinations,
+  formatAlertDestinations,
+  parseAlertDestinationsInput,
+  normalizeMessageLengthProfile,
+  toNumber,
+  summarizeAlertChannels
+} from './settings_alerts'
 
-const DEFAULT_MESSAGE_LENGTH_PROFILE = { short: 0.55, medium: 0.35, long: 0.10 }
 
-function normalizeMessageLengthProfile(rawProfile) {
-  const base = { ...DEFAULT_MESSAGE_LENGTH_PROFILE }
-  if (rawProfile && typeof rawProfile === 'object') {
-    Object.entries(rawProfile).forEach(([key, value]) => {
-      if (!(key in base)) {
-        return
-      }
-      const parsed = Number.parseFloat(value)
-      if (Number.isFinite(parsed) && parsed >= 0) {
-        base[key] = parsed
-      }
-    })
-  }
 
-  const total = Object.values(base).reduce((sum, val) => sum + val, 0)
-  if (total <= 0) {
-    return { ...DEFAULT_MESSAGE_LENGTH_PROFILE }
-  }
 
-  const normalized = Object.fromEntries(
-    Object.entries(base).map(([key, val]) => [key, val / total])
-  )
-  const sumNormalized = Object.values(normalized).reduce((sum, val) => sum + val, 0)
-  const residue = 1 - sumNormalized
-  const keys = Object.keys(DEFAULT_MESSAGE_LENGTH_PROFILE)
-  const lastKey = keys[keys.length - 1]
-  normalized[lastKey] = Math.max(0, normalized[lastKey] + residue)
-  return normalized
-}
+
 
 function Settings() {
+  const { t, locale, setLocale, availableLocales } = useTranslation()
+  const translateWithFallback = useCallback(
+    (key, fallback = '') => {
+      const result = t(key)
+      return result || fallback
+    },
+    [t, locale]
+  )
+  const alertChannels = useMemo(
+    () => createAlertChannelOptions(translateWithFallback),
+    [translateWithFallback]
+  )
+  const defaultAlertMetrics = useMemo(
+    () => createDefaultAlertMetrics(translateWithFallback, alertChannels),
+    [translateWithFallback, alertChannels]
+  )
+  const {
+    theme: uiTheme,
+    contrast: uiContrast,
+    fontScale,
+    setTheme: setUiTheme,
+    setContrast: setUiContrast,
+    setFontScale: setUiFontScale,
+    resetPreferences: resetThemePreferences
+  } = useThemePreferences()
   const [settings, setSettings] = useState({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
   const [newsFeedsText, setNewsFeedsText] = useState('')
+  const [alertDraft, setAlertDraft] = useState(() =>
+    normalizeAlertPreferences(undefined, defaultAlertMetrics, alertChannels)
+  )
+  const [alertDestinations, setAlertDestinations] = useState(() => formatAlertDestinations())
 
   // Fetch settings
   const fetchSettings = async () => {
@@ -63,10 +89,26 @@ function Settings() {
       const data = await response.json()
       const settingsObj = {}
       let feedsValue = ''
+      let alertPreferencesValue = null
+      let alertDestinationsValue = null
       data.forEach(setting => {
         let nextValue = setting.value
         if (setting.key === 'message_length_profile' && setting.value?.value) {
           nextValue = { value: normalizeMessageLengthProfile(setting.value.value) }
+        }
+        if (setting.key === 'alert_preferences') {
+          const normalizedAlerts = normalizeAlertPreferences(
+            setting.value?.value,
+            defaultAlertMetrics,
+            alertChannels
+          )
+          nextValue = { value: normalizedAlerts }
+          alertPreferencesValue = normalizedAlerts
+        }
+        if (setting.key === 'alert_destinations') {
+          const normalizedDestinations = normalizeAlertDestinations(setting.value?.value)
+          nextValue = { value: normalizedDestinations }
+          alertDestinationsValue = formatAlertDestinations(normalizedDestinations)
         }
         settingsObj[setting.key] = nextValue
         if (setting.key === 'news_feed_urls') {
@@ -76,14 +118,21 @@ function Settings() {
       })
       setSettings(settingsObj)
       setNewsFeedsText(feedsValue)
+      setAlertDraft(
+        alertPreferencesValue ?? normalizeAlertPreferences(undefined, defaultAlertMetrics, alertChannels)
+      )
+      setAlertDestinations(alertDestinationsValue ?? formatAlertDestinations())
       setErrorMessage('')
       setSuccessMessage('')
     } catch (error) {
       console.error('Failed to fetch settings:', error)
       setErrorMessage(
         error?.message
-          ? `Ayarlar yüklenirken hata oluştu: ${error.message}`
-          : 'Ayarlar yüklenirken beklenmeyen bir hata oluştu.'
+          ? `${translateWithFallback('settings.messages.fetchErrorPrefix', 'Ayarlar yüklenirken hata oluştu:')} ${error.message}`
+          : translateWithFallback(
+              'settings.messages.fetchErrorGeneric',
+              'Ayarlar yüklenirken beklenmeyen bir hata oluştu.'
+            )
       )
       setSuccessMessage('')
     } finally {
@@ -112,14 +161,17 @@ function Settings() {
         ...prev,
         [key]: payload
       }))
-      setSuccessMessage('Ayar başarıyla güncellendi.')
+      setSuccessMessage(translateWithFallback('settings.messages.updateSuccess', 'Ayar başarıyla güncellendi.'))
       return true
     } catch (error) {
       console.error('Failed to update setting:', error)
       setErrorMessage(
         error?.message
-          ? `Ayar güncellenirken hata oluştu: ${error.message}`
-          : 'Ayar güncellenirken beklenmeyen bir hata oluştu.'
+          ? `${translateWithFallback('settings.messages.updateErrorPrefix', 'Ayar güncellenirken hata oluştu:')} ${error.message}`
+          : translateWithFallback(
+              'settings.messages.updateErrorGeneric',
+              'Ayar güncellenirken beklenmeyen bir hata oluştu.'
+            )
       )
       setSuccessMessage('')
       return false
@@ -139,6 +191,76 @@ function Settings() {
     }
   }
 
+  const handleAlertThresholdChange = (metricId, field, rawValue) => {
+    setAlertDraft(prev =>
+      prev.map(metric => (metric.id === metricId ? { ...metric, [field]: rawValue } : metric))
+    )
+  }
+
+  const handleAlertChannelToggle = (metricId, channelId, enabled) => {
+    setAlertDraft(prev =>
+      prev.map(metric => {
+        if (metric.id !== metricId) {
+          return metric
+        }
+        const existing = new Set(metric.channels || [])
+        if (enabled) {
+          existing.add(channelId)
+        } else {
+          existing.delete(channelId)
+        }
+        const nextChannels = Array.from(existing)
+        if (!nextChannels.length) {
+          return { ...metric, channels: [] }
+        }
+        return { ...metric, channels: nextChannels }
+      })
+    )
+  }
+
+  const handleAlertPreferencesSave = async () => {
+    const sanitized = alertDraft.map(metric => {
+      const defaultMetric = defaultAlertMetrics.find(item => item.id === metric.id) ?? metric
+      const warningValue = toNumber(metric.warning, defaultMetric.warningDefault)
+      const criticalValue = toNumber(metric.critical, defaultMetric.criticalDefault)
+      const channels = (metric.channels || []).filter(channel =>
+        alertChannels.some(option => option.id === channel)
+      )
+      const ensuredChannels = channels.length > 0 ? channels : [...(defaultMetric.recommendedChannels || ['email'])]
+      return {
+        id: metric.id,
+        label: metric.label,
+        description: metric.description,
+        unit: metric.unit,
+        warning: warningValue,
+        critical: criticalValue,
+        channels: ensuredChannels
+      }
+    })
+
+    const ok = await updateSetting('alert_preferences', { value: sanitized })
+    if (ok) {
+      setAlertDraft(normalizeAlertPreferences(sanitized, defaultAlertMetrics, alertChannels))
+    }
+  }
+
+  const handleAlertDestinationsSave = async () => {
+    const parsed = parseAlertDestinationsInput(alertDestinations)
+    const ok = await updateSetting('alert_destinations', { value: parsed })
+    if (ok) {
+      setAlertDestinations(formatAlertDestinations(parsed))
+    }
+  }
+
+  useEffect(() => {
+    setAlertDraft(prev => normalizeAlertPreferences(prev, defaultAlertMetrics, alertChannels))
+  }, [defaultAlertMetrics, alertChannels])
+
+  const channelSummaries = useMemo(
+    () => summarizeAlertChannels(alertDraft, alertChannels, translateWithFallback),
+    [alertDraft, alertChannels, translateWithFallback]
+  )
+
   // Scale simulation
   const scaleSimulation = async (factor) => {
     try {
@@ -147,13 +269,18 @@ function Settings() {
       await apiFetch(`/control/scale?factor=${factor}`, {
         method: 'POST'
       })
-      setSuccessMessage('Simülasyon ölçeklendirme isteği gönderildi.')
+      setSuccessMessage(
+        translateWithFallback('settings.messages.scaleSuccess', 'Simülasyon ölçeklendirme isteği gönderildi.')
+      )
     } catch (error) {
       console.error('Failed to scale simulation:', error)
       setErrorMessage(
         error?.message
-          ? `Ölçek güncellenirken hata oluştu: ${error.message}`
-          : 'Ölçek güncellenirken beklenmeyen bir hata oluştu.'
+          ? `${translateWithFallback('settings.messages.scaleErrorPrefix', 'Ölçek güncellenirken hata oluştu:')} ${error.message}`
+          : translateWithFallback(
+              'settings.messages.scaleErrorGeneric',
+              'Ölçek güncellenirken beklenmeyen bir hata oluştu.'
+            )
       )
       setSuccessMessage('')
     }
@@ -199,23 +326,42 @@ function Settings() {
   }
 
   if (loading) {
-    return <div className="flex items-center justify-center h-64">Yükleniyor...</div>
+    return (
+      <div className="flex items-center justify-center h-64">
+        {translateWithFallback('common.loading', 'Yükleniyor...')}
+      </div>
+    )
   }
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold">Ayarlar</h2>
+        <h2 className="text-2xl font-bold">
+          {translateWithFallback('settings.title', 'Ayarlar')}
+        </h2>
         <p className="text-muted-foreground">
-          Simülasyon davranışlarını ve parametrelerini yapılandırın
+          {translateWithFallback(
+            'settings.subtitle',
+            'Simülasyon davranışlarını ve parametrelerini yapılandırın'
+          )}
         </p>
       </div>
 
       <Tabs defaultValue="behavior" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="behavior">Davranış</TabsTrigger>
-          <TabsTrigger value="timing">Zamanlama</TabsTrigger>
-          <TabsTrigger value="performance">Performans</TabsTrigger>
+          <TabsTrigger value="behavior">
+            {translateWithFallback('settings.tabs.behavior', 'Davranış')}
+          </TabsTrigger>
+          <TabsTrigger value="timing">
+            {translateWithFallback('settings.tabs.timing', 'Zamanlama')}
+          </TabsTrigger>
+          <TabsTrigger value="alerts">{t('settings.alerts.tab') || 'Bildirimler'}</TabsTrigger>
+          <TabsTrigger value="performance">
+            {translateWithFallback('settings.tabs.performance', 'Performans')}
+          </TabsTrigger>
+          <TabsTrigger value="appearance">
+            {translateWithFallback('settings.tabs.appearance', 'Görünüm')}
+          </TabsTrigger>
         </TabsList>
 
         {/* Behavior Settings */}
@@ -482,6 +628,181 @@ function Settings() {
           </Card>
         </TabsContent>
 
+        {/* Alert Preferences */}
+        <TabsContent value="alerts" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BellRing className="h-5 w-5" />
+                {t('settings.alerts.thresholds.title') || 'Kritik Eşik Uyarıları'}
+              </CardTitle>
+              <CardDescription>
+                {t('settings.alerts.thresholds.description') || 'Metrik eşiklerini tanımlayın ve tetiklenen uyarıların hangi kanala yönleneceğini belirleyin.'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {(errorMessage || successMessage) && (
+                <InlineNotice
+                  type={errorMessage ? 'error' : 'success'}
+                  message={errorMessage || successMessage}
+                />
+              )}
+              {alertDraft.map(metric => {
+                const hasChannels = metric.channels && metric.channels.length > 0
+                return (
+                  <div
+                    key={metric.id}
+                    className="space-y-4 rounded-lg border border-border/60 bg-muted/20 p-4"
+                  >
+                    <div className="space-y-1">
+                      <h4 className="text-sm font-semibold text-foreground">{metric.label}</h4>
+                      <p className="text-xs text-muted-foreground">{metric.description}</p>
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Uyarı eşiği ({metric.unit})</Label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          value={metric.warning}
+                          onChange={e => handleAlertThresholdChange(metric.id, 'warning', e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Kritik eşiği ({metric.unit})</Label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          value={metric.critical}
+                          onChange={e => handleAlertThresholdChange(metric.id, 'critical', e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Bildirim kanalları</Label>
+                      <div className="flex flex-wrap gap-3">
+                        {alertChannels.map(channel => (
+                          <label
+                            key={channel.id}
+                            className="flex items-center gap-2 rounded-md border border-border/60 bg-background px-3 py-2 text-sm"
+                          >
+                            <Switch
+                              checked={metric.channels?.includes(channel.id)}
+                              onCheckedChange={checked => handleAlertChannelToggle(metric.id, channel.id, checked)}
+                            />
+                            <span>{channel.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                      {!hasChannels && (
+                        <p className="text-xs text-amber-600">
+                          {t('settings.alerts.metricWarning') || 'En az bir kanal seçin; boş bırakılırsa varsayılan rota uygulanır.'}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+              <div className="flex justify-end">
+                <Button onClick={handleAlertPreferencesSave} disabled={saving}>
+                  {t('settings.alerts.saveThresholds') || 'Eşikleri Kaydet'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Mail className="h-5 w-5" />
+                {t('settings.alerts.channels.title') || 'Kanal Temas Noktaları'}
+              </CardTitle>
+              <CardDescription>
+                {t('settings.alerts.channels.description') || 'Uyarı alıcı listelerini satır satır veya virgülle ayırarak güncelleyin.'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label>E-posta</Label>
+                  <Textarea
+                    className="min-h-[100px]"
+                    value={alertDestinations.email}
+                    onChange={e => setAlertDestinations(prev => ({ ...prev, email: e.target.value }))}
+                    placeholder={'ops-team@firma.com\nincidents@firma.com'}
+                  />
+                  <p className="text-xs text-muted-foreground">Dağıtım listeleri dahil olmak üzere birden fazla adres ekleyin.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>SMS</Label>
+                  <Textarea
+                    className="min-h-[100px]"
+                    value={alertDestinations.sms}
+                    onChange={e => setAlertDestinations(prev => ({ ...prev, sms: e.target.value }))}
+                    placeholder={'+905321234567\n+905551112233'}
+                  />
+                  <p className="text-xs text-muted-foreground">E164 formatını kullanın. Operasyon ekibi üyelerini ekleyin.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Push / Kanal</Label>
+                  <Textarea
+                    className="min-h-[100px]"
+                    value={alertDestinations.push}
+                    onChange={e => setAlertDestinations(prev => ({ ...prev, push: e.target.value }))}
+                    placeholder={'incident-war-room\nobservability-feed'}
+                  />
+                  <p className="text-xs text-muted-foreground">Panel bildirimi ve entegrasyon webhook etiketlerini belirtin.</p>
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <Button onClick={handleAlertDestinationsSave} disabled={saving}>
+                  {t('settings.alerts.saveDestinations') || 'Kanalları Kaydet'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Bell className="h-5 w-5" />
+                {t('settings.alerts.summary.title') || 'Kanal Özetleri'}
+              </CardTitle>
+              <CardDescription>
+                {t('settings.alerts.summary.description') || 'Hangi metriklerin hangi kanalda bildirim tetikleyeceğini hızlıca görün.'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 md:grid-cols-3">
+              {channelSummaries.map(summary => {
+                const ChannelIcon = summary.icon
+                return (
+                  <div
+                    key={summary.id}
+                    className="rounded-lg border border-border/60 bg-muted/20 p-4"
+                  >
+                    <div className="flex items-center gap-2">
+                      <ChannelIcon className="h-4 w-4 text-muted-foreground" />
+                      <span className="font-medium">{summary.label}</span>
+                    </div>
+                    <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                      {summary.metrics.length ? (
+                        summary.metrics.map(metric => (
+                          <li key={metric.id} className="space-y-0.5">
+                            <div className="font-medium text-foreground">{metric.label}</div>
+                            <div className="text-[11px] text-muted-foreground/80">{metric.summary}</div>
+                          </li>
+                        ))
+                      ) : (
+                        <li>{t('settings.alerts.noMetrics') || 'Henüz bu kanal için eşlenmiş metrik yok.'}</li>
+                      )}
+                    </ul>
+                  </div>
+                )
+              })}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         {/* Performance Settings */}
         <TabsContent value="performance" className="space-y-4">
           <Card>
@@ -620,6 +941,120 @@ function Settings() {
                 <p className="text-sm text-green-800">
                   ✅ Tüm ayarlar gerçek zamanlı olarak worker'lara iletilir.
                 </p>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="appearance" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Palette className="h-5 w-5" />
+                Tema ve Erişilebilirlik
+              </CardTitle>
+              <CardDescription>Kişiselleştirilmiş görünüm tercihlerini yapılandırın.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Tema modu</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant={uiTheme === 'light' ? 'default' : 'outline'}
+                    onClick={() => setUiTheme('light')}
+                    className="flex items-center gap-2"
+                  >
+                    <SunMedium className="h-4 w-4" /> Aydınlık
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={uiTheme === 'dark' ? 'default' : 'outline'}
+                    onClick={() => setUiTheme('dark')}
+                    className="flex items-center gap-2"
+                  >
+                    <Moon className="h-4 w-4" /> Karanlık
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Karanlık mod gece vardiyalarında göz yorgunluğunu azaltır; aydınlık mod ise gündüz kullanımlarında daha yüksek okunabilirlik sunar.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">{t('settings.appearance.language') || 'Dil ve ikonografi'}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  {availableLocales.map((code) => (
+                    <Button
+                      key={code}
+                      type="button"
+                      variant={locale === code ? 'default' : 'outline'}
+                      onClick={() => setLocale(code)}
+                    >
+                      {t(`settings.appearance.locale.${code}`) || code.toUpperCase()}
+                    </Button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {t('settings.appearance.languageHint') || 'Dil değişikliği metinleri ve ikon tercihlerini günceller.'}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border/70 bg-muted/30 p-4">
+                <div>
+                  <p className="text-sm font-medium">Yüksek kontrast</p>
+                  <p className="text-xs text-muted-foreground">
+                    Kontrastı artırarak metin ve ikonları daha belirgin hale getirir.
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Contrast className="h-4 w-4 text-muted-foreground" />
+                  <Switch
+                    checked={uiContrast === 'high'}
+                    onCheckedChange={(checked) => setUiContrast(checked ? 'high' : 'normal')}
+                    aria-label="Yüksek kontrastı değiştir"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Metin boyutu</p>
+                    <p className="text-xs text-muted-foreground">
+                      Panel yazıları {Math.round(fontScale * 100)}% ölçeğinde görüntüleniyor.
+                    </p>
+                  </div>
+                  <Type className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <Slider
+                  min={90}
+                  max={130}
+                  step={5}
+                  value={[Math.round(fontScale * 100)]}
+                  onValueChange={([value]) => setUiFontScale(value / 100)}
+                  aria-label="Metin boyutu ölçeği"
+                />
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>90%</span>
+                  <span>{Math.round(fontScale * 100)}%</span>
+                  <span>130%</span>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-border/70 p-4">
+                <p className="text-xs text-muted-foreground">
+                  Varsayılan değerlere dönmek isterseniz aşağıdaki sıfırlama butonunu kullanabilirsiniz.
+                </p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={resetThemePreferences}
+                  className="flex items-center gap-2"
+                >
+                  <RefreshCcw className="h-4 w-4" /> Varsayılanları Yükle
+                </Button>
               </div>
             </CardContent>
           </Card>

@@ -28,15 +28,23 @@ import {
   CheckSquare,
   Square,
   Loader2,
-  ArrowUpDown
+  ArrowUpDown,
+  ListChecks
 } from 'lucide-react'
 
 import { apiFetch } from './apiClient'
 import { useToast } from './components/ToastProvider'
+import { useAdaptiveView, isTableView } from './useAdaptiveView'
+import { useTranslation } from './localization'
+import ViewModeToggle from './components/ViewModeToggle'
 
 const CHAT_FILTER_STORAGE_KEY = 'piyasa.chats.filters'
 
 function Chats() {
+  const { t } = useTranslation()
+  const tf = (key, fallback) => t(key) || fallback
+  const enableLabel = tf('common.actions.enable', 'Aktifleştir')
+  const disableLabel = tf('common.actions.disable', 'Pasifleştir')
   const { showToast } = useToast()
   const [chats, setChats] = useState([])
   const [loading, setLoading] = useState(true)
@@ -47,6 +55,7 @@ function Chats() {
   const [bulkProcessing, setBulkProcessing] = useState(false)
   const [selectedChatIds, setSelectedChatIds] = useState([])
   const [sortConfig, setSortConfig] = useState({ field: 'title', direction: 'asc' })
+  const [listView, , listViewActions] = useAdaptiveView('chats.list', 'table')
   const [searchTerm, setSearchTerm] = useState(() => {
     if (typeof window === 'undefined') {
       return ''
@@ -98,8 +107,9 @@ function Chats() {
       console.error('Failed to fetch chats:', error)
       showToast({
         type: 'error',
-        title: 'Sohbetler yüklenemedi',
-        description: error?.message || 'Sohbet listesi alınırken beklenmeyen bir hata oluştu.'
+        title: tf('chats.toast.loadErrorTitle', 'Sohbetler yüklenemedi'),
+        description:
+          error?.message || tf('chats.toast.loadErrorMessage', 'Sohbet listesi alınırken beklenmeyen bir hata oluştu.')
       })
     } finally {
       setLoading(false)
@@ -127,17 +137,20 @@ function Chats() {
       }
 
       const errors = {}
-      if (!chatData.chat_id) {
-        errors.chat_id = 'Chat ID zorunludur.'
-      } else if (!/^(-?\d{6,})$/.test(chatData.chat_id)) {
-        errors.chat_id = 'Chat ID yalnızca rakamlardan oluşmalı ve en az 6 haneli olmalıdır.'
-      }
+        if (!chatData.chat_id) {
+          errors.chat_id = tf('chats.validation.idRequired', 'Chat ID zorunludur.')
+        } else if (!/^(-?\d{6,})$/.test(chatData.chat_id)) {
+          errors.chat_id = tf(
+            'chats.validation.idFormat',
+            'Chat ID yalnızca rakamlardan oluşmalı ve en az 6 haneli olmalıdır.'
+          )
+        }
 
-      if (!chatData.title) {
-        errors.title = 'Sohbet başlığı gereklidir.'
-      } else if (chatData.title.length < 3) {
-        errors.title = 'Başlık en az 3 karakter olmalıdır.'
-      }
+        if (!chatData.title) {
+          errors.title = tf('chats.validation.titleRequired', 'Sohbet başlığı gereklidir.')
+        } else if (chatData.title.length < 3) {
+          errors.title = tf('chats.validation.titleLength', 'Başlık en az 3 karakter olmalıdır.')
+        }
 
       if (Object.keys(errors).length > 0) {
         setFormErrors(errors)
@@ -410,6 +423,10 @@ function Chats() {
   const hasSelection = selectedChatIds.length > 0
   const allVisibleSelected = filteredChats.length > 0 && filteredChats.every((chat) => selectedChatIds.includes(chat.id))
   const noChats = chats.length === 0
+  const tableViewActive = isTableView(listView)
+  const selectAllLabel = allVisibleSelected
+    ? tf('common.selection.clearVisible', 'Seçimleri bırak')
+    : tf('common.selection.selectVisible', 'Görünürleri seç')
 
   if (loading) {
     return <div className="flex items-center justify-center h-64">Yükleniyor...</div>
@@ -558,48 +575,90 @@ function Chats() {
             </div>
           </div>
 
-          <div className="mb-4 flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleBulkStatus(true)}
-              disabled={!hasSelection || bulkProcessing}
-              className="flex items-center gap-2"
-            >
-              {bulkProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckSquare className="h-4 w-4" />}
-              Seçilileri Aktifleştir
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleBulkStatus(false)}
-              disabled={!hasSelection || bulkProcessing}
-              className="flex items-center gap-2"
-            >
-              {bulkProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
-              Seçilileri Pasifleştir
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={clearSelection}
-              disabled={!hasSelection || bulkProcessing}
-            >
-              Seçimleri Temizle
-            </Button>
+          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <ViewModeToggle
+                mode={listView}
+                onChange={listViewActions.set}
+                cardsLabel={tf('view.cards', 'Kartlar')}
+                tableLabel={tf('view.table', 'Tablo')}
+                ariaLabel={tf('view.modeLabel', 'Görünüm modu')}
+              />
+              {filteredChats.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="flex items-center gap-2"
+                  onClick={toggleSelectAllVisible}
+                >
+                  <ListChecks className="h-4 w-4" /> {selectAllLabel}
+                </Button>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleBulkStatus(true)}
+                disabled={!hasSelection || bulkProcessing}
+                className="flex items-center gap-2"
+              >
+                {bulkProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckSquare className="h-4 w-4" />}
+                {tf('chats.bulk.activate', 'Seçilileri Aktifleştir')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleBulkStatus(false)}
+                disabled={!hasSelection || bulkProcessing}
+                className="flex items-center gap-2"
+              >
+                {bulkProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
+                {tf('chats.bulk.deactivate', 'Seçilileri Pasifleştir')}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={clearSelection} disabled={!hasSelection || bulkProcessing}>
+                {tf('common.actions.clearSelection', 'Seçimleri Temizle')}
+              </Button>
+            </div>
           </div>
 
           {noChats ? (
-            <div className="py-8 text-center">
-              <MessageSquare className="mb-4 h-12 w-12 text-muted-foreground" />
-              <p className="text-muted-foreground">Henüz sohbet eklenmemiş</p>
-              <p className="text-sm text-muted-foreground">Botların mesaj göndereceği sohbet gruplarını ekleyin</p>
+            <div className="py-10 text-center space-y-4">
+              <MessageSquare className="mx-auto h-12 w-12 text-muted-foreground" />
+              <div className="space-y-1">
+                <p className="text-muted-foreground text-lg font-medium">{tf('chats.empty.primaryTitle', 'Henüz sohbet eklenmemiş')}</p>
+                <p className="text-sm text-muted-foreground">
+                  {tf('chats.empty.primaryBody', 'Botların mesaj göndereceği kanal veya grupları ekleyerek canlı akışı başlatın.')}
+                </p>
+              </div>
+              <div className="mx-auto max-w-md space-y-2 text-xs text-muted-foreground">
+                <p>• {tf('chats.empty.tipPrimary', 'Chat ID değerini Telegram’dan alıp başlık ve konu etiketleriyle birlikte kaydedin.')}</p>
+                <p>• {tf('chats.empty.tipSecondary', 'Kritik duyurular için push kanalını etkinleştirerek Activity Center’a düşmesini sağlayın.')}</p>
+              </div>
+              <div className="flex justify-center gap-3">
+                <Button size="sm" onClick={() => setDialogOpen(true)}>
+                  {tf('chats.actions.add', 'Sohbet Ekle')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                >
+                  {tf('chats.actions.openWizard', 'Kurulum Sihirbazına Git')}
+                </Button>
+              </div>
             </div>
           ) : filteredChats.length === 0 ? (
-            <div className="rounded-md border border-dashed border-border bg-muted/30 p-6 text-center text-sm text-muted-foreground">
-              Filtre kriterlerine uygun sohbet bulunamadı.
+            <div className="rounded-md border border-dashed border-border bg-muted/30 p-6 text-center text-sm text-muted-foreground space-y-3">
+              <div>{tf('chats.empty.noResults', 'Filtre kriterlerine uygun sohbet bulunamadı.')}</div>
+              <div className="text-xs text-muted-foreground">
+                <p>{tf('chats.empty.tipHeader', 'Akıllı öneri:')}</p>
+                <p>• {tf('chats.empty.tipClear', 'Arama alanını temizleyin veya durum filtresini "Tümü" olarak ayarlayın.')}</p>
+                <p>• {tf('chats.empty.tipTopics', 'Konu etiketlerinde tire ve boşluk kullanımını gözden geçirerek tekrar deneyin.')}</p>
+              </div>
             </div>
-          ) : (
+          ) : tableViewActive ? (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -696,7 +755,7 @@ function Chats() {
                             variant="ghost"
                             size="sm"
                             onClick={() => toggleChatStatus(chat)}
-                            aria-label={chat.is_enabled ? 'Pasifleştir' : 'Aktifleştir'}
+                            aria-label={chat.is_enabled ? disableLabel : enableLabel}
                           >
                             {chat.is_enabled ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
                           </Button>
@@ -723,6 +782,76 @@ function Chats() {
                 })}
               </TableBody>
             </Table>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {filteredChats.map((chat) => {
+                const isSelected = selectedChatIds.includes(chat.id)
+                const topics = Array.isArray(chat.topics) ? chat.topics : []
+                return (
+                  <div
+                    key={chat.id}
+                    className={`rounded-lg border bg-background p-4 shadow-sm transition ${
+                      isSelected ? 'border-primary ring-1 ring-primary/50' : 'border-border'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg font-semibold text-foreground">{chat.title}</span>
+                          <Badge variant={chat.is_enabled ? 'default' : 'secondary'}>
+                            {chat.is_enabled ? 'Aktif' : 'Pasif'}
+                          </Badge>
+                        </div>
+                        <p className="text-sm font-mono text-muted-foreground">{chat.chat_id}</p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-muted-foreground"
+                        checked={isSelected}
+                        onChange={() => toggleSelectChat(chat.id)}
+                        aria-label={`${chat.title} seçimi`}
+                      />
+                    </div>
+                    <div className="mt-3 space-y-2 text-sm text-muted-foreground">
+                      <div className="flex items-center gap-2">
+                        <Users className="h-4 w-4 text-muted-foreground" />
+                        <span>{topics.slice(0, 3).join(', ') || 'Konu belirtilmedi'}</span>
+                      </div>
+                      {topics.length > 3 ? (
+                        <div className="text-xs text-muted-foreground">+{topics.length - 3} ek konu</div>
+                      ) : null}
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex items-center gap-1"
+                        onClick={() => toggleChatStatus(chat)}
+                      >
+                        {chat.is_enabled ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
+                            {chat.is_enabled ? disableLabel : enableLabel}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="flex items-center gap-1"
+                        onClick={() => openEditDialog(chat)}
+                      >
+                        <Edit className="h-4 w-4" /> Düzenle
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="flex items-center gap-1"
+                        onClick={() => requestDeleteChat(chat)}
+                      >
+                        <Trash2 className="h-4 w-4" /> Sil
+                      </Button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           )}
         </CardContent>
       </Card>
