@@ -93,3 +93,4 @@ def test_dashboard_websocket_stream(authenticated_client):
         message = websocket.receive_json()
         assert message["type"] == "dashboard_snapshot"
         assert "metrics" in message
+        websocket.close()

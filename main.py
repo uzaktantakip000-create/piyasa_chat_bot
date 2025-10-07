@@ -953,6 +953,8 @@ def _build_dashboard_snapshot() -> Dict[str, Any]:
 @app.websocket("/ws/dashboard")
 async def dashboard_stream(websocket: WebSocket):
     interval = float(os.getenv("DASHBOARD_STREAM_INTERVAL", "5"))
+    max_messages = int(os.getenv("DASHBOARD_STREAM_MAX_MESSAGES", "0"))
+    sent = 0
     cookie_header = websocket.headers.get("cookie")
     session_token = _parse_session_cookie(cookie_header)
     api_key = websocket.headers.get("X-API-Key") or websocket.query_params.get("api_key")
@@ -979,6 +981,9 @@ async def dashboard_stream(websocket: WebSocket):
         while True:
             payload = _build_dashboard_snapshot()
             await websocket.send_json(payload)
+            sent += 1
+            if max_messages and sent >= max_messages:
+                break
             await asyncio.sleep(interval)
     except WebSocketDisconnect:
         logger.info("Dashboard websocket disconnected for user %s", user.username)

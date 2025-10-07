@@ -42,6 +42,7 @@ def api_client(tmp_path, monkeypatch):
     monkeypatch.setenv("DEFAULT_ADMIN_API_KEY", "bootstrap-key")
     monkeypatch.setenv("DEFAULT_ADMIN_MFA_SECRET", "JBSWY3DPEHPK3PXP")
     monkeypatch.setenv("DASHBOARD_STREAM_INTERVAL", "0.1")
+    monkeypatch.setenv("DASHBOARD_STREAM_MAX_MESSAGES", "1")
     monkeypatch.setenv("AUTH_PBKDF_ITERATIONS", "1000")
     monkeypatch.delenv("API_KEY", raising=False)
 

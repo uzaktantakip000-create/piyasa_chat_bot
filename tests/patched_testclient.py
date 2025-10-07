@@ -1,7 +1,6 @@
 import contextlib
 import math
 import typing
-import warnings
 from urllib.parse import urljoin
 
 import anyio
@@ -396,6 +395,7 @@ class PatchedTestClient(httpx.Client):
         return session
 
     def __enter__(self) -> "PatchedTestClient":
+        super().__enter__()
         with contextlib.ExitStack() as stack:
             self.portal = portal = stack.enter_context(
                 anyio.from_thread.start_blocking_portal(**self.async_backend)
@@ -423,7 +423,12 @@ class PatchedTestClient(httpx.Client):
         return self
 
     def __exit__(self, *args: typing.Any) -> None:
-        self.exit_stack.close()
+        result: typing.Any = None
+        try:
+            self.exit_stack.close()
+        finally:
+            result = super().__exit__(*args)
+        return result
 
     async def lifespan(self) -> None:
         scope = {"type": "lifespan", "state": self.app_state}

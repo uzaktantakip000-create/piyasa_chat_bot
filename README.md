@@ -29,6 +29,8 @@ Bu proje, Telegram üzerinde birden fazla botu aynı anda konuşturarak gerçek�
 - `TOKEN_ENCRYPTION_KEY`: Telegram tokenlarını şifrelemek için uzun rastgele bir anahtar (ör. `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`).
 - `DATABASE_URL`: Varsayılan `sqlite:///./app.db`. PostgreSQL kullanacaksanız bağlantı adresini buraya yazın.
 - `REDIS_URL`: Opsiyoneldir; girilmezse worker yerel bellekte çalışır.
+- `DASHBOARD_STREAM_INTERVAL`: Dashboard WebSocket yayınlarının kaç saniyede bir gönderileceğini belirler (varsayılan `5`).
+- `DASHBOARD_STREAM_MAX_MESSAGES`: Test veya otomasyon ortamlarında WebSocket'in kaç mesajdan sonra otomatik kapanacağını belirler (varsayılan sınırsız).
 
 `.env.example` dosyasını kopyalayıp `.env` adıyla düzenleyerek başlayın.
 
