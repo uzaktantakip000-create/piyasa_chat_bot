@@ -101,6 +101,33 @@
   - Kabul Kriteri: WebSocket açıkken REST istek sıklığı %80 azalır; metrik gecikmesi <1 sn ölçülür.
   - Efor: M
 
+### Stratejik Sistem Geliştirme Fikirleri
+- [ ] **P0:** Servisler arası trafiği sıfır güven modeliyle yeniden tasarlayarak mTLS + kısa ömürlü servis kimlikleri kullanan güvenli bir ağ katmanı uygula.
+  - Açıklama: FastAPI API, worker ve WebSocket bileşenleri arasında karşılıklı TLS ve dinamik olarak döndürülen sertifikalarla kimlik doğrulaması kur.
+  - Beklenen Fayda: Kimlik sahteciliği ve yatay hareket riskini azaltarak üretim ortamında veri sızıntısı yüzeyini daraltır.
+  - Kabul Kriteri: Tüm servis çağrıları mTLS üzerinden başarılır; yetkisiz sertifikayla yapılan bağlantı girişimleri reddedilir ve gözlemlenebilir loglara kaydedilir.
+  - Efor: L
+- [ ] **P0:** OpenTelemetry tabanlı izleme, metrik ve dağıtılmış iz (trace) altyapısını kurarak uçtan uca gözlemlenebilirlik sağlayan merkezi bir observability yığını oluştur.
+  - Açıklama: Python API/worker ve React istemci için otel SDK'larını entegre edip Jaeger + Prometheus + Grafana ile birleşik gösterge panelleri hazırla.
+  - Beklenen Fayda: Performans darboğazlarını hızla tespit etmeye ve SLA ihlallerini kök nedenleriyle birlikte izlemeye olanak tanır.
+  - Kabul Kriteri: Ana iş akışları için 95. yüzdelik yanıt süreleri ve trace korelasyonu dashboard'da görselleşir; hata oranı alarmı Prometheus alertmanager üzerinden tetiklenir.
+  - Efor: M
+- [ ] **P1:** Özellik bayrakları (feature flag) ve kademeli yayın mekanizması ekleyerek riskli dağıtımları kontrollü şekilde yönet.
+  - Açıklama: FastAPI tarafında yapılandırılabilir bayrak deposu ve React istemcide gerçek zamanlı flag okuma/kaynak önbellekleme katmanı uygula.
+  - Beklenen Fayda: Yeni işlevleri sınırlı kullanıcı segmentlerinde deneyip geri alma maliyetini düşürür, üretim kesintilerini engeller.
+  - Kabul Kriteri: En az iki kritik özellik bayrak üzerinden yönetilir; flag güncellemeleri dakikalar içinde istemciye yansır ve rollback testiyle doğrulanır.
+  - Efor: M
+- [ ] **P1:** Kişisel verileri maskeleyip saklama sürelerini denetleyen veri yönetişimi ve uyumluluk pipeline'ı kur.
+  - Açıklama: SQLite/PostgreSQL şemasında PII alanlarını tespit edip ETL ile arşive aktarma, maskeleme ve otomatik silme rutinleri ekle.
+  - Beklenen Fayda: KVKK/GDPR gibi regülasyonlarla uyumlu veri yaşam döngüsü yönetimini sağlar, denetim riskini azaltır.
+  - Kabul Kriteri: PII alanları için maskeleme raporu üretilir; belirlenen saklama süresini aşan kayıtlar otomatik temizlenir ve denetim loglarına yazılır.
+  - Efor: M
+- [ ] **P2:** Panel için offline-first deneyimi destekleyen akıllı önbellekleme ve arka plan senkronizasyonu uygula.
+  - Açıklama: Service Worker + IndexedDB ile kritik API yanıtlarını sakla, çevrimdışı işlemleri kuyruğa alıp bağlantı geri geldiğinde otomatik gönder.
+  - Beklenen Fayda: Kararsız ağ koşullarında bile yönetim panelinin kullanılabilirliğini artırır ve operasyon kesintilerini azaltır.
+  - Kabul Kriteri: Ağ bağlantısı kesildiğinde temel bot/sohbet görüntüleme ve kayıt işlemleri yerel veriden çalışır; yeniden bağlanınca kuyruğa alınan işlemler otomatik işlenir.
+  - Efor: M
+
 ### Profesyonel Geliştirme Fırsatları
 - [x] **P0:** RBAC, çok faktörlü kimlik doğrulama ve API anahtarı rotasyonu içeren kapsamlı bir erişim yönetimi katmanı tasarlayıp uygulamaya alma. _Açıklama: Yeni `api_users` modeli, PBKDF2 tabanlı parola/anahtar saklama, TOTP doğrulaması ve rol hiyerarşisi ile login/anahtar döndürme uçları eklendi; tüm yetki kontrolleri FastAPI tarafında role göre sınırlandı._
 - [x] **P0:** Dashboard verilerini WebSocket tabanlı canlı akışa taşıyarak test sonuçları ve uyarıları gecikmesiz güncelle. _Açıklama: `/ws/dashboard` WebSocket kanalında rol doğrulamalı canlı metrik ve sistem kontrolü özetleri yayınlanıyor; istemci bağlantıları periyodik JSON snapshot alıyor._
