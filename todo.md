@@ -69,6 +69,38 @@
 - [x] Test sonuçlarını veritabanında saklayıp `/system/checks/latest` uç noktasıyla panele servis et.
 - [x] Dashboard'da son test özetini ve stres testi kontrollerini gösteren yeni kart ekle.
 
+### Sistem Doğrulama Sonrası Aksiyonlar
+- [ ] **P0:** Panelde API anahtarını `localStorage` yerine oturum bazlı (örn. `sessionStorage` + HttpOnly session) sakla ve XSS’ye dayanıklı hale getir.
+  - Açıklama: Kimlik doğrulama anahtarını kalıcı depolamadan taşıyarak saldırı yüzeyini daralt.
+  - Beklenen Fayda: Anahtar sızıntı riskini azaltarak yönetim paneli güvenliğini artırır.
+  - Kabul Kriteri: Güvenlik testinde `localStorage` anahtarı bulunmuyor, XSS simülasyonunda anahtar ele geçirilemiyor.
+  - Efor: M
+- [ ] **P0:** `_startup` loglarında dönen varsayılan admin API anahtarı ve MFA sırrını maskele veya yalnızca tek seferlik CLI çıktısı olarak göster.
+  - Açıklama: Başlatma loglarında gizli bilgiler yerine güvenli placeholder kullan.
+  - Beklenen Fayda: Üretim log’larında gizli veri tutmayarak mevzuat uyumu ve güvenlik sağlar.
+  - Kabul Kriteri: Uygulama başlatıldığında loglarda API anahtarı/MFA sırrı görünmez; güvenlik taraması bunu doğrular.
+  - Efor: S
+- [ ] **P1:** FastAPI ve bağlı Starlette/AnyIO paketlerini desteklenen LTS sürümüne yükselt; şema uyumunu ve testleri güncelle.
+  - Açıklama: Çekirdek web çerçevesini güncel tutarak güvenlik yamalarını uygula.
+  - Beklenen Fayda: Güvenlik yamalarını almak ve Python 3.11+ uyumluluğunu korumak.
+  - Kabul Kriteri: `pytest` ve `preflight` güncel sürümle geçer; bağımlılık güvenlik taraması kritik açık göstermiyor.
+  - Efor: M
+- [ ] **P1:** `apiFetch` için offline/timeout hata yakalayıcıları ekle; kullanıcıya yeniden dene / bağlantı durumu bildirimi göster.
+  - Açıklama: Ağ hata senaryolarında kullanıcıya rehberlik eden dayanıklı istemci davranışı ekle.
+  - Beklenen Fayda: Kullanıcı deneyimini iyileştirir, ağ kesintilerinde destek taleplerini azaltır.
+  - Kabul Kriteri: Ağ bağlantısı kesildiğinde UI’da anlamlı uyarı/yeniden dene butonu görülür; manuel testte doğrulanır.
+  - Efor: S
+- [ ] **P1:** React bileşenleri için Vitest/Jest tabanlı smoke & kritik akış testleri ekle (giriş, bot/sohbet CRUD, metrik görüntüleme).
+  - Açıklama: Ön uç katmanı için temel regresyon test paketi oluştur.
+  - Beklenen Fayda: Regresyon riskini azaltır, CI güvenini artırır.
+  - Kabul Kriteri: Yeni test suiti CI’da çalışır ve temel akışlar için >70% satır kapsamı raporlanır.
+  - Efor: M
+- [ ] **P2:** Dashboard’da `/ws/dashboard` WebSocket akışını kullanıp periyodik REST poll’u azalt; fallback mekanizması ekle.
+  - Açıklama: Canlı veri beslemesini gerçek zamanlı akışa taşıyarak gereksiz istekleri azalt.
+  - Beklenen Fayda: API yükünü düşürür, metrik güncellemelerinde gecikmeyi azaltır.
+  - Kabul Kriteri: WebSocket açıkken REST istek sıklığı %80 azalır; metrik gecikmesi <1 sn ölçülür.
+  - Efor: M
+
 ### Profesyonel Geliştirme Fırsatları
 - [x] **P0:** RBAC, çok faktörlü kimlik doğrulama ve API anahtarı rotasyonu içeren kapsamlı bir erişim yönetimi katmanı tasarlayıp uygulamaya alma. _Açıklama: Yeni `api_users` modeli, PBKDF2 tabanlı parola/anahtar saklama, TOTP doğrulaması ve rol hiyerarşisi ile login/anahtar döndürme uçları eklendi; tüm yetki kontrolleri FastAPI tarafında role göre sınırlandı._
 - [x] **P0:** Dashboard verilerini WebSocket tabanlı canlı akışa taşıyarak test sonuçları ve uyarıları gecikmesiz güncelle. _Açıklama: `/ws/dashboard` WebSocket kanalında rol doğrulamalı canlı metrik ve sistem kontrolü özetleri yayınlanıyor; istemci bağlantıları periyodik JSON snapshot alıyor._
