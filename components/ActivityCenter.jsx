@@ -168,42 +168,41 @@ export default function ActivityCenter({
                           Gösterilecek kayıt bulunamadı. Yeni olaylar burada listelenecek.
                         </p>
                       ) : (
-                          filteredEvents.map((event) => {
-                            const meta = severityMeta[event.severity] ?? severityMeta.info
-                            return (
-                              <div
-                                key={event.id}
-                                className="rounded-lg border border-border/60 bg-card/60 p-4 shadow-sm transition hover:border-primary/50"
-                              >
-                                <div className="flex flex-wrap items-start justify-between gap-3">
-                                  <div className="flex items-start gap-3">
-                                    <span className="text-xl" aria-hidden="true">
-                                      {meta.icon}
-                                    </span>
-                                    <div>
-                                      <p className="text-sm font-semibold text-foreground">{event.title}</p>
-                                      {event.description ? (
-                                        <p className="mt-1 text-sm text-muted-foreground">{event.description}</p>
-                                      ) : null}
-                                      {event.meta?.context ? (
-                                        <p className="mt-2 text-xs text-muted-foreground">{event.meta.context}</p>
-                                      ) : null}
-                                    </div>
+                        filteredEvents.map((event) => {
+                          const meta = severityMeta[event.severity] ?? severityMeta.info
+                          return (
+                            <div
+                              key={event.id}
+                              className="rounded-lg border border-border/60 bg-card/60 p-4 shadow-sm transition hover:border-primary/50"
+                            >
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div className="flex items-start gap-3">
+                                  <span className="text-xl" aria-hidden="true">
+                                    {meta.icon}
+                                  </span>
+                                  <div>
+                                    <p className="text-sm font-semibold text-foreground">{event.title}</p>
+                                    {event.description ? (
+                                      <p className="mt-1 text-sm text-muted-foreground">{event.description}</p>
+                                    ) : null}
+                                    {event.meta?.context ? (
+                                      <p className="mt-2 text-xs text-muted-foreground">{event.meta.context}</p>
+                                    ) : null}
                                   </div>
-                                  <Badge variant="outline" className={meta.badgeClass}>
-                                    {meta.label}
-                                  </Badge>
                                 </div>
-                                <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                                  <span>{formatRelativeTime(event.timestamp)}</span>
-                                  {event.source ? <span>Kaynak: {event.source}</span> : null}
-                                  {event.meta?.manual ? <span>Manuel işlem</span> : null}
-                                </div>
+                                <Badge variant="outline" className={meta.badgeClass}>
+                                  {meta.label}
+                                </Badge>
                               </div>
-                            )
-                          })
-                        )}
-                      </div>
+                              <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                                <span>{formatRelativeTime(event.timestamp)}</span>
+                                {event.source ? <span>Kaynak: {event.source}</span> : null}
+                                {event.meta?.manual ? <span>Manuel işlem</span> : null}
+                              </div>
+                            </div>
+                          )
+                        })
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -235,33 +234,32 @@ export default function ActivityCenter({
                           Henüz toast bildirimi kaydı yok.
                         </p>
                       ) : (
-                          toastHistory.map((toast) => {
-                            const meta = severityMeta[toast.type] ?? severityMeta.info
-                            return (
-                              <div
-                                key={toast.id}
-                                className="rounded-lg border border-border/60 bg-card/60 p-4 shadow-sm"
-                              >
-                                <div className="flex items-start justify-between gap-3">
-                                  <div>
-                                    <p className="text-sm font-semibold">{toast.title || 'Bildirim'}</p>
-                                    {toast.description ? (
-                                      <p className="mt-1 text-sm text-muted-foreground">{toast.description}</p>
-                                    ) : null}
-                                  </div>
-                                  <Badge variant="outline" className={meta.badgeClass}>
-                                    {meta.label}
-                                  </Badge>
+                        toastHistory.map((toast) => {
+                          const meta = severityMeta[toast.type] ?? severityMeta.info
+                          return (
+                            <div
+                              key={toast.id}
+                              className="rounded-lg border border-border/60 bg-card/60 p-4 shadow-sm"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <p className="text-sm font-semibold">{toast.title || 'Bildirim'}</p>
+                                  {toast.description ? (
+                                    <p className="mt-1 text-sm text-muted-foreground">{toast.description}</p>
+                                  ) : null}
                                 </div>
-                                <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
-                                  <span>{formatRelativeTime(toast.timestamp)}</span>
-                                  {toast.source ? <span>Kaynak: {toast.source}</span> : null}
-                                </div>
+                                <Badge variant="outline" className={meta.badgeClass}>
+                                  {meta.label}
+                                </Badge>
                               </div>
-                            )
-                          })
-                        )}
-                      </div>
+                              <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
+                                <span>{formatRelativeTime(toast.timestamp)}</span>
+                                {toast.source ? <span>Kaynak: {toast.source}</span> : null}
+                              </div>
+                            </div>
+                          )
+                        })
+                      )}
                     </div>
                   </CardContent>
                 </Card>
