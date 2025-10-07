@@ -9,6 +9,7 @@ import time
 import asyncio
 from collections import defaultdict
 from datetime import datetime, timedelta
+from http.cookies import SimpleCookie
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
@@ -38,8 +39,12 @@ from database import (
     migrate_plain_tokens,
     ensure_default_admin_user,
     get_user_by_api_key,
+    get_user_by_session_token,
     authenticate_user,
     rotate_user_api_key,
+    create_user_session,
+    invalidate_session,
+    purge_expired_sessions,
 )
 from schemas import (
     BotCreate, BotUpdate, BotResponse,
@@ -69,6 +74,13 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL","INFO"))
 APP_ROOT = Path(__file__).resolve().parent
 
 app = FastAPI(title="Telegram Market Simulation API", version="1.5.0")
+
+SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "piyasa.session")
+SESSION_TTL_HOURS = int(os.getenv("DASHBOARD_SESSION_TTL_HOURS", "12"))
+SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "false").lower() in {"1", "true", "yes", "on"}
+SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "lax")
+SESSION_COOKIE_PATH = os.getenv("SESSION_COOKIE_PATH", "/")
+SESSION_MAX_AGE = SESSION_TTL_HOURS * 3600
 
 # ----------------------
 # CORS
@@ -112,6 +124,20 @@ def _role_allows(user_role: str, required_role: str) -> bool:
     return user_score >= required_score
 
 
+def _parse_session_cookie(raw_cookie: Optional[str]) -> Optional[str]:
+    if not raw_cookie:
+        return None
+    cookie = SimpleCookie()
+    try:
+        cookie.load(raw_cookie)
+    except Exception:
+        return None
+    morsel = cookie.get(SESSION_COOKIE_NAME)
+    if not morsel:
+        return None
+    return morsel.value
+
+
 def require_role(required_role: str = "viewer"):
     async def dependency(
         request: Request,
@@ -122,6 +148,15 @@ def require_role(required_role: str = "viewer"):
             viewer = AuthenticatedUser(username="cors", role="viewer")
             request.state.user = viewer
             return viewer
+
+        session_token = request.cookies.get(SESSION_COOKIE_NAME)
+        if session_token:
+            session_user = get_user_by_session_token(db, session_token)
+            if session_user:
+                if not _role_allows(session_user.role, required_role):
+                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
+                request.state.user = session_user
+                return AuthenticatedUser(username=session_user.username, role=session_user.role)
 
         expected = os.getenv("API_KEY")
         if expected and x_api_key == expected:
@@ -175,12 +210,20 @@ def _startup():
     migrate_plain_tokens()
     admin_info = ensure_default_admin_user()
     if admin_info:
+        masked_api = mask_token(admin_info["api_key"])
+        masked_mfa = mask_token(admin_info["mfa_secret"])
         logger.warning(
-            "Default admin user '%s' created. Store the API key and MFA secret securely. API Key: %s, MFA Secret: %s",
+            "Default admin user '%s' created. Store the credentials securely. API Key: %s (masked), MFA Secret: %s (masked)",
             admin_info["username"],
-            admin_info["api_key"],
-            admin_info["mfa_secret"],
+            masked_api,
+            masked_mfa,
         )
+    try:
+        purged = purge_expired_sessions()
+        if purged:
+            logger.info("Purged %d expired API sessions during startup", purged)
+    except Exception as exc:
+        logger.warning("Failed to purge expired sessions: %s", exc)
     logger.info("API started. Tables ensured; default settings loaded.")
 
 
@@ -214,13 +257,34 @@ def healthz():
 
 
 @app.post("/auth/login", response_model=LoginResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)):
+def login(
+    payload: LoginRequest,
+    response: Response,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     user = authenticate_user(db, payload.username, payload.password, payload.totp)
     if not user:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid credentials or MFA code")
     api_key = rotate_user_api_key(db, user)
     logger.info("User %s performed login and API key rotation", user.username)
-    return LoginResponse(api_key=api_key, role=user.role)
+    session_token, session = create_user_session(
+        db,
+        user,
+        ttl_hours=SESSION_TTL_HOURS,
+        user_agent=request.headers.get("user-agent"),
+    )
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=session_token,
+        max_age=SESSION_MAX_AGE,
+        httponly=True,
+        secure=SESSION_COOKIE_SECURE,
+        samesite=SESSION_COOKIE_SAMESITE,
+        path=SESSION_COOKIE_PATH,
+    )
+    response.headers["X-Session-Expires"] = session.expires_at.replace(microsecond=0).isoformat() + "Z"
+    return LoginResponse(api_key=api_key, role=user.role, session_expires_at=session.expires_at)
 
 
 @app.post("/auth/rotate-api-key", response_model=LoginResponse)
@@ -231,6 +295,19 @@ def rotate_api_key(payload: RotateApiKeyRequest, db: Session = Depends(get_db)):
     api_key = rotate_user_api_key(db, user)
     logger.info("User %s manually rotated API key", user.username)
     return LoginResponse(api_key=api_key, role=user.role)
+
+
+@app.post("/auth/logout")
+def logout(response: Response, request: Request, db: Session = Depends(get_db)):
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    if token:
+        invalidate_session(db, token)
+    response.delete_cookie(
+        key=SESSION_COOKIE_NAME,
+        path=SESSION_COOKIE_PATH,
+        samesite=SESSION_COOKIE_SAMESITE,
+    )
+    return {"ok": True}
 
 
 @app.get("/auth/me", response_model=UserInfoResponse, dependencies=viewer_dependencies)
@@ -876,14 +953,20 @@ def _build_dashboard_snapshot() -> Dict[str, Any]:
 @app.websocket("/ws/dashboard")
 async def dashboard_stream(websocket: WebSocket):
     interval = float(os.getenv("DASHBOARD_STREAM_INTERVAL", "5"))
+    cookie_header = websocket.headers.get("cookie")
+    session_token = _parse_session_cookie(cookie_header)
     api_key = websocket.headers.get("X-API-Key") or websocket.query_params.get("api_key")
     db = SessionLocal()
     try:
-        user = get_user_by_api_key(db, api_key or "")
+        user = None
+        if session_token:
+            user = get_user_by_session_token(db, session_token)
+        if not user:
+            user = get_user_by_api_key(db, api_key or "")
     finally:
         db.close()
 
-    if not api_key or not user:
+    if not user:
         await websocket.close(code=4401)
         return
     if not _role_allows(user.role, "viewer"):

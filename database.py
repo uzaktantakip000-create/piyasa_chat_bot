@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime
-from typing import Generator, Any, Dict, Optional
+from datetime import datetime, timedelta
+from typing import Generator, Any, Dict, Optional, Tuple
 
 from sqlalchemy import (
     create_engine, Column, Integer, BigInteger, String, Boolean, Text, DateTime,
@@ -15,6 +15,7 @@ from auth_utils import (
     hash_secret,
     verify_secret,
     generate_api_key,
+    generate_session_token,
     generate_totp_secret,
     verify_totp,
 )
@@ -203,6 +204,23 @@ class ApiUser(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class ApiSession(Base):
+    __tablename__ = "api_sessions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("api_users.id", ondelete="CASCADE"), nullable=False, index=True)
+    token_id = Column(String(32), nullable=False, index=True)
+    session_hash = Column(String(128), nullable=False)
+    session_salt = Column(String(32), nullable=False)
+    user_agent = Column(String(256), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_seen_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    user = relationship("ApiUser", backref="sessions")
+
+
 # --------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------
@@ -372,6 +390,100 @@ def get_user_by_api_key(db: Session, api_key: str) -> Optional[ApiUser]:
         if verify_secret(api_key, candidate.api_key_hash, candidate.api_key_salt):
             return candidate
     return None
+
+
+def create_user_session(
+    db: Session,
+    user: ApiUser,
+    *,
+    ttl_hours: int = 12,
+    user_agent: Optional[str] = None,
+) -> Tuple[str, ApiSession]:
+    token_id, token_secret, session_hash, session_salt = generate_session_token()
+    expires_at = datetime.utcnow() + timedelta(hours=ttl_hours)
+    session = ApiSession(
+        user_id=user.id,
+        token_id=token_id,
+        session_hash=session_hash,
+        session_salt=session_salt,
+        user_agent=user_agent,
+        expires_at=expires_at,
+        is_active=True,
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return f"{token_id}.{token_secret}", session
+
+
+def get_user_by_session_token(db: Session, token: str) -> Optional[ApiUser]:
+    if not token or "." not in token:
+        return None
+    token_id, token_secret = token.split(".", 1)
+    session = (
+        db.query(ApiSession)
+        .filter(
+            ApiSession.token_id == token_id,
+            ApiSession.is_active.is_(True),
+            ApiSession.expires_at > datetime.utcnow(),
+        )
+        .first()
+    )
+    if not session:
+        return None
+    if not verify_secret(token_secret, session.session_hash, session.session_salt):
+        return None
+    session.last_seen_at = datetime.utcnow()
+    db.add(session)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+    return session.user
+
+
+def invalidate_session(db: Session, token: str) -> None:
+    if not token or "." not in token:
+        return
+    token_id, token_secret = token.split(".", 1)
+    session = (
+        db.query(ApiSession)
+        .filter(ApiSession.token_id == token_id, ApiSession.is_active.is_(True))
+        .first()
+    )
+    if not session:
+        return
+    if not verify_secret(token_secret, session.session_hash, session.session_salt):
+        return
+    session.is_active = False
+    db.add(session)
+    db.commit()
+
+
+def purge_expired_sessions(db: Optional[Session] = None) -> int:
+    owns_session = False
+    if db is None:
+        db = SessionLocal()
+        owns_session = True
+    try:
+        now = datetime.utcnow()
+        sessions = (
+            db.query(ApiSession)
+            .filter(ApiSession.expires_at <= now, ApiSession.is_active.is_(True))
+            .all()
+        )
+        for session in sessions:
+            session.is_active = False
+            db.add(session)
+        count = len(sessions)
+        if count:
+            db.commit()
+        else:
+            db.rollback()
+        return count
+    finally:
+        if owns_session and db is not None:
+            db.close()
 
 
 def authenticate_user(db: Session, username: str, password: str, totp: Optional[str]) -> Optional[ApiUser]:

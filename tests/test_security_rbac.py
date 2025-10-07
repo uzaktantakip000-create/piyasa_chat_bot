@@ -1,12 +1,13 @@
 import base64
 import hashlib
 import hmac
+import base64
+import hashlib
+import hmac
 import struct
 import time
 
 import pytest
-
-from .conftest import auth_headers
 
 
 @pytest.mark.parametrize("endpoint", ["/bots", "/chats", "/metrics"])
@@ -15,8 +16,8 @@ def test_requires_api_key(endpoint, api_client):
     assert response.status_code == 401
 
 
-def test_viewer_access_with_bootstrap_key(api_client):
-    response = api_client.get("/bots", headers=auth_headers())
+def test_viewer_access_with_session_cookie(authenticated_client):
+    response = authenticated_client.get("/bots")
     assert response.status_code == 200
 
 
@@ -53,12 +54,25 @@ def test_login_with_totp_rotates_api_key(api_client):
     new_key = data["api_key"]
     assert new_key and new_key != user_info["api_key"]
 
+    # Session cookie should allow authenticated access without header
+    session_cookie = response.cookies.get("piyasa.session")
+    assert session_cookie
+    cookie_response = api_client.get("/bots")
+    assert cookie_response.status_code == 200
+
     # Old key should no longer work
-    old_response = api_client.get("/bots", headers={"X-API-Key": user_info["api_key"]})
+    api_client.cookies.clear()
+    old_response = api_client.get(
+        "/bots",
+        headers={"X-API-Key": user_info["api_key"]},
+    )
     assert old_response.status_code == 401
 
     # New key should succeed
-    new_response = api_client.get("/bots", headers={"X-API-Key": new_key})
+    new_response = api_client.get(
+        "/bots",
+        headers={"X-API-Key": new_key},
+    )
     assert new_response.status_code == 200
 
 
@@ -74,8 +88,8 @@ def _generate_totp(secret: str, step: int = 30, digits: int = 6) -> str:
     return str(num % (10 ** digits)).zfill(digits)
 
 
-def test_dashboard_websocket_stream(api_client):
-    with api_client.websocket_connect("/ws/dashboard", headers=auth_headers()) as websocket:
+def test_dashboard_websocket_stream(authenticated_client):
+    with authenticated_client.websocket_connect("/ws/dashboard") as websocket:
         message = websocket.receive_json()
         assert message["type"] == "dashboard_snapshot"
         assert "metrics" in message

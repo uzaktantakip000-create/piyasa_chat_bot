@@ -9,14 +9,14 @@
 ## Ölçülebilir Bulgular
 - **Performans (Frontend paket boyutu):** Üretim derlemesinde ana JS paketi 319.93 kB, CSS paketi 22.65 kB; bu boyutlar 3G yavaş bağlantıda ~2.4 saniyelik indirme anlamına gelir ve 200 kB altına düşürülmesi önerilir. 【eafb0c†L1-L5】
 - **API Başlatma günlükleri:** Preflight çıktısı API ve veritabanının erişilebilir olduğunu doğruladı; LLM/TG entegrasyon testleri ortam değişkeni eksikliği nedeniyle atlandı. Bu eksik env değerleri canlıda kritik. 【77e9d5†L1-L13】
-- **Giriş oturumu saklama modeli:** `apiClient.js` dosyası API anahtarını `localStorage` üzerinde kalıcı olarak saklıyor; bu, paylaşılan cihazlarda anahtar sızıntısı riskini artırır. 【F:apiClient.js†L1-L74】
-- **Varsayılan yönetici bilgisi loglaması:** API başlangıcında varsayılan admin kullanıcısı oluşturulurken API anahtarı ve MFA sırrı loglara yazılıyor; üretimde log toplayıcılar üzerinden sızıntı riski mevcut. 【F:main.py†L79-L110】
+- **Giriş oturumu saklama modeli:** Panel oturumu artık HttpOnly çerez + `sessionStorage` kombinasyonu ile korunuyor; kalıcı `localStorage` kullanımı kaldırıldı ve API anahtarı sekme kapandığında temizleniyor. 【F:apiClient.js†L1-L138】【F:main.py†L90-L180】
+- **Varsayılan yönetici bilgisi loglaması:** Başlangıç loglarında API anahtarı ile MFA sırrı maskeleniyor; ilk kurulumdan sonra duyarlı bilgi düz metin olarak görünmüyor. 【F:main.py†L120-L150】
 
 ## Hatalar ve Riskler
-1. **Güvenlik – Kalıcı API anahtarı depolaması:** Panel oturumu `localStorage` içinde düz metin olarak saklanıyor; XSS durumunda anahtar anında ele geçirilebilir. Güvenliğe odaklı ortamlarda `sessionStorage`/Memory + HttpOnly token kombinasyonu tercih edilmeli. 【F:apiClient.js†L1-L74】
-2. **Güvenlik – Varsayılan admin kimlik bilgilerinin loglanması:** Başlangıç logları API anahtarı ile MFA sırrını düz metin olarak içeriyor; log arşivine yetkisiz erişim durumunda tüm kontrol kaybedilir. Üretimde bu loglar maskelenmeli veya yalnızca ilk kurulum komutuyla manuel gösterilmeli. 【F:main.py†L79-L110】
+1. **Güvenlik – Kalıcı API anahtarı depolaması:** (Giderildi) Panel oturumu `sessionStorage` + HttpOnly çerez kombinasyonuna taşındı; tarayıcıya enjekte edilen scriptler anahtarı çerez olmadan kullanamıyor. 【F:apiClient.js†L1-L138】【F:main.py†L90-L180】
+2. **Güvenlik – Varsayılan admin kimlik bilgilerinin loglanması:** (Giderildi) Başlangıç logları artık maskelenmiş değerler üretiyor, düz metin anahtar/sır bilgisi tutulmuyor. 【F:main.py†L120-L150】
 3. **Bağımlılık riski – FastAPI 0.95.2:** Bu sürüm hem güvenlik yamalarından hem de yeni Python sürümleri için desteğin gerisinde; 0.109+ serileri LTS kabul ediliyor. Sürüm yükseltilmezse Starlette/AnyIO bağımlılıkları için CVE yamaları kaçırılıyor. 【F:requirements.txt†L1-L22】
-4. **Kullanıcı deneyimi – Offline hata mesajları:** `apiFetch` fonksiyonu ağ hatasında `Error` fırlatarak düz metin mesaj döndürüyor; UI seviyesinde kullanıcı dostu geri bildirim/yeniden dene mekanizması yok. Ağ kesintilerinde panel boş kalıyor. 【F:apiClient.js†L28-L66】
+4. **Kullanıcı deneyimi – Offline hata mesajları:** (Giderildi) `apiFetch` artık çevrimdışı, ağ hatası ve zaman aşımı durumlarında `ApiError` fırlatıp ayrıştırılabilir hata kodları sağlıyor; panel ise bağlantı kesildiğinde uyarı bandı ve "Şimdi tekrar dene" butonu gösteriyor. 【F:apiClient.js†L1-L133】【F:App.jsx†L233-L332】【F:components/InlineNotice.jsx†L1-L59】
 5. **Eksik test kapsamı – Frontend:** React bileşenleri ve kritik kullanıcı akışları için hiçbir otomatik test bulunmuyor; giriş, bot/sohbet oluşturma gibi işlevler yalnızca manuel kontrolle güvence altına alınmış. 【F:package.json†L1-L24】
 6. **Performans – Dashboard veri yenileme stratejisi:** `App.jsx` içinde metrikler yüklendiğinde her çağrıda tam JSON yanıtı parse ediliyor, fakat web soketi ile gerçek zamanlı akış desteği `main.py` içinde var olmasına rağmen istemci tarafında kullanılmıyor; gereksiz API yükü ve gecikme artıyor. 【F:App.jsx†L1-L120】【F:main.py†L1-L120】
 

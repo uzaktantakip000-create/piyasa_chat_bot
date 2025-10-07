@@ -51,6 +51,22 @@ def generate_api_key(length: int = 48) -> Tuple[str, str, str]:
     return api_key, hashed, salt
 
 
+def generate_session_token() -> Tuple[str, str, str, str]:
+    """Return a session identifier components.
+
+    The tuple represents ``(token_id, token_secret, hashed, salt)`` where the
+    final session token exposed to clients will be the concatenation of the
+    ``token_id`` and ``token_secret`` separated by a dot. ``token_id`` is stored
+    in plaintext in the database to allow efficient lookups while ``token_secret``
+    is hashed before persistence.
+    """
+
+    token_id = secrets.token_hex(8)
+    token_secret = secrets.token_urlsafe(48)
+    hashed, salt = hash_secret(token_secret)
+    return token_id, token_secret, hashed, salt
+
+
 def generate_totp_secret(length: int = 20) -> str:
     """Return a Base32-encoded TOTP secret."""
 
@@ -92,6 +108,7 @@ __all__ = [
     "hash_secret",
     "verify_secret",
     "generate_api_key",
+    "generate_session_token",
     "generate_totp_secret",
     "verify_totp",
     "generate_totp",

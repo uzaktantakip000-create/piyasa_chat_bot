@@ -268,6 +268,7 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     api_key: str
     role: str
+    session_expires_at: datetime
 
 
 class RotateApiKeyRequest(BaseModel):

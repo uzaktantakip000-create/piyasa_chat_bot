@@ -27,7 +27,7 @@ import SettingsPage from './Settings'
 import Logs from './Logs'
 import Wizard from './components/Wizard'
 import QuickStart from './QuickStart'
-import { apiFetch, getApiKey, setApiKey, clearApiKey } from './apiClient'
+import { apiFetch, getStoredApiKey, setStoredApiKey, isApiError } from './apiClient'
 import './App.css'
 import LoginPanel from './components/LoginPanel'
 import InlineNotice from './components/InlineNotice'
@@ -65,81 +65,106 @@ function AppShell() {
     return Number.isFinite(value) ? value : 0
   }, [metrics])
 
-  const expectedPassword = import.meta.env?.VITE_DASHBOARD_PASSWORD || ''
-  const SESSION_FLAG_KEY = 'piyasa.dashboard.session'
-  const passwordRequired = Boolean(expectedPassword)
-
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    const key = getApiKey()
-    if (!key) {
-      return false
-    }
-    if (!passwordRequired) {
-      return true
-    }
-    try {
-      return window.localStorage?.getItem(SESSION_FLAG_KEY) === 'true'
-    } catch (error) {
-      console.warn('Session anahtarı okunamadı:', error)
-      return false
-    }
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [sessionMeta, setSessionMeta] = useState(() => {
+    const storedKey = getStoredApiKey()
+    return storedKey ? { apiKey: storedKey } : null
   })
 
-  const persistSessionFlag = useCallback(
-    (enabled) => {
-      if (!passwordRequired) {
-        return
-      }
+  useEffect(() => {
+    let cancelled = false
+    const bootstrap = async () => {
       try {
-        if (enabled) {
-          window.localStorage?.setItem(SESSION_FLAG_KEY, 'true')
-        } else {
-          window.localStorage?.removeItem(SESSION_FLAG_KEY)
+        const response = await apiFetch('/auth/me')
+        const data = await response.json()
+        if (cancelled) {
+          return
         }
+        setIsAuthenticated(true)
+        setSessionMeta((prev) => ({
+          ...(prev || {}),
+          username: data.username,
+          role: data.role,
+          apiKeyLastRotated: data.api_key_last_rotated
+        }))
       } catch (error) {
-        console.warn('Session anahtarı güncellenemedi:', error)
+        if (cancelled) {
+          return
+        }
+        if (!error?.message?.includes('401')) {
+          console.warn('Oturum doğrulaması alınamadı:', error)
+        }
+        setIsAuthenticated(false)
+        setSessionMeta((prev) => (prev?.apiKey ? { apiKey: prev.apiKey } : null))
       }
-    },
-    [passwordRequired]
-  )
-
-  const logout = useCallback(
-    (message = '') => {
-      clearApiKey()
-      persistSessionFlag(false)
-      setIsAuthenticated(false)
-      setSimulationActive(false)
-      setAuthError(message || '')
-      setGlobalStatus(null)
-      setLastUpdatedAt(null)
-      setMetricsPhase('idle')
-      setFirstMetricsLoaded(false)
-      setSystemCheck(null)
-      setSystemSummary(null)
-      setChecksPhase('idle')
-    },
-    [persistSessionFlag]
-  )
-
-  const handleLogin = async ({ apiKey, password }) => {
-    setAuthError('')
-    if (!apiKey) {
-      setAuthError('API anahtarı gerekli.')
-      return
     }
-    if (passwordRequired && password !== expectedPassword) {
-      setAuthError('Geçersiz panel şifresi.')
+
+    bootstrap()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const logout = useCallback((message = '') => {
+    apiFetch('/auth/logout', { method: 'POST' }).catch((error) => {
+      console.warn('Oturum kapatma isteği başarısız:', error)
+    })
+    setStoredApiKey(null)
+    setSessionMeta(null)
+    setIsAuthenticated(false)
+    setSimulationActive(false)
+    setAuthError(message || '')
+    setGlobalStatus(null)
+    setLastUpdatedAt(null)
+    setMetricsPhase('idle')
+    setFirstMetricsLoaded(false)
+    setSystemCheck(null)
+    setSystemSummary(null)
+    setChecksPhase('idle')
+  }, [])
+
+  const handleLogin = async ({ username, password, totp }) => {
+    setAuthError('')
+    if (!username || !password) {
+      setAuthError('Kullanıcı adı ve parola gereklidir.')
       return
     }
 
     setAuthenticating(true)
     try {
-      setApiKey(apiKey)
-      await apiFetch('/healthz')
-      persistSessionFlag(true)
+      const response = await apiFetch('/auth/login', {
+        method: 'POST',
+        body: {
+          username: username.trim(),
+          password: password.trim(),
+          totp: totp?.trim() || undefined
+        }
+      })
+      const data = await response.json()
+      setStoredApiKey(data.api_key)
+      setSessionMeta({
+        apiKey: data.api_key,
+        role: data.role,
+        sessionExpiresAt: data.session_expires_at
+      })
       setIsAuthenticated(true)
+      try {
+        const meResponse = await apiFetch('/auth/me')
+        const me = await meResponse.json()
+        setSessionMeta((prev) => ({
+          ...(prev || {}),
+          username: me.username,
+          role: me.role,
+          apiKeyLastRotated: me.api_key_last_rotated
+        }))
+      } catch (infoError) {
+        console.warn('Kullanıcı bilgileri alınamadı:', infoError)
+      }
     } catch (error) {
-      logout(error?.message || 'API anahtarı doğrulanamadı.')
+      setStoredApiKey(null)
+      setSessionMeta(null)
+      setIsAuthenticated(false)
+      setAuthError(error?.message || 'Giriş başarısız oldu.')
     } finally {
       setAuthenticating(false)
     }
@@ -170,10 +195,14 @@ function AppShell() {
           setSystemSummary(null)
         }
       } catch (error) {
-        console.warn('System check verileri alınamadı:', error)
+        if ((isApiError(error) && error.status === 401) || error?.message?.includes('401')) {
+          logout('Oturum doğrulaması başarısız oldu. Lütfen yeniden giriş yapın.')
+        } else {
+          console.warn('System check verileri alınamadı:', error)
+        }
       }
     },
-    [isAuthenticated]
+    [isAuthenticated, logout]
   )
 
   const fetchMetrics = useCallback(
@@ -213,23 +242,57 @@ function AppShell() {
       } catch (error) {
         console.error('Failed to fetch metrics:', error)
         setLastUpdatedAt(null)
-        if (error?.message?.includes('401') || !getApiKey()) {
+        if ((isApiError(error) && error.status === 401) || error?.message?.includes('401') || !sessionMeta?.apiKey) {
           logout('Oturumunuz sonlandırıldı. Lütfen tekrar giriş yapın.')
           return
         }
-        setGlobalStatus({
-          type: 'error',
-          message:
-            error?.message
-              ? `Metrikler alınırken hata oluştu: ${error.message}`
-              : 'Metrikler alınırken beklenmeyen bir hata oluştu.'
-        })
+
+        if (isApiError(error) && (error.code === 'offline' || error.code === 'network')) {
+          setGlobalStatus((prev) =>
+            prev?.code === 'offline'
+              ? prev
+              : {
+                  type: 'warning',
+                  message:
+                    'İnternet bağlantısı kesilmiş görünüyor. Bağlantı geri geldiğinde veriler otomatik yenilenecek.',
+                  code: 'offline',
+                  actionLabel: 'Şimdi tekrar dene',
+                  onAction: () => fetchMetrics({ manual: true })
+                }
+          )
+        } else if (isApiError(error) && error.code === 'timeout') {
+          setGlobalStatus({
+            type: 'warning',
+            message: 'API isteği zaman aşımına uğradı. Lütfen bağlantınızı kontrol ettikten sonra tekrar deneyin.',
+            code: 'timeout',
+            actionLabel: 'Tekrar dene',
+            onAction: () => fetchMetrics({ manual: true })
+          })
+        } else {
+          setGlobalStatus({
+            type: 'error',
+            message:
+              error?.message
+                ? `Metrikler alınırken hata oluştu: ${error.message}`
+                : 'Metrikler alınırken beklenmeyen bir hata oluştu.'
+          })
+        }
+
         setMetricsPhase('error')
         if (manual) {
           showToast({
-            type: 'error',
-            title: 'Yenileme başarısız',
-            description: error?.message || 'Metrikler alınırken beklenmeyen bir hata oluştu.'
+            type:
+              isApiError(error) && (error.code === 'offline' || error.code === 'network' || error.code === 'timeout')
+                ? 'warning'
+                : 'error',
+            title:
+              isApiError(error) && error.code === 'timeout'
+                ? 'İstek zaman aşımına uğradı'
+                : isApiError(error) && (error.code === 'offline' || error.code === 'network')
+                  ? 'Ağ bağlantısı yok'
+                  : 'Yenileme başarısız',
+            description:
+              error?.message || 'Metrikler alınırken beklenmeyen bir hata oluştu.'
           })
         }
       } finally {
@@ -238,8 +301,12 @@ function AppShell() {
         }
       }
     },
-    [fetchSystemCheckData, firstMetricsLoaded, isAuthenticated, logout, showToast]
+    [fetchSystemCheckData, firstMetricsLoaded, isAuthenticated, logout, sessionMeta?.apiKey, showToast]
   )
+
+  const handleRetryNow = useCallback(() => {
+    fetchMetrics({ manual: true })
+  }, [fetchMetrics])
 
   const toggleSimulation = async () => {
     try {
@@ -256,7 +323,7 @@ function AppShell() {
       setGlobalStatus(null)
     } catch (error) {
       console.error('Failed to toggle simulation:', error)
-      if (error?.message?.includes('401') || !getApiKey()) {
+      if ((isApiError(error) && error.status === 401) || error?.message?.includes('401') || !sessionMeta?.apiKey) {
         logout('Oturumunuz sonlandırıldı. Lütfen tekrar giriş yapın.')
         return
       }
@@ -291,16 +358,20 @@ function AppShell() {
         })
       } catch (error) {
         console.error('Testler çalıştırılırken hata:', error)
-        showToast({
-          type: 'error',
-          title: 'Testler başarısız',
-          description: error?.message || 'Testler çalıştırılırken beklenmeyen bir hata oluştu.'
-        })
+        if ((isApiError(error) && error.status === 401) || error?.message?.includes('401')) {
+          logout('Oturumunuz sonlandırıldı. Lütfen tekrar giriş yapın.')
+        } else {
+          showToast({
+            type: 'error',
+            title: 'Testler başarısız',
+            description: error?.message || 'Testler çalıştırılırken beklenmeyen bir hata oluştu.'
+          })
+        }
       } finally {
         setChecksPhase('idle')
       }
     },
-    [checksPhase, fetchSystemCheckData, isAuthenticated, showToast]
+    [checksPhase, fetchSystemCheckData, isAuthenticated, logout, showToast]
   )
 
   useEffect(() => {
@@ -320,6 +391,34 @@ function AppShell() {
     }
     fetchMetrics({ manual: true })
   }
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      return undefined
+    }
+
+    const handleOnline = () => {
+      setGlobalStatus((prev) => (prev?.code === 'offline' ? null : prev))
+      fetchMetrics()
+    }
+
+    const handleOffline = () => {
+      setGlobalStatus({
+        type: 'warning',
+        message: 'İnternet bağlantısı kesildi. Bağlantı geri geldiğinde veriler otomatik yenilenecek.',
+        code: 'offline',
+        actionLabel: 'Şimdi tekrar dene',
+        onAction: handleRetryNow
+      })
+    }
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [fetchMetrics, handleRetryNow, isAuthenticated])
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -424,8 +523,7 @@ function AppShell() {
         onSubmit={handleLogin}
         submitting={authenticating}
         error={authError}
-        requiresPassword={passwordRequired}
-        defaultApiKey={getApiKey()}
+        defaultApiKey={sessionMeta?.apiKey || ''}
       />
     )
   }
@@ -528,10 +626,17 @@ function AppShell() {
                       Güncelleniyor
                     </Badge>
                   )}
-                </div>
+              </div>
 
-                <Button
-                  onClick={manualRefresh}
+              {sessionMeta?.username && (
+                <div className="flex flex-col items-end text-sm text-muted-foreground">
+                  <span className="font-medium text-foreground">{sessionMeta.username}</span>
+                  {sessionMeta?.role && <span className="text-xs uppercase tracking-wide">{sessionMeta.role}</span>}
+                </div>
+              )}
+
+              <Button
+                onClick={manualRefresh}
                   variant="outline"
                   size="sm"
                   disabled={manualRefreshing}
@@ -591,6 +696,12 @@ function AppShell() {
                 'Veriler 15 saniyeden uzun süredir güncellenmedi. API bağlantınızı kontrol edin veya Yenile butonunu kullanın.'
               }
               className="mx-4 mt-4"
+              actionLabel={globalStatus?.actionLabel}
+              onAction={globalStatus?.onAction || (globalStatus?.code === 'offline' ? handleRetryNow : undefined)}
+              actionVariant={globalStatus?.actionVariant}
+              actionDisabled={
+                globalStatus?.actionDisabled ?? (globalStatus?.code === 'offline' ? manualRefreshing : false)
+              }
             />
           )}
 
