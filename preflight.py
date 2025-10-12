@@ -155,7 +155,8 @@ def maybe_start_api() -> None:
         yield
     finally:
         if proc and proc.poll() is None:
-            proc.send_signal(signal.SIGINT)
+            # Use terminate() instead of SIGINT for cross-platform compatibility
+            proc.terminate()
             try:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:

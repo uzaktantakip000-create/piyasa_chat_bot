@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Generator, Any, Dict, Optional, Tuple
 
 from sqlalchemy import (
@@ -64,7 +64,7 @@ class Bot(Base):
     # Yeni: duygusal ton, anekdot havuzu ve imza ifadeleri
     emotion_profile = Column(JSON, default=dict)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     messages = relationship("Message", back_populates="bot", cascade="all,delete-orphan")
     # Yeni ilişkiler
@@ -91,7 +91,7 @@ class Chat(Base):
     # Örn: ["BIST","FX","Kripto","Makro"]
     topics = Column(JSON, default=list)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     messages = relationship("Message", back_populates="chat", cascade="all,delete-orphan")
 
@@ -101,7 +101,7 @@ class Setting(Base):
 
     key = Column(String(64), primary_key=True)
     value = Column(JSON, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
 
 class Message(Base):
@@ -119,7 +119,7 @@ class Message(Base):
     reply_to_message_id = Column(BigInteger, nullable=True)
 
     # Performans için index
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
 
     bot = relationship("Bot", back_populates="messages")
     chat = relationship("Chat", back_populates="messages")
@@ -139,7 +139,7 @@ class BotStance(Base):
     topic = Column(String(64), nullable=False)           # örn: "Bankacılık", "Kripto", "Makro"
     stance_text = Column(Text, nullable=False)           # kısa tutum metni / kanaat özeti
     confidence = Column(Float, nullable=True)            # 0.0–1.0 arası güven
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
     cooldown_until = Column(DateTime, nullable=True)     # bu tarihe kadar keskin fikir değişikliği yapma
 
     bot = relationship("Bot", back_populates="stances")
@@ -160,7 +160,7 @@ class BotHolding(Base):
     avg_price = Column(Float, nullable=True)             # ortalama maliyet
     size = Column(Float, nullable=True)                  # adet/lot (sadece hikâye için)
     note = Column(Text, nullable=True)                   # açıklama (örn. "uzun vade", "kısa vade deneme")
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
     bot = relationship("Bot", back_populates="holdings")
 
@@ -180,7 +180,7 @@ class SystemCheck(Base):
     failed_steps = Column(Integer, nullable=False)
     duration = Column(Float, nullable=True)
     triggered_by = Column(String(64), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
     details = Column(JSON, default=dict)
 
     __table_args__ = (
@@ -201,9 +201,9 @@ class ApiUser(Base):
     mfa_secret = Column(String(32), nullable=True)
     api_key_hash = Column(String(128), nullable=False)
     api_key_salt = Column(String(32), nullable=False)
-    api_key_last_rotated = Column(DateTime, default=datetime.utcnow, nullable=False)
+    api_key_last_rotated = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
 
 class ApiSession(Base):
@@ -215,8 +215,8 @@ class ApiSession(Base):
     session_hash = Column(String(128), nullable=False)
     session_salt = Column(String(32), nullable=False)
     user_agent = Column(String(256), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    last_seen_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    last_seen_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
     expires_at = Column(DateTime, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
 
@@ -333,6 +333,36 @@ def migrate_news_feed_urls_setting() -> None:
         db.close()
 
 
+def _validate_password_strength(password: str) -> tuple[bool, str]:
+    """
+    Validate password strength for admin accounts.
+    Returns: (is_valid, error_message)
+    """
+    if len(password) < 12:
+        return False, "Password must be at least 12 characters long"
+
+    has_upper = any(c.isupper() for c in password)
+    has_lower = any(c.islower() for c in password)
+    has_digit = any(c.isdigit() for c in password)
+    has_special = any(c in "!@#$%^&*()_+-=[]{}|;:,.<>?/~`" for c in password)
+
+    if not has_upper:
+        return False, "Password must contain at least one uppercase letter"
+    if not has_lower:
+        return False, "Password must contain at least one lowercase letter"
+    if not has_digit:
+        return False, "Password must contain at least one digit"
+    if not has_special:
+        return False, "Password must contain at least one special character (!@#$%^&* etc.)"
+
+    # Check for common weak passwords
+    weak_passwords = {"password123!", "Admin123!", "admin123!", "Password123!"}
+    if password in weak_passwords:
+        return False, "Password is too common; please use a unique strong password"
+
+    return True, ""
+
+
 def ensure_default_admin_user() -> Optional[Dict[str, str]]:
     """Create the default admin user with MFA and API key if requested."""
 
@@ -344,6 +374,17 @@ def ensure_default_admin_user() -> Optional[Dict[str, str]]:
 
     if not password:
         logger.warning("DEFAULT_ADMIN_PASSWORD not set; skipping default admin creation.")
+        return None
+
+    # Validate password strength
+    is_valid, error_msg = _validate_password_strength(password)
+    if not is_valid:
+        logger.error(
+            "DEFAULT_ADMIN_PASSWORD validation failed: %s. "
+            "Admin user creation skipped for security. "
+            "Please set a strong password in .env (min 12 chars, uppercase, lowercase, digit, special char).",
+            error_msg
+        )
         return None
 
     db = SessionLocal()
@@ -373,7 +414,7 @@ def ensure_default_admin_user() -> Optional[Dict[str, str]]:
             mfa_secret=mfa_secret,
             api_key_hash=api_key_hash,
             api_key_salt=api_key_salt,
-            api_key_last_rotated=datetime.utcnow(),
+            api_key_last_rotated=datetime.now(timezone.utc),
             is_active=True,
         )
         db.add(user)
@@ -406,7 +447,7 @@ def create_user_session(
     user_agent: Optional[str] = None,
 ) -> Tuple[str, ApiSession]:
     token_id, token_secret, session_hash, session_salt = generate_session_token()
-    expires_at = datetime.utcnow() + timedelta(hours=ttl_hours)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=ttl_hours)
     session = ApiSession(
         user_id=user.id,
         token_id=token_id,
@@ -431,7 +472,7 @@ def get_user_by_session_token(db: Session, token: str) -> Optional[ApiUser]:
         .filter(
             ApiSession.token_id == token_id,
             ApiSession.is_active.is_(True),
-            ApiSession.expires_at > datetime.utcnow(),
+            ApiSession.expires_at > datetime.now(timezone.utc),
         )
         .first()
     )
@@ -439,7 +480,7 @@ def get_user_by_session_token(db: Session, token: str) -> Optional[ApiUser]:
         return None
     if not verify_secret(token_secret, session.session_hash, session.session_salt):
         return None
-    session.last_seen_at = datetime.utcnow()
+    session.last_seen_at = datetime.now(timezone.utc)
     db.add(session)
     try:
         db.commit()
@@ -472,7 +513,7 @@ def purge_expired_sessions(db: Optional[Session] = None) -> int:
         db = SessionLocal()
         owns_session = True
     try:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         sessions = (
             db.query(ApiSession)
             .filter(ApiSession.expires_at <= now, ApiSession.is_active.is_(True))
@@ -508,7 +549,7 @@ def rotate_user_api_key(db: Session, user: ApiUser) -> str:
     api_key, api_key_hash, api_key_salt = generate_api_key()
     user.api_key_hash = api_key_hash
     user.api_key_salt = api_key_salt
-    user.api_key_last_rotated = datetime.utcnow()
+    user.api_key_last_rotated = datetime.now(timezone.utc)
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -555,7 +596,7 @@ def create_api_user(
             mfa_secret=mfa_secret,
             api_key_hash=api_key_hash,
             api_key_salt=api_key_salt,
-            api_key_last_rotated=datetime.utcnow(),
+            api_key_last_rotated=datetime.now(timezone.utc),
             is_active=True,
         )
         db.add(user)

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -215,7 +215,7 @@ def test_system_check_summary(authenticated_client):
 
     session = SessionLocal()
     try:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         adjustments = [
             (first_id, timedelta(days=2), "passed"),
             (second_id, timedelta(hours=6), "failed"),

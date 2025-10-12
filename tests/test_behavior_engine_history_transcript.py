@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 import sys
@@ -22,7 +22,7 @@ def _make_message(*, minutes: int, text: str, bot=None, sender_name: str | None 
         bot=bot,
         chat=chat,
         bot_id=getattr(bot, "id", None),
-        created_at=datetime.utcnow() + timedelta(minutes=minutes),
+        created_at=datetime.now(timezone.utc) + timedelta(minutes=minutes),
     )
     if sender_name is not None:
         msg.sender_name = sender_name
