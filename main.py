@@ -8,7 +8,7 @@ import subprocess
 import time
 import asyncio
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from http.cookies import SimpleCookie
 from pathlib import Path
 from typing import List, Optional, Dict, Any
@@ -183,23 +183,65 @@ admin_dependencies = [Depends(require_role("admin"))]
 # ----------------------
 # Redis util (optional)
 # ----------------------
-def get_redis() -> Optional[redis.Redis]:
+_redis_connection_pool: Optional[redis.ConnectionPool] = None
+_redis_available = False
+
+def _init_redis_pool() -> None:
+    """Initialize Redis connection pool with health check."""
+    global _redis_connection_pool, _redis_available
+
     url = os.getenv("REDIS_URL")
     if not url:
+        logger.info("REDIS_URL not set; Redis features disabled (config sync, caching)")
+        _redis_available = False
+        return
+
+    try:
+        # Create connection pool with reasonable timeouts
+        _redis_connection_pool = redis.ConnectionPool.from_url(
+            url,
+            decode_responses=True,
+            max_connections=10,
+            socket_connect_timeout=3,
+            socket_timeout=3,
+            retry_on_timeout=True,
+        )
+
+        # Test connection
+        client = redis.Redis(connection_pool=_redis_connection_pool)
+        client.ping()
+        _redis_available = True
+        logger.info("Redis connection established: %s", url.split("@")[-1] if "@" in url else url)
+    except Exception as e:
+        logger.warning(
+            "Redis unavailable: %s. System will continue without Redis features (config sync, caching).",
+            e
+        )
+        _redis_available = False
+        _redis_connection_pool = None
+
+
+def get_redis() -> Optional[redis.Redis]:
+    """Get Redis client from pool if available."""
+    if not _redis_available or not _redis_connection_pool:
         return None
     try:
-        return redis.from_url(url, decode_responses=True)
+        return redis.Redis(connection_pool=_redis_connection_pool)
     except Exception as e:
-        logger.warning("Redis bağlantısı kurulamadı: %s", e)
+        logger.debug("Redis client creation failed: %s", e)
         return None
 
+
 def publish_config_update(r: Optional[redis.Redis], payload: Dict[str, Any]):
+    """Publish configuration update to Redis channel with fallback."""
     if not r:
+        logger.debug("Redis unavailable; config update not published: %s", payload.get("type"))
         return
     try:
         r.publish("config_updates", json.dumps(payload))
+        logger.debug("Config update published to Redis: %s", payload.get("type"))
     except Exception as e:
-        logger.warning("Redis publish hatası: %s", e)
+        logger.warning("Redis publish failed: %s. Config update skipped (not critical).", e)
 
 # ----------------------
 # Startup
@@ -209,6 +251,7 @@ def _startup():
     create_tables()
     init_default_settings()
     migrate_plain_tokens()
+    _init_redis_pool()  # Initialize Redis connection pool with health check
     admin_info = ensure_default_admin_user()
     if admin_info:
         masked_api = mask_token(admin_info["api_key"])
@@ -255,7 +298,13 @@ def _bot_to_response(db_bot: Bot) -> BotResponse:
 # ----------------------
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "ts": datetime.utcnow().isoformat()}
+    """Health check endpoint with Redis status."""
+    redis_status = "connected" if _redis_available else "unavailable"
+    return {
+        "ok": True,
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "redis": redis_status
+    }
 
 
 @app.post("/auth/login", response_model=LoginResponse)
@@ -475,7 +524,7 @@ def get_system_check_summary(
     window_days: int = Query(7, ge=1, le=90),
     db: Session = Depends(get_db),
 ):
-    window_end = datetime.utcnow()
+    window_end = datetime.now(timezone.utc)
     window_start = window_end - timedelta(days=window_days)
 
     checks = (
@@ -560,9 +609,12 @@ def get_system_check_summary(
         elif level == overall_status and message:
             overall_message = message
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     hours_since_last_run: Optional[float] = None
     if last_run_at is not None:
+        # Ensure last_run_at is timezone-aware for comparison
+        if last_run_at.tzinfo is None:
+            last_run_at = last_run_at.replace(tzinfo=timezone.utc)
         hours_since_last_run = (now - last_run_at).total_seconds() / 3600.0
 
     if total_runs == 0:
@@ -895,7 +947,7 @@ def _calculate_metrics(db: Session) -> MetricsResponse:
     active_bots = db.query(Bot).filter(Bot.is_enabled.is_(True)).count()
     total_chats = db.query(Chat).count()
 
-    one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+    one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
     last_hour_msgs = db.query(Message).filter(Message.created_at >= one_hour_ago).count()
     per_min = round(last_hour_msgs / 60.0, 3)
 
@@ -945,7 +997,7 @@ def _build_dashboard_snapshot() -> Dict[str, Any]:
         )
         return {
             "type": "dashboard_snapshot",
-            "generated_at": datetime.utcnow().isoformat(),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
             "metrics": json.loads(metrics_model.json()),
             "latest_check": latest_payload,
         }

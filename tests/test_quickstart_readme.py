@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -88,5 +88,5 @@ def test_readme_health_endpoints(authenticated_client):
     assert checks.json() is None
 
     # Tarih alanı örneği - README hızlı başlangıç zaman damgalarını kullanıyor
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     assert isinstance(now, str)

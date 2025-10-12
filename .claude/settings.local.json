@@ -5,7 +5,9 @@
       "Bash(python:*)",
       "Bash(curl -s http://127.0.0.1:8000/healthz)",
       "Bash(mv:*)",
-      "Bash(curl -s http://127.0.0.1:8001/healthz)"
+      "Bash(curl -s http://127.0.0.1:8001/healthz)",
+      "Bash(git restore:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": []
