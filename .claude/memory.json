@@ -1,0 +1,149 @@
+{
+  "learned_patterns": {
+    "successful_approaches": [
+      {
+        "pattern": "async_database_operations",
+        "description": "Always use AsyncSession for database operations",
+        "example": "async with AsyncSession(engine) as session:\n    result = await session.execute(query)",
+        "success_rate": 100,
+        "learned_date": "2025-10-12"
+      },
+      {
+        "pattern": "custom_exceptions",
+        "description": "Use custom exceptions with context",
+        "example": "raise BotNotFoundError(bot_id=id, reason='deleted')",
+        "success_rate": 95,
+        "learned_date": "2025-10-12"
+      },
+      {
+        "pattern": "repository_pattern",
+        "description": "Separate data access with repository layer",
+        "example": "class BotRepository:\n    async def get_by_id(self, id: int) -> Optional[Bot]",
+        "success_rate": 100,
+        "learned_date": "2025-10-12"
+      }
+    ],
+    "failed_approaches": [
+      {
+        "anti_pattern": "localStorage_in_artifacts",
+        "description": "localStorage fails silently in Claude artifacts",
+        "why_failed": "Not supported in artifact environment",
+        "correct_approach": "Use React state (useState, useReducer)",
+        "learned_date": "2025-10-12"
+      },
+      {
+        "anti_pattern": "sync_in_async_context",
+        "description": "Using synchronous code in async functions",
+        "why_failed": "Blocks event loop, causes performance issues",
+        "correct_approach": "Use async/await everywhere, use AsyncSession",
+        "learned_date": "2025-10-12"
+      },
+      {
+        "anti_pattern": "hardcoded_secrets",
+        "description": "Hardcoding API keys or passwords in code",
+        "why_failed": "Security vulnerability",
+        "correct_approach": "Use environment variables via settings",
+        "learned_date": "2025-10-12"
+      }
+    ]
+  },
+  "project_specific_knowledge": {
+    "telegram_api": {
+      "rate_limits": {
+        "messages_per_second": 30,
+        "messages_per_minute": 300,
+        "retry_strategy": "exponential_backoff"
+      },
+      "common_errors": {
+        "429": "Rate limit exceeded - implement retry with backoff",
+        "401": "Invalid bot token - check TOKEN_ENCRYPTION_KEY",
+        "404": "Chat not found - bot may not be in group"
+      }
+    },
+    "openai_api": {
+      "best_practices": {
+        "model": "gpt-4o-mini",
+        "timeout": 30,
+        "max_retries": 3,
+        "cache_similar_prompts": true
+      },
+      "cost_optimization": {
+        "cache_responses": "15 minutes TTL",
+        "use_cheaper_model_when_possible": true,
+        "track_token_usage": true
+      }
+    },
+    "database": {
+      "optimization": {
+        "indexes_on": ["bot_id", "chat_id", "created_at", "is_deleted"],
+        "bulk_operations": "Use bulk_insert_mappings for multiple records",
+        "connection_pool": "20-40 connections for production"
+      },
+      "conventions": {
+        "model_names": "Singular (Bot, Chat, Message)",
+        "table_names": "Plural (bots, chats, messages)",
+        "id_type": "Integer, not UUID",
+        "timestamps": "created_at, updated_at in UTC"
+      }
+    }
+  },
+  "common_bugs_and_fixes": [
+    {
+      "bug": "ImportError: circular dependency between modules",
+      "solution": "Use dependency injection or import inside function",
+      "frequency": "medium",
+      "files_affected": ["services", "api/endpoints"]
+    },
+    {
+      "bug": "asyncpg.exceptions.TooManyConnectionsError",
+      "solution": "Increase pool_size or check for connection leaks with context managers",
+      "frequency": "low",
+      "files_affected": ["database connections"]
+    },
+    {
+      "bug": "Pydantic ValidationError on API requests",
+      "solution": "Check request body schema matches Pydantic model, add Field descriptions",
+      "frequency": "high",
+      "files_affected": ["api/endpoints", "schemas"]
+    },
+    {
+      "bug": "Worker process crashes with argparse import error",
+      "solution": "Import argparse at module level, not conditionally",
+      "frequency": "fixed",
+      "learned_date": "2025-10-12"
+    }
+  ],
+  "time_estimates": {
+    "new_api_endpoint": "15-20 minutes",
+    "new_service_layer": "25-30 minutes",
+    "database_migration": "10-15 minutes",
+    "comprehensive_tests": "20-25 minutes",
+    "bug_fix": "10-20 minutes",
+    "refactoring": "30-60 minutes"
+  },
+  "performance_benchmarks": {
+    "api_response_time": {
+      "target_p95": "200ms",
+      "current_average": "150ms",
+      "slow_endpoints": []
+    },
+    "database_queries": {
+      "target_p95": "50ms",
+      "use_indexes": true,
+      "avoid_n_plus_1": true
+    }
+  },
+  "testing_insights": {
+    "coverage_targets": {
+      "overall": 80,
+      "unit_tests": 85,
+      "integration_tests": 70,
+      "e2e_tests": 50
+    },
+    "mock_strategy": {
+      "external_apis": "Always mock OpenAI and Telegram APIs",
+      "database": "Use in-memory SQLite for unit tests",
+      "redis": "Use fakeredis for testing"
+    }
+  }
+}

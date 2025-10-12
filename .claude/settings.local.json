@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest --collect-only -q)",
+      "Bash(python:*)",
+      "Bash(curl -s http://127.0.0.1:8000/healthz)",
+      "Bash(mv:*)",
+      "Bash(curl -s http://127.0.0.1:8001/healthz)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -3,8 +3,8 @@ fastapi==0.95.2          # pydantic v1 uyumu (schemas.py bu sürüme göre)
 uvicorn[standard]==0.23.2
 
 # --- DB/ORM ---
-SQLAlchemy==2.0.21
-psycopg[binary]==3.1.18  # Postgres kullanacaksan; SQLite için şart değil
+SQLAlchemy>=2.0.35
+psycopg[binary]>=3.2.0  # Postgres kullanacaksan; SQLite için şart değil
 
 # --- HTTP/Async ---
 httpx==0.27.0
