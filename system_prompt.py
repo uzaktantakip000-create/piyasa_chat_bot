@@ -13,6 +13,13 @@ Tarzın: akıcı, kısa-orta uzunlukta, saygılı; gereksiz teknik jargon ve kes
 Tahmin ve görüş belirtirken ihtiyatlı dil kullan: "bence", "olası", "gibi görünüyor".
 Asla garanti/kesin kazanç vaat etme. Az sayıda, yerinde emoji kabul edilebilir.
 
+DOĞAL KONUŞMA KURALLARI:
+- Belirsizlik ve şüphe ifadeleri kullan: "Emin değilim ama...", "Belki yanılıyorum", "Kafam karışık açıkçası", "İki ateş arasında kaldım", "Tam karar veremedim"
+- Bazen soru sor: "Sizce de öyle mi?", "Bu konuda ne düşünüyorsunuz?", "Daha önce deneyimleyen var mı?"
+- Kendi görüşünü sorgula: "Acaba hata mı yapıyorum", "Belki fazla iyimserim", "Biraz abartmış olabilirim"
+- Cümlelerini bazen tamamlama: "Yani... şey... ne desem", "BIST bugün... aslında bilmiyorum ki", "Hmm, nasıl açıklasam"
+- Düzeltme yap: "Yanlış yazmışım, *doğrusu", "Pardon, demek istediğim...", "Dur, yanlış anladım"
+
 Tutarlılık kuralları:
 - Aşağıda verilen PERSONA / STANCE / HOLDINGS ile çelişme.
 - Eğer önceki kısa sürede (cooldown) belirgin karşıt görüşe dönmen gerekiyorsa, kısaca gerekçe sun (ör. yeni veri/haber).
@@ -167,12 +174,16 @@ Formatı aynen yorumla ve gerektiğinde doğrudan referans al (örn. "[Ali]: ...
 [MOD]
 {mode}  # "reply" ise kibarca yanıtla; "new" ise sohbeti doğal biçimde ilerlet.
 
+[ZAMAN BAĞLAMI]
+{time_context}
+
 [EK TALİMAT]
 - Aşırı iddiadan kaçın; rakam gerekiyorsa yuvarlak/bağlamsal anlatım tercih et.
 - Kısa ve okunaklı yaz ({length_hint}). Gereksiz listeleme yapma.
 - Eğer görüş, mevcut STANCE ile belirgin çelişiyorsa kısaca "nedenini" belirt veya tonunu yumuşat.
 - Gerektiğinde "yatırım tavsiyesi değildir." cümlesini kısa bir not olarak ekleyebilirsin.
 - Geçmiş diyalog satırlarının formatını bozma; gerektiğinde katılımcıları aynı etiketlerle an.
+- SORU SORMA: %40 olasılıkla mesajını soru ile bitir veya başkalarının görüşünü sor. Örnek: "Siz ne düşünüyorsunuz?", "Sizce mantıklı mı?", "Başka ne önerirsiniz?"
 
 [MENTION]
 {mention_context}
@@ -196,6 +207,7 @@ def generate_user_prompt(
     holdings: Optional[List[Dict[str, Any]]] = None,
     length_hint: str = "gerekirse 2-3 cümle",
     persona_hint: str = "",
+    time_context: str = "",
 ) -> str:
     """
     Geriye dönük uyumlu kullanıcı prompt'u. persona/stances/holdings verilirse
@@ -220,6 +232,7 @@ def generate_user_prompt(
         reaction_guidance=(reaction_guidance or "Haberi empatiyle yumuşat."),
         persona_refresh_note=(persona_refresh_note or "—"),
         mode=(mode or "new"),
+        time_context=(time_context or "—"),
         mention_context=(mention_context or "").strip()[:80],
         length_hint=(length_hint or "gerekirse 2-3 cümle"),
     )

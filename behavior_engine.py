@@ -461,6 +461,156 @@ def choose_topic_from_messages(
     return rng.choice(fallback_pool)
 
 
+def generate_time_context() -> str:
+    """Generate human-like time-of-day context for more natural conversations."""
+    local = datetime.now()
+    hour = local.hour
+
+    # Sabah (06:00-09:00)
+    if 6 <= hour < 9:
+        contexts = [
+            "Günaydın, sabah kahvesi içerken",
+            "Sabah erken saatler",
+            "İşe gitmeden önce hızlıca",
+            "Güne başlarken",
+        ]
+    # Piyasa açılış (09:00-10:30)
+    elif 9 <= hour < 11:
+        contexts = [
+            "Piyasa açılışı sırasında",
+            "Sabah ilk saatler",
+            "Gün başında",
+            "Açılış heyecanıyla",
+        ]
+    # Öğlen (10:30-13:00)
+    elif 11 <= hour < 13:
+        contexts = [
+            "Öğlen arası molada",
+            "Gün ortası",
+            "Öğle yemeği öncesi",
+        ]
+    # Öğleden sonra (13:00-17:00)
+    elif 13 <= hour < 17:
+        contexts = [
+            "Öğleden sonra işlerin arasında",
+            "Günün ikinci yarısı",
+            "Piyasa kapanışına doğru",
+        ]
+    # Piyasa kapanış (17:00-19:00)
+    elif 17 <= hour < 19:
+        contexts = [
+            "Piyasa kapandı, evde dinlenirken",
+            "İşten yeni çıktım",
+            "Akşam yaklaşırken",
+            "Günü değerlendirirken",
+        ]
+    # Akşam (19:00-23:00)
+    elif 19 <= hour < 23:
+        contexts = [
+            "Akşam yemeğinden sonra",
+            "Akşam saatleri, rahat rahat",
+            "Günü geride bırakırken",
+            "Akşam dinlenirken",
+        ]
+    # Gece (23:00-06:00)
+    else:
+        contexts = [
+            "Gece geç saatler",
+            "Herkes uyumuşken ben hâlâ piyasalara bakıyorum",
+            "Gece vakti sessizlikte",
+        ]
+
+    # Hafta sonu özel durumu
+    if local.weekday() >= 5:  # Cumartesi=5, Pazar=6
+        return "Hafta sonu keyifle"
+
+    return random.choice(contexts)
+
+
+def apply_natural_imperfections(text: str, probability: float = 0.15) -> str:
+    """
+    Doğal kusurlar ekler: bazen yazım hataları yapıp düzeltir.
+
+    Args:
+        text: Düzenlenecek metin
+        probability: Kusur ekleme olasılığı (varsayılan %15)
+
+    Returns:
+        Düzenlenmiş metin (kusur varsa düzeltmeyle birlikte)
+    """
+    if not text or random.random() > probability:
+        return text
+
+    # Türkçe'de sık yapılan yazım hataları ve düzeltmeleri
+    typo_patterns = [
+        # Klavye yakınlığı hataları (yanyana tuşlar)
+        ("artık", "artıl"),  # k -> l
+        ("değil", "deği"),   # l eksik
+        ("çok", "vok"),      # ç -> v (Türkçe Q klavye)
+        ("gibi", "gıbi"),    # i -> ı
+        ("için", "ıcın"),    # i -> ı
+        ("yani", "yanı"),    # i -> ı
+        ("oldu", "oldu"),    # tekrar (aslında doğru)
+        ("sanki", "sankı"),  # i -> ı
+        ("bence", "bense"),  # c -> s
+        ("şimdi", "şimdi"),  # tekrar (doğru)
+        ("bunlar", "bunalr"), # r ile l yer değiştirme
+    ]
+
+    # Metinde uygulanabilecek bir pattern ara
+    available_patterns = []
+    for correct, typo in typo_patterns:
+        if correct in text.lower():
+            available_patterns.append((correct, typo))
+
+    if not available_patterns:
+        return text
+
+    # Rastgele bir hata seç
+    correct, typo = random.choice(available_patterns)
+
+    # Metinde ilk geçtiği yeri bul (case-insensitive)
+    words = text.split()
+    modified = False
+
+    for i, word in enumerate(words):
+        clean_word = word.strip('.,!?;:').lower()
+        if clean_word == correct:
+            # Orijinal kelimenin punctuation'ını koru
+            prefix = ""
+            suffix = ""
+            for char in word:
+                if not char.isalnum() and not char in "çğıöşü":
+                    prefix += char
+                else:
+                    break
+            for char in reversed(word):
+                if not char.isalnum() and not char in "çğıöşü":
+                    suffix = char + suffix
+                else:
+                    break
+
+            # Hatalı kelimeyi ekle, sonra düzeltme yap
+            typo_word = prefix + typo + suffix
+            words[i] = typo_word
+
+            # Düzeltme şekilleri
+            correction_styles = [
+                f"{typo_word} *{word}",  # Markdown düzeltme
+                f"{typo_word}, yani {word}",  # Açıklayıcı düzeltme
+                f"{typo_word} pardon {word}",  # Özür dileyerek düzeltme
+            ]
+
+            words[i] = random.choice(correction_styles)
+            modified = True
+            break
+
+    if modified:
+        return " ".join(words)
+
+    return text
+
+
 def choose_message_length_category(
     profile: Optional[Dict[str, float]], *, rng: Optional[random.Random] = None
 ) -> str:
@@ -1345,6 +1495,10 @@ METİN:
                 persona_profile=persona_profile,
                 selected_category=selected_length_category,
             )
+
+            # Zaman bağlamı oluştur
+            time_context = generate_time_context()
+
             user_prompt = generate_user_prompt(
                 topic_name=topic,
                 history_excerpt=shorten(history_excerpt, 400),
@@ -1361,6 +1515,7 @@ METİN:
                 length_hint=length_hint,
                 persona_hint=persona_hint,
                 persona_refresh_note=persona_refresh_note,
+                time_context=time_context,
             )
 
             # LLM üretimi (taslak)
@@ -1387,6 +1542,9 @@ METİN:
                 emotion_profile=emotion_profile,
                 plan=reaction_plan,
             )
+
+            # Doğal kusurlar uygula (yazım hataları + düzeltmeler)
+            text = apply_natural_imperfections(text, probability=0.15)
 
             # Mention'ı metne kibarca ekle (başta değilse)
             if mention_ctx and mention_ctx not in text:

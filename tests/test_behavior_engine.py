@@ -758,3 +758,51 @@ def test_choose_topic_fallback_preserves_random_choice():
 
     assert topic == "BIST"
     assert rng.last_choices == topics
+
+
+def test_generate_time_context_returns_valid_string():
+    from behavior_engine import generate_time_context
+
+    context = generate_time_context()
+
+    # Zaman bağlamı bir string olmalı
+    assert isinstance(context, str)
+    assert len(context) > 0
+
+    # Common time-related words should appear
+    valid_keywords = [
+        "sabah", "kahve", "Piyasa", "açılış", "öğlen", "öğleden",
+        "akşam", "gece", "hafta sonu", "keyif", "dinlen", "gün"
+    ]
+    assert any(keyword.lower() in context.lower() for keyword in valid_keywords)
+
+
+def test_apply_natural_imperfections_sometimes_adds_typos(monkeypatch):
+    from behavior_engine import apply_natural_imperfections
+
+    # Force typo to appear (100% probability)
+    result = apply_natural_imperfections("Bu çok önemli değil", probability=1.0)
+
+    # Should have a correction pattern (either *, yani, or pardon)
+    assert "*" in result or "yani" in result or "pardon" in result
+
+
+def test_apply_natural_imperfections_preserves_text_when_no_match():
+    from behavior_engine import apply_natural_imperfections
+
+    # Text without any correctable words
+    text = "xyz abc qwerty"
+    result = apply_natural_imperfections(text, probability=1.0)
+
+    # Should return unchanged
+    assert result == text
+
+
+def test_apply_natural_imperfections_respects_probability(monkeypatch):
+    from behavior_engine import apply_natural_imperfections
+
+    # 0% probability should never modify
+    text = "Bu çok önemli değil"
+    result = apply_natural_imperfections(text, probability=0.0)
+
+    assert result == text
