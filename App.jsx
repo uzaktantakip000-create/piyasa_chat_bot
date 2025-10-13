@@ -35,6 +35,7 @@ import InlineNotice from './components/InlineNotice'
 import { ToastProvider, useToast } from './components/ToastProvider'
 import { ThemeProvider } from './components/ThemeProvider'
 import ActivityCenter from './components/ActivityCenter'
+import { useWebSocketMetrics } from './src/hooks/useWebSocketMetrics'
 
 function AppShell() {
   const toastApi = useToast()
@@ -524,16 +525,88 @@ function AppShell() {
     [checksPhase, fetchSystemCheckData, isAuthenticated, logout, showToast, pushActivity]
   )
 
+  // WebSocket URL construction
+  const wsUrl = useMemo(() => {
+    if (typeof window === 'undefined') {
+      return null
+    }
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const host = window.location.host
+    return `${protocol}//${host}/ws/dashboard`
+  }, [])
+
+  // WebSocket message handler
+  const handleWebSocketMessage = useCallback((data) => {
+    if (data.type === 'dashboard_snapshot') {
+      if (data.metrics) {
+        setMetrics(data.metrics)
+        setSimulationActive(data.metrics.simulation_active)
+      }
+      if (data.latest_check) {
+        setSystemCheck(data.latest_check)
+      }
+      setLastUpdatedAt(new Date())
+      if (!firstMetricsLoaded) {
+        setFirstMetricsLoaded(true)
+        pushActivity({
+          severity: 'info',
+          title: 'WebSocket bağlantısı kuruldu',
+          description: 'Gerçek zamanlı veri akışı başladı.',
+          source: 'websocket'
+        })
+      }
+    }
+  }, [firstMetricsLoaded, pushActivity])
+
+  // WebSocket error handler
+  const handleWebSocketError = useCallback((error) => {
+    console.warn('WebSocket error, falling back to REST polling:', error)
+    pushActivity({
+      severity: 'warning',
+      title: 'WebSocket bağlantısı başarısız',
+      description: 'REST polling moduna geçildi.',
+      source: 'websocket'
+    })
+  }, [pushActivity])
+
+  // Use WebSocket with automatic fallback
+  const {
+    connectionState: wsConnectionState,
+    shouldUseWebSocket,
+    isConnected: wsIsConnected
+  } = useWebSocketMetrics(
+    isAuthenticated,
+    handleWebSocketMessage,
+    handleWebSocketError,
+    {
+      url: wsUrl,
+      reconnectInterval: 3000,
+      maxReconnectAttempts: 5,
+      heartbeatInterval: 30000
+    }
+  )
+
+  // REST polling fallback (when WebSocket fails or initial load)
   useEffect(() => {
     if (!isAuthenticated) {
       return undefined
     }
-    fetchMetrics()
-    const interval = setInterval(() => {
+
+    // Always fetch once on mount for initial data
+    if (!firstMetricsLoaded) {
       fetchMetrics()
-    }, 5000)
-    return () => clearInterval(interval)
-  }, [fetchMetrics, isAuthenticated])
+    }
+
+    // If WebSocket is not available, fall back to polling
+    if (!shouldUseWebSocket || !wsIsConnected) {
+      const interval = setInterval(() => {
+        fetchMetrics()
+      }, 5000)
+      return () => clearInterval(interval)
+    }
+
+    return undefined
+  }, [fetchMetrics, isAuthenticated, shouldUseWebSocket, wsIsConnected, firstMetricsLoaded])
 
   const manualRefresh = () => {
     if (manualRefreshing) {
@@ -787,6 +860,21 @@ function AppShell() {
                           <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
                         </span>
                         Güncelleniyor
+                      </Badge>
+                    )}
+                    {wsIsConnected && (
+                      <Badge variant="outline" className="flex items-center gap-1 text-xs bg-emerald-50 border-emerald-200 text-emerald-700">
+                        <span className="relative flex h-2 w-2">
+                          <span className="absolute inline-flex h-full w-full animate-pulse rounded-full bg-emerald-500 opacity-75" />
+                          <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                        </span>
+                        Canlı
+                      </Badge>
+                    )}
+                    {!shouldUseWebSocket && (
+                      <Badge variant="outline" className="flex items-center gap-1 text-xs bg-amber-50 border-amber-200 text-amber-700" title="REST polling modunda çalışıyor">
+                        <Clock className="h-3 w-3" />
+                        Polling
                       </Badge>
                     )}
                   </div>
