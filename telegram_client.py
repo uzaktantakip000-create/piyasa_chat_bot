@@ -4,6 +4,7 @@ import asyncio
 import atexit
 import os
 import logging
+import random
 import threading
 import time
 from collections import defaultdict
@@ -90,43 +91,90 @@ class TelegramClient:
         return f"{self.base_url}/bot{token}/{method}"
 
     async def _post(self, token: str, method: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        POST request with exponential backoff retry logic.
+
+        Retry strategy:
+        - 429 (rate limit): Use Retry-After header or exponential backoff with jitter
+        - 5xx (server errors): Exponential backoff with jitter
+        - Network errors: Exponential backoff with jitter
+        """
         url = self._url(token, method)
-        for attempt in range(1, 4):
+        max_retries = int(os.getenv("TELEGRAM_MAX_RETRIES", "5"))
+        base_delay = float(os.getenv("TELEGRAM_BASE_DELAY", "1.0"))
+        max_delay = float(os.getenv("TELEGRAM_MAX_DELAY", "60.0"))
+
+        for attempt in range(1, max_retries + 1):
             try:
                 r = await self.client.post(url, json=payload)
+
+                # Handle rate limiting (429)
                 if r.status_code == 429:
                     _bump_setting("telegram_429_count", 1)
                     retry_after = r.headers.get("retry-after")
-                    sleep_s = float(retry_after) if retry_after else 2.0 * attempt
-                    logger.warning("Telegram 429 (%s). Backoff %.1fs", method, sleep_s)
+
+                    if retry_after:
+                        # Respect Telegram's Retry-After header
+                        sleep_s = min(float(retry_after), max_delay)
+                    else:
+                        # Exponential backoff: base_delay * 2^(attempt-1) + jitter
+                        exp_delay = base_delay * (2 ** (attempt - 1))
+                        jitter = random.uniform(0, exp_delay * 0.1)  # 10% jitter
+                        sleep_s = min(exp_delay + jitter, max_delay)
+
+                    logger.warning(
+                        "Telegram 429 (%s) on attempt %d/%d. Backoff %.1fs",
+                        method, attempt, max_retries, sleep_s
+                    )
                     await asyncio.sleep(sleep_s)
                     continue
 
+                # Handle server errors (5xx)
                 if r.status_code >= 500:
-                    # Yeni: 5xx hataları ayrı sayaçta
                     _bump_setting("telegram_5xx_count", 1)
-                    # Eski geri uyumluluk: rate_limit_hits'i de artır (yakında kaldırılabilir)
-                    _bump_setting("rate_limit_hits", 1)
-                    sleep_s = 1.0 * attempt
-                    logger.warning("Telegram %s server error %s. Retry in %.1fs", method, r.status_code, sleep_s)
+                    _bump_setting("rate_limit_hits", 1)  # Backward compatibility
+
+                    # Exponential backoff with jitter
+                    exp_delay = base_delay * (2 ** (attempt - 1))
+                    jitter = random.uniform(0, exp_delay * 0.1)
+                    sleep_s = min(exp_delay + jitter, max_delay)
+
+                    logger.warning(
+                        "Telegram %s server error %s on attempt %d/%d. Retry in %.1fs",
+                        method, r.status_code, attempt, max_retries, sleep_s
+                    )
                     await asyncio.sleep(sleep_s)
                     continue
 
+                # Success path
                 r.raise_for_status()
                 data = r.json()
                 if not data.get("ok", False):
-                    # Bot API 'ok':false ise hata mesajını logla
-                    desc = data.get("description")
-                    logger.warning("Telegram %s error: %s", method, desc)
+                    desc = data.get("description", "Unknown error")
+                    logger.warning("Telegram %s API error: %s", method, desc)
                     return None
                 return data.get("result")
 
             except httpx.HTTPError as e:
-                logger.warning("HTTP error on %s attempt %d: %s", method, attempt, e)
-                await asyncio.sleep(1.0 * attempt)
+                # Network/connection errors - exponential backoff
+                exp_delay = base_delay * (2 ** (attempt - 1))
+                jitter = random.uniform(0, exp_delay * 0.1)
+                sleep_s = min(exp_delay + jitter, max_delay)
+
+                logger.warning(
+                    "HTTP error on %s attempt %d/%d: %s. Retry in %.1fs",
+                    method, attempt, max_retries, e, sleep_s
+                )
+
+                if attempt < max_retries:
+                    await asyncio.sleep(sleep_s)
+                else:
+                    logger.error("Max retries exceeded for %s: %s", method, e)
+
             except Exception as e:
-                logger.exception("Unexpected error on %s: %s", method, e)
+                logger.exception("Unexpected error on %s attempt %d/%d: %s", method, attempt, max_retries, e)
                 return None
+
         return None
 
     # -----------------------------

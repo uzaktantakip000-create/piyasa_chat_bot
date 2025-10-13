@@ -7,7 +7,16 @@
       "Bash(mv:*)",
       "Bash(curl -s http://127.0.0.1:8001/healthz)",
       "Bash(git restore:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(curl -s -X POST http://127.0.0.1:8000/login -H \"Content-Type: application/json\" -d \"{\"\"username\"\":\"\"admin\"\",\"\"password\"\":\"\"admin123\"\"}\" -w \"\\nHTTP_CODE:%{http_code}\")",
+      "Bash(curl -s -X POST http://127.0.0.1:8000/auth/login -H \"Content-Type: application/json\" -d \"{\"\"username\"\":\"\"admin\"\",\"\"password\"\":\"\"admin123\"\"}\" -w \"\\nHTTP_CODE:%{http_code}\")",
+      "Bash(curl -s -X POST http://127.0.0.1:8000/auth/login -H \"Content-Type: application/json\" -d \"{\"\"username\"\":\"\"admin\"\",\"\"password\"\":\"\"admin123\"\"}\")",
+      "Bash(npm install:*)",
+      "Bash(npm test:*)",
+      "Bash(npm run build)",
+      "Bash(test:*)",
+      "Bash(curl -s http://127.0.0.1:8000/api/health)"
     ],
     "deny": [],
     "ask": []
