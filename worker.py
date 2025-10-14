@@ -13,7 +13,10 @@ from dotenv import load_dotenv
 # .env ortam değişkenlerini worker için de yükle
 load_dotenv()
 
+import redis
+
 from behavior_engine import run_engine_forever
+from message_listener import run_listener_service
 
 # (Opsiyonel) Davranış motoru için kapatma kancası
 try:
@@ -26,6 +29,8 @@ except Exception:
 # ---- Konfig ----
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 SHUTDOWN_TIMEOUT = float(os.getenv("SHUTDOWN_TIMEOUT", "15"))  # saniye
+# Long polling veya webhook modu (varsayılan: webhook)
+USE_LONG_POLLING = os.getenv("USE_LONG_POLLING", "false").lower() in {"1", "true", "yes", "on"}
 
 logging.basicConfig(
     level=LOG_LEVEL,
@@ -50,9 +55,47 @@ def _install_signal_handlers(loop: asyncio.AbstractEventLoop):
             loop.add_signal_handler(sig, _handler)
 
 
+def _get_redis_client() -> redis.Redis | None:
+    """Redis client oluştur (varsa)"""
+    redis_url = os.getenv("REDIS_URL")
+    if not redis_url:
+        logger.warning("REDIS_URL not set; priority queue disabled")
+        return None
+    try:
+        client = redis.Redis.from_url(redis_url, decode_responses=True)
+        client.ping()  # Test connection
+        logger.info("Redis connected: %s", redis_url.split("@")[-1] if "@" in redis_url else redis_url)
+        return client
+    except Exception as e:
+        logger.warning("Redis connection failed: %s. Priority queue disabled.", e)
+        return None
+
+
 async def _amain():
     logger.info("Worker starting… (LOG_LEVEL=%s)", LOG_LEVEL)
-    await run_engine_forever()
+
+    # Redis client (priority queue için)
+    redis_client = _get_redis_client()
+
+    # Long polling veya webhook mode
+    if USE_LONG_POLLING:
+        logger.info("Running in LONG POLLING mode (USE_LONG_POLLING=true)")
+        logger.warning(
+            "Long polling mode is active. Make sure webhook is disabled on Telegram. "
+            "You can disable webhook with: telegram_client.delete_webhook()"
+        )
+
+        # Behavior engine ve message listener'ı paralel çalıştır
+        await asyncio.gather(
+            run_engine_forever(),
+            run_listener_service(redis_client=redis_client),
+        )
+    else:
+        logger.info("Running in WEBHOOK mode (USE_LONG_POLLING=false)")
+        logger.info("MessageListenerService is disabled. Using webhook endpoint: /webhook/telegram/{bot_token}")
+
+        # Sadece behavior engine'i çalıştır (mesajlar webhook'tan gelecek)
+        await run_engine_forever()
 
 
 def main(argv: list[str] | None = None) -> int:

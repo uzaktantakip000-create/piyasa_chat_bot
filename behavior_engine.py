@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from database import (
     SessionLocal, Bot, Chat, Message, Setting,
-    BotStance, BotHolding,
+    BotStance, BotHolding, BotMemory,
 )
 from settings_utils import (
     DEFAULT_MESSAGE_LENGTH_PROFILE,
@@ -527,6 +527,157 @@ def generate_time_context() -> str:
     return random.choice(contexts)
 
 
+def add_conversation_openings(text: str, probability: float = 0.25) -> str:
+    """
+    Mesajlara doğal konuşma açılışları ekler.
+
+    Args:
+        text: Düzenlenecek metin
+        probability: Açılış ekleme olasılığı (varsayılan %25)
+
+    Returns:
+        Açılış ifadesiyle zenginleştirilmiş metin
+    """
+    if not text or random.random() > probability:
+        return text
+
+    # Türkçe konuşma dilinde yaygın açılışlar
+    openings = [
+        "Bak şimdi",
+        "Şöyle söyleyeyim",
+        "Valla dikkatimi çekti",
+        "Bence şöyle",
+        "Açıkçası",
+        "Bakın",
+        "Şimdi",
+        "Dürüst olmak gerekirse",
+        "Yani şey",
+        "Nasıl desem",
+        "Bakıyorum da",
+        "Gördüm de",
+        "İzliyorum da",
+        "Takip ediyorum",
+        "Bir de",
+    ]
+
+    opening = random.choice(openings)
+
+    # İlk harfi büyük yap, virgül ekle
+    return f"{opening}, {text[0].lower() + text[1:]}"
+
+
+def add_hesitation_markers(text: str, probability: float = 0.30) -> str:
+    """
+    Belirsizlik ve tereddüt belirteçleri ekler (en kritik insanlaştırma özelliği).
+
+    Args:
+        text: Düzenlenecek metin
+        probability: Belirsizlik ekleme olasılığı (varsayılan %30)
+
+    Returns:
+        Belirsizlik ifadeleriyle zenginleştirilmiş metin
+    """
+    if not text or random.random() > probability:
+        return text
+
+    # Türkçe belirsizlik ifadeleri
+    hesitation_phrases = [
+        "sanki",
+        "gibime geliyor",
+        "gibi",
+        "emin değilim ama",
+        "belki de",
+        "olabilir",
+        "muhtemelen",
+        "galiba",
+        "herhalde",
+        "sanırım",
+        "bence",
+        "gibi geldi",
+        "gibi düşünüyorum",
+    ]
+
+    # Cümleleri ayır
+    sentences = re.split(r'([.!?])', text)
+    modified = False
+
+    for i, part in enumerate(sentences):
+        if part in '.!?':
+            continue
+
+        sentence = part.strip()
+        if not sentence or len(sentence.split()) < 3:
+            continue
+
+        # İlk veya ikinci cümleye ekle
+        if i <= 2 and not modified and random.random() < 0.6:
+            hesitation = random.choice(hesitation_phrases)
+            words = sentence.split()
+
+            # Cümlenin başına veya ortasına ekle
+            if random.random() < 0.4 and hesitation in ["sanırım", "bence", "galiba", "muhtemelen"]:
+                # Başa ekle
+                sentences[i] = f"{hesitation} {sentence}"
+            else:
+                # Ortaya ekle (ikinci veya üçüncü kelimeden sonra)
+                if len(words) >= 3:
+                    insert_pos = random.randint(1, min(3, len(words) - 1))
+                    words.insert(insert_pos, hesitation)
+                    sentences[i] = " ".join(words)
+                else:
+                    sentences[i] = f"{sentence} {hesitation}"
+
+            modified = True
+            break
+
+    return "".join(sentences)
+
+
+def add_colloquial_shortcuts(text: str, probability: float = 0.18) -> str:
+    """
+    Günlük konuşma kısaltmaları ekler (Türkçe konuşma diline özgü).
+
+    Args:
+        text: Düzenlenecek metin
+        probability: Kısaltma ekleme olasılığı (varsayılan %18)
+
+    Returns:
+        Kısaltmalarla doğallaştırılmış metin
+    """
+    if not text or random.random() > probability:
+        return text
+
+    # Türkçe konuşma dilindeki yaygın kısaltmalar
+    shortcuts = {
+        " bir ": " bi' ",
+        " bir şey": " bi şey",
+        " birşey": " bi şey",
+        " değil mi": " değil mi",
+        " yok mu": " yok mu",
+        " var mı": " var mı",
+        " falan": " falan",
+        " filan": " filan",
+        " işte": " işte",
+        " hani": " hani",
+    }
+
+    # Sadece birkaç kısaltma uygula (aşırıya kaçmasın)
+    modified = False
+    attempts = 0
+    max_attempts = 2  # En fazla 2 kısaltma
+
+    for full, short in shortcuts.items():
+        if attempts >= max_attempts:
+            break
+
+        if full in text and random.random() < 0.5:
+            text = text.replace(full, short, 1)  # Sadece ilk geçtiği yerde
+            modified = True
+            attempts += 1
+
+    return text
+
+
 def apply_natural_imperfections(text: str, probability: float = 0.15) -> str:
     """
     Doğal kusurlar ekler: bazen yazım hataları yapıp düzeltir.
@@ -671,6 +822,312 @@ def normalize_text(s: str) -> str:
     return s[:400]  # kısa kesit yeterli
 
 
+def fetch_bot_memories(
+    db: Session,
+    bot_id: int,
+    *,
+    limit: int = 10,
+    memory_types: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Bot'un kişisel hafızalarını çeker ve relevance_score'a göre sıralar.
+
+    Args:
+        db: Database session
+        bot_id: Bot ID
+        limit: Maksimum hafıza sayısı (varsayılan 10)
+        memory_types: Filtrelenecek hafıza tipleri (None ise hepsi)
+
+    Returns:
+        Hafıza listesi [{"type": ..., "content": ..., "usage_count": ...}, ...]
+    """
+    query = db.query(BotMemory).filter(BotMemory.bot_id == bot_id)
+
+    if memory_types:
+        query = query.filter(BotMemory.memory_type.in_(memory_types))
+
+    # Relevance score'a göre sırala, en alakalılar önce
+    memories = (
+        query
+        .order_by(BotMemory.relevance_score.desc(), BotMemory.last_used_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    result = []
+    for m in memories:
+        result.append({
+            "id": m.id,
+            "type": m.memory_type,
+            "content": m.content,
+            "relevance": m.relevance_score,
+            "usage_count": m.usage_count,
+            "created_at": m.created_at.isoformat() if m.created_at else None,
+        })
+
+    return result
+
+
+def update_memory_usage(db: Session, memory_id: int) -> None:
+    """
+    Hafıza kullanıldığında usage_count ve last_used_at güncellenir.
+
+    Args:
+        db: Database session
+        memory_id: Hafıza ID
+    """
+    memory = db.query(BotMemory).filter(BotMemory.id == memory_id).first()
+    if memory:
+        memory.usage_count += 1
+        memory.last_used_at = now_utc()
+        db.add(memory)
+        db.commit()
+
+
+def format_memories_for_prompt(memories: List[Dict[str, Any]]) -> str:
+    """
+    Hafızaları LLM prompt'u için formatlı string'e dönüştürür.
+
+    Args:
+        memories: Hafıza listesi
+
+    Returns:
+        Formatlanmış string (örn: "Kişisel: İstanbul'da yaşıyorum | Geçmiş: 2023'te kazandım")
+    """
+    if not memories:
+        return ""
+
+    # Tip bazında gruplama
+    grouped: Dict[str, List[str]] = {}
+    for m in memories:
+        mtype = m.get("type", "other")
+        content = (m.get("content") or "").strip()
+        if content:
+            if mtype not in grouped:
+                grouped[mtype] = []
+            grouped[mtype].append(content)
+
+    # Türkçe tip isimleri
+    type_names = {
+        "personal_fact": "Kişisel",
+        "past_event": "Geçmiş",
+        "relationship": "İlişki",
+        "preference": "Tercih",
+        "routine": "Rutin",
+    }
+
+    parts: List[str] = []
+    for mtype, contents in grouped.items():
+        type_label = type_names.get(mtype, mtype.capitalize())
+        # Her tipten en fazla 3 hafıza göster
+        sample = contents[:3]
+        parts.append(f"{type_label}: {'; '.join(sample)}")
+
+    return " | ".join(parts)
+
+
+def extract_message_metadata(text: str, topic: str) -> Dict[str, Any]:
+    """
+    Mesaj metninden metadata çıkarır (konu, semboller, ton).
+
+    Args:
+        text: Mesaj metni
+        topic: Mesajın konusu
+
+    Returns:
+        Metadata dictionary
+    """
+    metadata: Dict[str, Any] = {
+        "topic": topic,
+        "symbols": [],
+        "keywords": [],
+        "sentiment": "neutral",
+    }
+
+    # Sembol tespiti (hisse, kripto, parite)
+    text_upper = text.upper()
+
+    # BIST hisse kodları (3-5 karakter)
+    bist_pattern = re.findall(r'\b[A-Z]{3,5}\b', text_upper)
+    for symbol in bist_pattern:
+        if symbol in ["BIST", "USD", "EUR", "TRY", "BTC", "ETH"]:
+            continue  # Genel terimler
+        if len(symbol) >= 3:
+            metadata["symbols"].append(symbol)
+
+    # Kripto sembolleri
+    crypto_keywords = ["BTC", "ETH", "BITCOIN", "ETHEREUM", "USDT", "XRP", "SOL"]
+    for kw in crypto_keywords:
+        if kw in text_upper:
+            metadata["symbols"].append(kw)
+
+    # Parite sembolleri
+    fx_keywords = ["USDTRY", "EURTRY", "EURUSD", "GBPUSD", "XAUUSD"]
+    for kw in fx_keywords:
+        if kw in text_upper:
+            metadata["symbols"].append(kw)
+
+    # Tekilleştir
+    metadata["symbols"] = list(set(metadata["symbols"]))[:5]
+
+    # Duygusal ton tespiti (basit anahtar kelime analizi)
+    positive_words = ["yükseliş", "artış", "kazanç", "kar", "fırsat", "güzel", "iyi", "pozitif"]
+    negative_words = ["düşüş", "azalış", "zarar", "risk", "kötü", "negatif", "tehlike"]
+
+    text_lower = text.lower()
+    pos_count = sum(1 for w in positive_words if w in text_lower)
+    neg_count = sum(1 for w in negative_words if w in text_lower)
+
+    if pos_count > neg_count:
+        metadata["sentiment"] = "positive"
+    elif neg_count > pos_count:
+        metadata["sentiment"] = "negative"
+
+    # Önemli kelimeleri çıkar (gelecekte referans için)
+    important_keywords = []
+    for word in text.split():
+        word_clean = word.strip(".,!?;:").lower()
+        if len(word_clean) >= 4 and word_clean not in ["ancak", "fakat", "çünkü", "ama", "için"]:
+            important_keywords.append(word_clean)
+
+    metadata["keywords"] = important_keywords[:8]
+
+    return metadata
+
+
+def find_relevant_past_messages(
+    db: Session,
+    *,
+    bot_id: int,
+    current_topic: str,
+    current_symbols: List[str],
+    days_back: int = 7,
+    limit: int = 5,
+) -> List[Dict[str, Any]]:
+    """
+    Bot'un geçmişte aynı konu/sembollerde yaptığı mesajları bulur.
+
+    Args:
+        db: Database session
+        bot_id: Bot ID
+        current_topic: Mevcut mesaj konusu
+        current_symbols: Mevcut mesaj sembolleri
+        days_back: Kaç gün geriye bak
+        limit: Maksimum sonuç sayısı
+
+    Returns:
+        İlgili geçmiş mesajlar listesi
+    """
+    cutoff_date = now_utc() - timedelta(days=days_back)
+
+    # Bot'un geçmiş mesajlarını çek (metadata'lı olanlar)
+    past_messages = (
+        db.query(Message)
+        .filter(
+            Message.bot_id == bot_id,
+            Message.created_at >= cutoff_date,
+            Message.created_at < now_utc() - timedelta(hours=2),  # Son 2 saat hariç
+            Message.msg_metadata.isnot(None)
+        )
+        .order_by(Message.created_at.desc())
+        .limit(50)  # İlk 50'yi kontrol et
+        .all()
+    )
+
+    # Relevance skorlama
+    relevant: List[tuple[float, Message]] = []
+
+    for msg in past_messages:
+        if not msg.msg_metadata:
+            continue
+
+        score = 0.0
+        msg_meta = msg.msg_metadata
+
+        # Aynı konu mu?
+        if msg_meta.get("topic") == current_topic:
+            score += 3.0
+
+        # Ortak semboller var mı?
+        msg_symbols = set(msg_meta.get("symbols", []))
+        current_symbols_set = set(current_symbols)
+        common_symbols = msg_symbols.intersection(current_symbols_set)
+        score += len(common_symbols) * 2.0
+
+        # Zamana göre azalma (yeni mesajlar daha alakalı)
+        age_hours = (now_utc() - msg.created_at).total_seconds() / 3600
+        recency_multiplier = max(0.5, 1.0 - (age_hours / (days_back * 24)))
+        score *= recency_multiplier
+
+        if score > 0.5:  # Minimum eşik
+            relevant.append((score, msg))
+
+    # En alakalıları sırala ve döndür
+    relevant.sort(key=lambda x: x[0], reverse=True)
+
+    results = []
+    for score, msg in relevant[:limit]:
+        days_ago = (now_utc() - msg.created_at).days
+        hours_ago = int((now_utc() - msg.created_at).total_seconds() / 3600)
+
+        # Zaman ifadesi
+        if days_ago == 0:
+            if hours_ago <= 3:
+                time_ref = "biraz önce"
+            elif hours_ago <= 12:
+                time_ref = "bugün"
+            else:
+                time_ref = "bugün"
+        elif days_ago == 1:
+            time_ref = "dün"
+        elif days_ago == 2:
+            time_ref = "önceki gün"
+        elif days_ago <= 7:
+            time_ref = f"{days_ago} gün önce"
+        else:
+            time_ref = "geçen hafta"
+
+        results.append({
+            "id": msg.id,
+            "text": (msg.text or "")[:150],  # İlk 150 karakter
+            "topic": msg.msg_metadata.get("topic"),
+            "symbols": msg.msg_metadata.get("symbols", []),
+            "sentiment": msg.msg_metadata.get("sentiment"),
+            "time_reference": time_ref,
+            "relevance_score": score,
+        })
+
+    return results
+
+
+def format_past_references_for_prompt(references: List[Dict[str, Any]]) -> str:
+    """
+    Geçmiş mesaj referanslarını LLM prompt'u için formatlar.
+
+    Args:
+        references: Geçmiş mesaj referansları
+
+    Returns:
+        Formatlanmış string
+    """
+    if not references:
+        return "—"
+
+    lines: List[str] = []
+    for ref in references[:3]:  # En fazla 3 referans
+        time_ref = ref.get("time_reference", "önceden")
+        text_snippet = ref.get("text", "")[:100]
+        symbols = ref.get("symbols", [])
+
+        symbol_str = ""
+        if symbols:
+            symbol_str = f" ({', '.join(symbols[:2])})"
+
+        lines.append(f"- {time_ref}: \"{text_snippet}\"{symbol_str}")
+
+    return "\n".join(lines)
+
+
 # ---------------------------
 # Ayar okuma
 # ---------------------------
@@ -751,10 +1208,22 @@ class BehaviorEngine:
             self.news = None
         self._active_news_feeds: List[str] = list(self.news.feeds) if self.news else []
 
-        # Redis (opsiyonel) - async subscriber
+        # Redis (opsiyonel) - async subscriber ve priority queue
         self._redis_url: Optional[str] = os.getenv("REDIS_URL") or None
         self._redis = None  # type: ignore
         self._redis_task: Optional[asyncio.Task] = None
+        self._redis_sync_client = None  # Sync client for priority queue polling
+
+        # Priority queue Redis client (sync)
+        if self._redis_url:
+            try:
+                import redis
+                self._redis_sync_client = redis.Redis.from_url(self._redis_url, decode_responses=True)
+                self._redis_sync_client.ping()
+                logger.info("Priority queue Redis client initialized")
+            except Exception as e:
+                logger.warning("Priority queue Redis init failed: %s. User message responses disabled.", e)
+                self._redis_sync_client = None
 
         # Persona yenileme takibi (bot bazlı)
         self._persona_refresh: Dict[int, Dict[str, Any]] = {}
@@ -1305,6 +1774,76 @@ class BehaviorEngine:
 
         return updated
 
+    def add_filler_words(self, text: str, probability: float = 0.20) -> str:
+        """
+        Mesaja doğal konuşma dolgu kelimeleri ekler.
+
+        Args:
+            text: Düzenlenecek metin
+            probability: Dolgu kelime ekleme olasılığı (varsayılan %20)
+
+        Returns:
+            Dolgu kelimelerle zenginleştirilmiş metin
+        """
+        if not text or random.random() > probability:
+            return text
+
+        # Türkçe konuşma dilindeki yaygın dolgu kelimeleri
+        fillers_start = [
+            "aa",
+            "haa",
+            "hmm",
+            "şey",
+            "yani",
+            "işte",
+            "hani",
+            "valla",
+            "ya",
+            "ee",
+            "off",
+        ]
+
+        fillers_middle = [
+            "yani",
+            "işte",
+            "hani",
+            "şey",
+            "demek istediğim",
+        ]
+
+        # Cümleleri ayır
+        sentences = re.split(r'([.!?])', text)
+        modified_sentences = []
+
+        for i, part in enumerate(sentences):
+            # Noktalama işaretlerini aynen koru
+            if part in '.!?':
+                modified_sentences.append(part)
+                continue
+
+            sentence = part.strip()
+            if not sentence:
+                modified_sentences.append(part)
+                continue
+
+            # İlk cümle için başa dolgu ekle (%30 olasılık)
+            if i == 0 and random.random() < 0.30:
+                filler = random.choice(fillers_start)
+                sentence = f"{filler.capitalize()}, {sentence.lower()}"
+            # Diğer cümleler için ortaya dolgu ekle (%15 olasılık)
+            elif i > 0 and random.random() < 0.15:
+                words = sentence.split()
+                if len(words) >= 3:
+                    # Ortaya yakın bir yere ekle
+                    insert_pos = random.randint(1, len(words) - 1)
+                    filler = random.choice(fillers_middle)
+                    words.insert(insert_pos, filler + ",")
+                    sentence = " ".join(words)
+
+            modified_sentences.append(sentence if i == 0 else " " + sentence)
+
+        return "".join(modified_sentences)
+
     # ---- Dedup (tekrar) kontrolü ----
     def is_duplicate_recent(self, db: Session, *, bot_id: int, text: str, hours: int) -> bool:
         if not text:
@@ -1332,6 +1871,253 @@ METİN:
 """
         return self.llm.generate(user_prompt=prompt, temperature=0.4, max_tokens=120)
 
+    # ---- Priority Queue İşleme ----
+    def _check_priority_queue(self, db: Session) -> Optional[Dict[str, Any]]:
+        """
+        Redis priority queue'dan yüksek öncelikli mesajları kontrol eder.
+        Returns: Priority queue item veya None
+        """
+        if not self._redis_sync_client:
+            return None
+
+        try:
+            # Önce high priority queue'yu kontrol et
+            raw_item = self._redis_sync_client.rpop("priority_queue:high")
+            if raw_item:
+                return json.loads(raw_item)
+
+            # High yoksa normal queue'dan al
+            raw_item = self._redis_sync_client.rpop("priority_queue:normal")
+            if raw_item:
+                return json.loads(raw_item)
+
+            return None
+        except Exception as e:
+            logger.warning("Priority queue check failed: %s", e)
+            return None
+
+    async def _process_priority_message(self, db: Session, priority_item: Dict[str, Any]) -> bool:
+        """
+        Priority queue'dan gelen mesajı işle ve bot'un yanıt vermesini sağla.
+        Returns: True if successfully processed
+        """
+        try:
+            bot_id = priority_item.get("bot_id")
+            chat_id = priority_item.get("chat_id")
+            telegram_message_id = priority_item.get("telegram_message_id")
+            user_text = priority_item.get("text", "")
+            is_mentioned = priority_item.get("is_mentioned", False)
+            is_reply_to_bot = priority_item.get("is_reply_to_bot", False)
+
+            if not bot_id or not chat_id:
+                logger.warning("Invalid priority item: missing bot_id or chat_id")
+                return False
+
+            # Bot'u DB'den çek
+            bot = db.query(Bot).filter(Bot.id == bot_id, Bot.is_enabled.is_(True)).first()
+            if not bot:
+                logger.warning("Bot %s not found or disabled for priority response", bot_id)
+                return False
+
+            # Chat'i DB'den çek
+            chat = db.query(Chat).filter(Chat.id == chat_id).first()
+            if not chat:
+                logger.warning("Chat %s not found for priority response", chat_id)
+                return False
+
+            # Kullanıcı mesajını DB'den bul (context için)
+            incoming_msg = db.query(Message).filter(
+                Message.telegram_message_id == telegram_message_id,
+                Message.chat_db_id == chat_id,
+            ).first()
+
+            logger.info(
+                "Processing priority message: bot=%s, chat=%s, mentioned=%s, reply=%s",
+                bot.name,
+                chat.title,
+                is_mentioned,
+                is_reply_to_bot,
+            )
+
+            # Persona/Stance/Holdings verileri
+            (
+                persona_profile,
+                emotion_profile,
+                stances,
+                holdings,
+                persona_hint,
+            ) = self.fetch_psh(db, bot, topic_hint=None)
+
+            # Son mesajları context olarak al
+            recent_msgs = (
+                db.query(Message)
+                .filter(Message.chat_db_id == chat.id)
+                .order_by(Message.created_at.desc())
+                .limit(40)
+                .all()
+            )
+
+            # History transcript (kullanıcı mesajları da dahil!)
+            history_source = list(recent_msgs[:8])  # Daha fazla context
+            history_excerpt = build_history_transcript(list(reversed(history_source)))
+
+            # Contextual examples
+            contextual_examples = build_contextual_examples(
+                list(reversed(recent_msgs)), bot_id=bot.id, max_pairs=3
+            )
+
+            # Topic seçimi (kullanıcı mesajından)
+            topic_pool = chat.topics or ["BIST", "FX", "Kripto", "Makro"]
+            topic = choose_topic_from_messages([incoming_msg] if incoming_msg else history_source, topic_pool)
+
+            # Haber tetikleyici (priority mesajlar için daha düşük olasılık)
+            s = self.settings(db)
+            market_trigger = ""
+            if bool(s.get("news_trigger_enabled", True)) and self.news is not None:
+                if random.random() < 0.4:  # Priority response için %40 olasılık
+                    try:
+                        brief = self.news.get_brief(topic)
+                        if brief:
+                            market_trigger = brief
+                    except Exception as e:
+                        logger.debug("News trigger error in priority response: %s", e)
+
+            # Reaction plan
+            reaction_plan = synthesize_reaction_plan(
+                emotion_profile=emotion_profile,
+                market_trigger=market_trigger,
+            )
+            tempo_multiplier = derive_tempo_multiplier(emotion_profile, reaction_plan)
+
+            # Length hint
+            selected_length_category = choose_message_length_category(
+                s.get("message_length_profile")
+            )
+            length_hint = compose_length_hint(
+                persona_profile=persona_profile,
+                selected_category=selected_length_category,
+            )
+
+            # Time context
+            time_context = generate_time_context()
+
+            # Memories
+            bot_memories = fetch_bot_memories(db, bot.id, limit=8)
+            memories_text = format_memories_for_prompt(bot_memories)
+
+            # Past references
+            temp_metadata = extract_message_metadata(text=user_text, topic=topic)
+            current_symbols = temp_metadata.get("symbols", [])
+            past_references = find_relevant_past_messages(
+                db,
+                bot_id=bot.id,
+                current_topic=topic,
+                current_symbols=current_symbols,
+                days_back=7,
+                limit=3,
+            )
+            past_references_text = format_past_references_for_prompt(past_references)
+
+            # User prompt için reply context
+            reply_excerpt = shorten(user_text, 240)
+            mention_ctx = ""
+
+            # Priority response'da MUTLAKA reply mode
+            user_prompt = generate_user_prompt(
+                topic_name=topic,
+                history_excerpt=shorten(history_excerpt, 400),
+                reply_context=reply_excerpt,
+                market_trigger=market_trigger,
+                mode="reply",  # Priority mesajlar için her zaman reply
+                mention_context=mention_ctx,
+                persona_profile=persona_profile,
+                reaction_guidance=reaction_plan.instructions,
+                emotion_profile=emotion_profile,
+                contextual_examples=contextual_examples,
+                stances=stances,
+                holdings=holdings,
+                memories=memories_text,
+                past_references=past_references_text,
+                length_hint=length_hint,
+                persona_hint=persona_hint,
+                persona_refresh_note="",  # Priority için persona refresh atlayalım
+                time_context=time_context,
+            )
+
+            # LLM üretimi
+            text = self.llm.generate(user_prompt=user_prompt, temperature=0.75, max_tokens=220)
+            if not text:
+                logger.warning("LLM returned empty response for priority message")
+                return False
+
+            # Tutarlılık koruması
+            if bool(s.get("consistency_guard_enabled", True)):
+                revised = self.apply_consistency_guard(
+                    draft_text=text,
+                    persona_profile=persona_profile,
+                    stances=stances,
+                )
+                if revised:
+                    text = revised
+
+            text = self.apply_reaction_overrides(text, reaction_plan)
+            text = self.apply_micro_behaviors(
+                text,
+                emotion_profile=emotion_profile,
+                plan=reaction_plan,
+            )
+
+            # İnsancıl geliştirmeler
+            text = add_conversation_openings(text, probability=0.35)  # Priority için daha yüksek
+            text = add_hesitation_markers(text, probability=0.25)
+            text = add_colloquial_shortcuts(text, probability=0.20)
+            text = self.add_filler_words(text, probability=0.25)
+            text = apply_natural_imperfections(text, probability=0.12)
+
+            # Typing simülasyonu
+            if bool(s.get("typing_enabled", True)):
+                await self.tg.send_typing(
+                    bot.token,
+                    chat.chat_id,
+                    self.typing_seconds(
+                        db,
+                        len(text),
+                        bot=bot,
+                        tempo_multiplier=tempo_multiplier,
+                    ),
+                )
+
+            # Mesajı gönder (reply olarak)
+            msg_id = await self.tg.send_message(
+                token=bot.token,
+                chat_id=chat.chat_id,
+                text=text,
+                reply_to_message_id=telegram_message_id,  # Kullanıcı mesajına yanıt
+                disable_preview=True,
+            )
+
+            # DB log
+            msg_metadata = extract_message_metadata(text, topic)
+            msg_metadata["is_priority_response"] = True
+            msg_metadata["responded_to_message_id"] = telegram_message_id
+
+            db.add(Message(
+                bot_id=bot.id,
+                chat_db_id=chat.id,
+                telegram_message_id=msg_id,
+                text=text,
+                reply_to_message_id=telegram_message_id,
+                msg_metadata=msg_metadata,
+            ))
+            db.commit()
+
+            logger.info("Priority response sent: bot=%s, text_preview=%s", bot.name, text[:50])
+            return True
+
+        except Exception as e:
+            logger.exception("Priority message processing failed: %s", e)
+            return False
+
     # ---- Akış ----
     async def tick_once(self) -> None:
         db: Session = SessionLocal()
@@ -1340,6 +2126,19 @@ METİN:
             if not bool(s.get("simulation_active", False)):
                 await asyncio.sleep(1.0)
                 return
+
+            # ÖNCELİK 1: Priority queue'dan gelen mesajları kontrol et
+            priority_item = self._check_priority_queue(db)
+            if priority_item:
+                # Priority mesajı işle (kullanıcı mention/reply'leri)
+                success = await self._process_priority_message(db, priority_item)
+                if success:
+                    # Priority mesaj işlendikten sonra kısa bir gecikme
+                    await asyncio.sleep(2.0)
+                else:
+                    # Başarısızsa biraz daha bekle
+                    await asyncio.sleep(5.0)
+                return  # Priority işlendikten sonra normal akışa geri dön
 
             # Global rate limit
             if not self.global_rate_ok(db):
@@ -1427,13 +2226,15 @@ METİN:
                             reply_to_message_id=target.telegram_message_id,
                             disable_preview=True,
                         )
-                        # logla
+                        # logla (metadata ile)
+                        emoji_metadata = extract_message_metadata(emoji, topic_hint_pool[0] if topic_hint_pool else "")
                         db.add(Message(
                             bot_id=bot.id,
                             chat_db_id=chat.id,
                             telegram_message_id=msg_id,
                             text=emoji,
                             reply_to_message_id=target.telegram_message_id,
+                            msg_metadata=emoji_metadata,
                         ))
                         db.commit()
                     await asyncio.sleep(self.next_delay_seconds(db, bot=bot))
@@ -1499,6 +2300,34 @@ METİN:
             # Zaman bağlamı oluştur
             time_context = generate_time_context()
 
+            # ---- KİŞİSEL HAFIZA SİSTEMİ ----
+            # Bot'un kişisel hafızalarını çek ve prompt'a ekle
+            bot_memories = fetch_bot_memories(db, bot.id, limit=8)
+            memories_text = format_memories_for_prompt(bot_memories)
+
+            # Kullanılan hafızaları işaretle (usage_count güncelle)
+            for memory in bot_memories:
+                try:
+                    update_memory_usage(db, memory["id"])
+                except Exception as e:
+                    logger.debug("Memory usage update error: %s", e)
+
+            # ---- GEÇMİŞ REFERANS SİSTEMİ ----
+            # Metadata çıkar (kullanılacak sembolleri tespit et)
+            temp_metadata = extract_message_metadata(text="", topic=topic)
+            current_symbols = temp_metadata.get("symbols", [])
+
+            # Bot'un bu konu/sembollerde daha önce söylediklerini bul
+            past_references = find_relevant_past_messages(
+                db,
+                bot_id=bot.id,
+                current_topic=topic,
+                current_symbols=current_symbols,
+                days_back=7,
+                limit=3,
+            )
+            past_references_text = format_past_references_for_prompt(past_references)
+
             user_prompt = generate_user_prompt(
                 topic_name=topic,
                 history_excerpt=shorten(history_excerpt, 400),
@@ -1512,6 +2341,8 @@ METİN:
                 contextual_examples=contextual_examples,
                 stances=stances,
                 holdings=holdings,
+                memories=memories_text,  # <-- Kişisel hafızalar
+                past_references=past_references_text,  # <-- Yeni: Geçmiş referanslar
                 length_hint=length_hint,
                 persona_hint=persona_hint,
                 persona_refresh_note=persona_refresh_note,
@@ -1543,7 +2374,20 @@ METİN:
                 plan=reaction_plan,
             )
 
-            # Doğal kusurlar uygula (yazım hataları + düzeltmeler)
+            # İnsancıl geliştirmeler (sıralama önemli!)
+            # 1. Konuşma açılışları ekle
+            text = add_conversation_openings(text, probability=0.25)
+
+            # 2. Belirsizlik belirteçleri ekle (en kritik özellik)
+            text = add_hesitation_markers(text, probability=0.30)
+
+            # 3. Günlük kısaltmalar ekle
+            text = add_colloquial_shortcuts(text, probability=0.18)
+
+            # 4. Dolgu kelimeleri ekle
+            text = self.add_filler_words(text, probability=0.20)
+
+            # 5. Doğal kusurlar uygula (yazım hataları + düzeltmeler)
             text = apply_natural_imperfections(text, probability=0.15)
 
             # Mention'ı metne kibarca ekle (başta değilse)
@@ -1592,13 +2436,15 @@ METİN:
                 disable_preview=True,
             )
 
-            # DB log
+            # DB log (metadata ile birlikte kaydet)
+            msg_metadata = extract_message_metadata(text, topic)
             db.add(Message(
                 bot_id=bot.id,
                 chat_db_id=chat.id,
                 telegram_message_id=msg_id,
                 text=text,
                 reply_to_message_id=reply_msg.telegram_message_id if reply_msg else None,
+                msg_metadata=msg_metadata,  # <-- Yeni: Mesaj metadata'sını kaydet
             ))
             db.commit()
 

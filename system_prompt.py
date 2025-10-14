@@ -142,6 +142,13 @@ USER_TEMPLATE = """\
 [DUYGU PROFİLİ]
 {emotion_summary}
 
+[KİŞİSEL HAFIZA]
+{memory_summary}
+
+[GEÇMİŞ REFERANSLAR]
+Bu konuda daha önce şunları söylemiştin:
+{past_references}
+
 [STANCE]
 {stance_summary}
 
@@ -205,23 +212,29 @@ def generate_user_prompt(
     persona_refresh_note: str = "",
     stances: Optional[List[Dict[str, Any]]] = None,
     holdings: Optional[List[Dict[str, Any]]] = None,
+    memories: str = "",
+    past_references: str = "",
     length_hint: str = "gerekirse 2-3 cümle",
     persona_hint: str = "",
     time_context: str = "",
 ) -> str:
     """
-    Geriye dönük uyumlu kullanıcı prompt'u. persona/stances/holdings verilirse
+    Geriye dönük uyumlu kullanıcı prompt'u. persona/stances/holdings/memories/past_references verilirse
     botun tutarlılığını artırmak için prompt'a eklenir.
     """
     p_summary = summarize_persona(persona_profile)
     e_summary = summarize_emotion_profile(emotion_profile)
     s_summary = summarize_stances(stances)
     h_summary = summarize_holdings(holdings)
+    m_summary = (memories or "").strip() or "—"
+    past_refs = (past_references or "").strip() or "—"
 
     prompt = USER_TEMPLATE.format(
         persona_summary=p_summary,
         persona_hint_section=format_persona_hint(persona_hint),
         emotion_summary=e_summary,
+        memory_summary=m_summary,
+        past_references=past_refs,
         stance_summary=s_summary,
         holdings_summary=h_summary,
         topic_name=(topic_name or "").strip()[:120],
