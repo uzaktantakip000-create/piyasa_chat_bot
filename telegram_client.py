@@ -11,8 +11,10 @@ from collections import defaultdict
 from typing import Optional, Dict, Any, List
 
 import httpx
+import redis
 
 from database import SessionLocal, Setting
+from rate_limiter import TelegramRateLimiter
 
 logger = logging.getLogger("telegram")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -79,13 +81,32 @@ class TelegramClient:
     - Async httpx kullanır
     - 429/5xx için güvenli tekrar/backoff
     - send_message / send_typing / try_set_reaction sağlar
+    - Rate limiting (30 msg/sec global, 20 msg/min per chat)
     """
 
-    def __init__(self) -> None:
+    def __init__(self, rate_limiter: Optional[TelegramRateLimiter] = None) -> None:
         self.base_url = os.getenv("TELEGRAM_API_BASE", "https://api.telegram.org")
         timeout = float(os.getenv("TELEGRAM_TIMEOUT", "20"))
         limits = httpx.Limits(max_keepalive_connections=20, max_connections=40)
         self.client = httpx.AsyncClient(timeout=timeout, limits=limits)
+
+        # Initialize rate limiter
+        if rate_limiter is None:
+            # Try to create with Redis if available
+            redis_url = os.getenv("REDIS_URL")
+            redis_client = None
+            if redis_url:
+                try:
+                    redis_client = redis.Redis.from_url(redis_url, decode_responses=True)
+                    redis_client.ping()
+                    logger.info("TelegramClient rate limiter initialized with Redis")
+                except Exception as e:
+                    logger.warning("Redis unavailable for rate limiting: %s - using local fallback", e)
+                    redis_client = None
+
+            self.rate_limiter = TelegramRateLimiter(redis_client)
+        else:
+            self.rate_limiter = rate_limiter
 
     def _url(self, token: str, method: str) -> str:
         return f"{self.base_url}/bot{token}/{method}"
@@ -188,13 +209,37 @@ class TelegramClient:
         reply_to_message_id: Optional[int] = None,
         disable_preview: bool = True,
         parse_mode: Optional[str] = None,
+        skip_rate_limit: bool = False,
     ) -> Optional[int]:
-        """Mesaj gönder ve Telegram message_id döndür."""
+        """
+        Mesaj gönder ve Telegram message_id döndür.
+
+        Args:
+            token: Bot token
+            chat_id: Telegram chat ID
+            text: Mesaj metni
+            reply_to_message_id: Reply yapılacak mesaj ID
+            disable_preview: Link preview'ı devre dışı bırak
+            parse_mode: Markdown/HTML parse mode
+            skip_rate_limit: Rate limiting'i atla (dikkatli kullan!)
+
+        Returns:
+            Telegram message ID or None if failed
+        """
+        # Rate limiting check
+        if not skip_rate_limit:
+            chat_id_str = str(chat_id)
+            max_wait = float(os.getenv("TELEGRAM_RATE_LIMIT_WAIT", "2.0"))
+
+            if not self.rate_limiter.can_send(chat_id_str, max_wait=max_wait):
+                logger.warning("Rate limit exceeded for chat %s - message dropped", chat_id)
+                _bump_setting("telegram_rate_limited_drops", 1)
+                return None
+
         payload: Dict[str, Any] = {
             "chat_id": chat_id,
             "text": text,
             "disable_web_page_preview": bool(disable_preview),
-            # "allow_sending_without_reply": True  # istersen aç
         }
         if reply_to_message_id:
             payload["reply_to_message_id"] = reply_to_message_id

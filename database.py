@@ -114,9 +114,9 @@ class Message(Base):
     chat_db_id = Column(Integer, ForeignKey("chats.id", ondelete="SET NULL"), nullable=True, index=True)
 
     # Telegram message_id (int). Bazı istemciler BIGINT olarak işlemek isteyebilir.
-    telegram_message_id = Column(BigInteger, nullable=True)
+    telegram_message_id = Column(BigInteger, nullable=True, index=True)
     text = Column(Text, nullable=True)
-    reply_to_message_id = Column(BigInteger, nullable=True)
+    reply_to_message_id = Column(BigInteger, nullable=True, index=True)
 
     # Performans için index
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
@@ -129,8 +129,14 @@ class Message(Base):
     chat = relationship("Chat", back_populates="messages")
 
     __table_args__ = (
+        # Composite indexes for common queries
         Index("ix_messages_bot_created_at", "bot_id", "created_at"),
         Index("ix_messages_chat_created_at", "chat_db_id", "created_at"),
+        Index("ix_messages_chat_telegram_msg", "chat_db_id", "telegram_message_id"),
+        # Index for reply lookups
+        Index("ix_messages_reply_lookup", "chat_db_id", "bot_id", "telegram_message_id"),
+        # Index for incoming message processing (bot_id NULL check + created_at)
+        Index("ix_messages_incoming", "bot_id", "created_at", "chat_db_id"),
     )
 
 
@@ -251,10 +257,17 @@ class ApiSession(Base):
     user_agent = Column(String(256), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     last_seen_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
-    expires_at = Column(DateTime, nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    is_active = Column(Boolean, default=True, nullable=False, index=True)
 
     user = relationship("ApiUser", backref="sessions")
+
+    __table_args__ = (
+        # Index for session validation (token lookup + active + not expired)
+        Index("ix_sessions_token_active_expires", "token_id", "is_active", "expires_at"),
+        # Index for session cleanup (expired sessions)
+        Index("ix_sessions_expires_active", "expires_at", "is_active"),
+    )
 
 
 # --------------------------------------------------------------------
