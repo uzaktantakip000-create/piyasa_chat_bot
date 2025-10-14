@@ -121,6 +121,10 @@ class Message(Base):
     # Performans için index
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
 
+    # Mesaj metadata - bağlam hatırlama için
+    # Örnek: {"topic": "BIST", "symbols": ["AKBNK", "GARAN"], "sentiment": "positive", "references": [123, 456]}
+    metadata = Column(JSON, default=dict, nullable=True)
+
     bot = relationship("Bot", back_populates="messages")
     chat = relationship("Chat", back_populates="messages")
 

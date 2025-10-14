@@ -926,6 +926,208 @@ def format_memories_for_prompt(memories: List[Dict[str, Any]]) -> str:
     return " | ".join(parts)
 
 
+def extract_message_metadata(text: str, topic: str) -> Dict[str, Any]:
+    """
+    Mesaj metninden metadata çıkarır (konu, semboller, ton).
+
+    Args:
+        text: Mesaj metni
+        topic: Mesajın konusu
+
+    Returns:
+        Metadata dictionary
+    """
+    metadata: Dict[str, Any] = {
+        "topic": topic,
+        "symbols": [],
+        "keywords": [],
+        "sentiment": "neutral",
+    }
+
+    # Sembol tespiti (hisse, kripto, parite)
+    text_upper = text.upper()
+
+    # BIST hisse kodları (3-5 karakter)
+    bist_pattern = re.findall(r'\b[A-Z]{3,5}\b', text_upper)
+    for symbol in bist_pattern:
+        if symbol in ["BIST", "USD", "EUR", "TRY", "BTC", "ETH"]:
+            continue  # Genel terimler
+        if len(symbol) >= 3:
+            metadata["symbols"].append(symbol)
+
+    # Kripto sembolleri
+    crypto_keywords = ["BTC", "ETH", "BITCOIN", "ETHEREUM", "USDT", "XRP", "SOL"]
+    for kw in crypto_keywords:
+        if kw in text_upper:
+            metadata["symbols"].append(kw)
+
+    # Parite sembolleri
+    fx_keywords = ["USDTRY", "EURTRY", "EURUSD", "GBPUSD", "XAUUSD"]
+    for kw in fx_keywords:
+        if kw in text_upper:
+            metadata["symbols"].append(kw)
+
+    # Tekilleştir
+    metadata["symbols"] = list(set(metadata["symbols"]))[:5]
+
+    # Duygusal ton tespiti (basit anahtar kelime analizi)
+    positive_words = ["yükseliş", "artış", "kazanç", "kar", "fırsat", "güzel", "iyi", "pozitif"]
+    negative_words = ["düşüş", "azalış", "zarar", "risk", "kötü", "negatif", "tehlike"]
+
+    text_lower = text.lower()
+    pos_count = sum(1 for w in positive_words if w in text_lower)
+    neg_count = sum(1 for w in negative_words if w in text_lower)
+
+    if pos_count > neg_count:
+        metadata["sentiment"] = "positive"
+    elif neg_count > pos_count:
+        metadata["sentiment"] = "negative"
+
+    # Önemli kelimeleri çıkar (gelecekte referans için)
+    important_keywords = []
+    for word in text.split():
+        word_clean = word.strip(".,!?;:").lower()
+        if len(word_clean) >= 4 and word_clean not in ["ancak", "fakat", "çünkü", "ama", "için"]:
+            important_keywords.append(word_clean)
+
+    metadata["keywords"] = important_keywords[:8]
+
+    return metadata
+
+
+def find_relevant_past_messages(
+    db: Session,
+    *,
+    bot_id: int,
+    current_topic: str,
+    current_symbols: List[str],
+    days_back: int = 7,
+    limit: int = 5,
+) -> List[Dict[str, Any]]:
+    """
+    Bot'un geçmişte aynı konu/sembollerde yaptığı mesajları bulur.
+
+    Args:
+        db: Database session
+        bot_id: Bot ID
+        current_topic: Mevcut mesaj konusu
+        current_symbols: Mevcut mesaj sembolleri
+        days_back: Kaç gün geriye bak
+        limit: Maksimum sonuç sayısı
+
+    Returns:
+        İlgili geçmiş mesajlar listesi
+    """
+    cutoff_date = now_utc() - timedelta(days=days_back)
+
+    # Bot'un geçmiş mesajlarını çek (metadata'lı olanlar)
+    past_messages = (
+        db.query(Message)
+        .filter(
+            Message.bot_id == bot_id,
+            Message.created_at >= cutoff_date,
+            Message.created_at < now_utc() - timedelta(hours=2),  # Son 2 saat hariç
+            Message.metadata.isnot(None)
+        )
+        .order_by(Message.created_at.desc())
+        .limit(50)  # İlk 50'yi kontrol et
+        .all()
+    )
+
+    # Relevance skorlama
+    relevant: List[tuple[float, Message]] = []
+
+    for msg in past_messages:
+        if not msg.metadata:
+            continue
+
+        score = 0.0
+        msg_meta = msg.metadata
+
+        # Aynı konu mu?
+        if msg_meta.get("topic") == current_topic:
+            score += 3.0
+
+        # Ortak semboller var mı?
+        msg_symbols = set(msg_meta.get("symbols", []))
+        current_symbols_set = set(current_symbols)
+        common_symbols = msg_symbols.intersection(current_symbols_set)
+        score += len(common_symbols) * 2.0
+
+        # Zamana göre azalma (yeni mesajlar daha alakalı)
+        age_hours = (now_utc() - msg.created_at).total_seconds() / 3600
+        recency_multiplier = max(0.5, 1.0 - (age_hours / (days_back * 24)))
+        score *= recency_multiplier
+
+        if score > 0.5:  # Minimum eşik
+            relevant.append((score, msg))
+
+    # En alakalıları sırala ve döndür
+    relevant.sort(key=lambda x: x[0], reverse=True)
+
+    results = []
+    for score, msg in relevant[:limit]:
+        days_ago = (now_utc() - msg.created_at).days
+        hours_ago = int((now_utc() - msg.created_at).total_seconds() / 3600)
+
+        # Zaman ifadesi
+        if days_ago == 0:
+            if hours_ago <= 3:
+                time_ref = "biraz önce"
+            elif hours_ago <= 12:
+                time_ref = "bugün"
+            else:
+                time_ref = "bugün"
+        elif days_ago == 1:
+            time_ref = "dün"
+        elif days_ago == 2:
+            time_ref = "önceki gün"
+        elif days_ago <= 7:
+            time_ref = f"{days_ago} gün önce"
+        else:
+            time_ref = "geçen hafta"
+
+        results.append({
+            "id": msg.id,
+            "text": (msg.text or "")[:150],  # İlk 150 karakter
+            "topic": msg.metadata.get("topic"),
+            "symbols": msg.metadata.get("symbols", []),
+            "sentiment": msg.metadata.get("sentiment"),
+            "time_reference": time_ref,
+            "relevance_score": score,
+        })
+
+    return results
+
+
+def format_past_references_for_prompt(references: List[Dict[str, Any]]) -> str:
+    """
+    Geçmiş mesaj referanslarını LLM prompt'u için formatlar.
+
+    Args:
+        references: Geçmiş mesaj referansları
+
+    Returns:
+        Formatlanmış string
+    """
+    if not references:
+        return "—"
+
+    lines: List[str] = []
+    for ref in references[:3]:  # En fazla 3 referans
+        time_ref = ref.get("time_reference", "önceden")
+        text_snippet = ref.get("text", "")[:100]
+        symbols = ref.get("symbols", [])
+
+        symbol_str = ""
+        if symbols:
+            symbol_str = f" ({', '.join(symbols[:2])})"
+
+        lines.append(f"- {time_ref}: \"{text_snippet}\"{symbol_str}")
+
+    return "\n".join(lines)
+
+
 # ---------------------------
 # Ayar okuma
 # ---------------------------
@@ -1752,13 +1954,15 @@ METİN:
                             reply_to_message_id=target.telegram_message_id,
                             disable_preview=True,
                         )
-                        # logla
+                        # logla (metadata ile)
+                        emoji_metadata = extract_message_metadata(emoji, topic_hint_pool[0] if topic_hint_pool else "")
                         db.add(Message(
                             bot_id=bot.id,
                             chat_db_id=chat.id,
                             telegram_message_id=msg_id,
                             text=emoji,
                             reply_to_message_id=target.telegram_message_id,
+                            metadata=emoji_metadata,
                         ))
                         db.commit()
                     await asyncio.sleep(self.next_delay_seconds(db, bot=bot))
@@ -1836,6 +2040,22 @@ METİN:
                 except Exception as e:
                     logger.debug("Memory usage update error: %s", e)
 
+            # ---- GEÇMİŞ REFERANS SİSTEMİ ----
+            # Metadata çıkar (kullanılacak sembolleri tespit et)
+            temp_metadata = extract_message_metadata(text="", topic=topic)
+            current_symbols = temp_metadata.get("symbols", [])
+
+            # Bot'un bu konu/sembollerde daha önce söylediklerini bul
+            past_references = find_relevant_past_messages(
+                db,
+                bot_id=bot.id,
+                current_topic=topic,
+                current_symbols=current_symbols,
+                days_back=7,
+                limit=3,
+            )
+            past_references_text = format_past_references_for_prompt(past_references)
+
             user_prompt = generate_user_prompt(
                 topic_name=topic,
                 history_excerpt=shorten(history_excerpt, 400),
@@ -1849,7 +2069,8 @@ METİN:
                 contextual_examples=contextual_examples,
                 stances=stances,
                 holdings=holdings,
-                memories=memories_text,  # <-- Yeni: Kişisel hafızalar
+                memories=memories_text,  # <-- Kişisel hafızalar
+                past_references=past_references_text,  # <-- Yeni: Geçmiş referanslar
                 length_hint=length_hint,
                 persona_hint=persona_hint,
                 persona_refresh_note=persona_refresh_note,
@@ -1943,13 +2164,15 @@ METİN:
                 disable_preview=True,
             )
 
-            # DB log
+            # DB log (metadata ile birlikte kaydet)
+            msg_metadata = extract_message_metadata(text, topic)
             db.add(Message(
                 bot_id=bot.id,
                 chat_db_id=chat.id,
                 telegram_message_id=msg_id,
                 text=text,
                 reply_to_message_id=reply_msg.telegram_message_id if reply_msg else None,
+                metadata=msg_metadata,  # <-- Yeni: Mesaj metadata'sını kaydet
             ))
             db.commit()
 
