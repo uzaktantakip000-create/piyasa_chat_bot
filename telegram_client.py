@@ -253,6 +253,106 @@ class TelegramClient:
         result = await self._post(token, "setMessageReaction", payload)
         return bool(result)
 
+    async def get_updates(
+        self,
+        token: str,
+        offset: Optional[int] = None,
+        limit: int = 100,
+        timeout: int = 30,
+        allowed_updates: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Long polling ile Telegram mesajlarını al (webhook kullanılmıyorsa).
+
+        Args:
+            token: Bot token
+            offset: Son işlenen update_id + 1 (önceki update'leri atlamak için)
+            limit: Kaç update alınacağı (max 100)
+            timeout: Long polling timeout (saniye, max 50)
+            allowed_updates: Dinlenecek update tipleri (None = hepsi)
+
+        Returns:
+            List of Update objects
+        """
+        payload: Dict[str, Any] = {
+            "offset": offset,
+            "limit": min(limit, 100),
+            "timeout": min(timeout, 50),
+        }
+
+        if allowed_updates:
+            payload["allowed_updates"] = allowed_updates
+
+        result = await self._post(token, "getUpdates", payload)
+        if not result:
+            return []
+
+        if isinstance(result, list):
+            return result
+        return []
+
+    async def set_webhook(
+        self,
+        token: str,
+        url: str,
+        secret_token: Optional[str] = None,
+        max_connections: int = 40,
+        allowed_updates: Optional[List[str]] = None,
+    ) -> bool:
+        """
+        Telegram webhook URL'sini ayarla.
+
+        Args:
+            token: Bot token
+            url: Webhook URL (HTTPS gerekli)
+            secret_token: Güvenlik için optional secret token
+            max_connections: Maksimum eşzamanlı bağlantı sayısı (1-100)
+            allowed_updates: Dinlenecek update tipleri (None = hepsi)
+
+        Returns:
+            True if successful
+        """
+        payload: Dict[str, Any] = {
+            "url": url,
+            "max_connections": min(max(max_connections, 1), 100),
+        }
+
+        if secret_token:
+            payload["secret_token"] = secret_token
+
+        if allowed_updates:
+            payload["allowed_updates"] = allowed_updates
+
+        result = await self._post(token, "setWebhook", payload)
+        return bool(result)
+
+    async def delete_webhook(self, token: str, drop_pending_updates: bool = False) -> bool:
+        """
+        Webhook'u kaldır ve long polling'e geri dön.
+
+        Args:
+            token: Bot token
+            drop_pending_updates: Bekleyen update'leri at
+
+        Returns:
+            True if successful
+        """
+        payload = {"drop_pending_updates": drop_pending_updates}
+        result = await self._post(token, "deleteWebhook", payload)
+        return bool(result)
+
+    async def get_webhook_info(self, token: str) -> Optional[Dict[str, Any]]:
+        """
+        Mevcut webhook bilgilerini al.
+
+        Args:
+            token: Bot token
+
+        Returns:
+            WebhookInfo dict or None
+        """
+        return await self._post(token, "getWebhookInfo", {})
+
     async def close(self):
         try:
             await self.client.aclose()

@@ -1208,10 +1208,22 @@ class BehaviorEngine:
             self.news = None
         self._active_news_feeds: List[str] = list(self.news.feeds) if self.news else []
 
-        # Redis (opsiyonel) - async subscriber
+        # Redis (opsiyonel) - async subscriber ve priority queue
         self._redis_url: Optional[str] = os.getenv("REDIS_URL") or None
         self._redis = None  # type: ignore
         self._redis_task: Optional[asyncio.Task] = None
+        self._redis_sync_client = None  # Sync client for priority queue polling
+
+        # Priority queue Redis client (sync)
+        if self._redis_url:
+            try:
+                import redis
+                self._redis_sync_client = redis.Redis.from_url(self._redis_url, decode_responses=True)
+                self._redis_sync_client.ping()
+                logger.info("Priority queue Redis client initialized")
+            except Exception as e:
+                logger.warning("Priority queue Redis init failed: %s. User message responses disabled.", e)
+                self._redis_sync_client = None
 
         # Persona yenileme takibi (bot bazlı)
         self._persona_refresh: Dict[int, Dict[str, Any]] = {}
@@ -1859,6 +1871,253 @@ METİN:
 """
         return self.llm.generate(user_prompt=prompt, temperature=0.4, max_tokens=120)
 
+    # ---- Priority Queue İşleme ----
+    def _check_priority_queue(self, db: Session) -> Optional[Dict[str, Any]]:
+        """
+        Redis priority queue'dan yüksek öncelikli mesajları kontrol eder.
+        Returns: Priority queue item veya None
+        """
+        if not self._redis_sync_client:
+            return None
+
+        try:
+            # Önce high priority queue'yu kontrol et
+            raw_item = self._redis_sync_client.rpop("priority_queue:high")
+            if raw_item:
+                return json.loads(raw_item)
+
+            # High yoksa normal queue'dan al
+            raw_item = self._redis_sync_client.rpop("priority_queue:normal")
+            if raw_item:
+                return json.loads(raw_item)
+
+            return None
+        except Exception as e:
+            logger.warning("Priority queue check failed: %s", e)
+            return None
+
+    async def _process_priority_message(self, db: Session, priority_item: Dict[str, Any]) -> bool:
+        """
+        Priority queue'dan gelen mesajı işle ve bot'un yanıt vermesini sağla.
+        Returns: True if successfully processed
+        """
+        try:
+            bot_id = priority_item.get("bot_id")
+            chat_id = priority_item.get("chat_id")
+            telegram_message_id = priority_item.get("telegram_message_id")
+            user_text = priority_item.get("text", "")
+            is_mentioned = priority_item.get("is_mentioned", False)
+            is_reply_to_bot = priority_item.get("is_reply_to_bot", False)
+
+            if not bot_id or not chat_id:
+                logger.warning("Invalid priority item: missing bot_id or chat_id")
+                return False
+
+            # Bot'u DB'den çek
+            bot = db.query(Bot).filter(Bot.id == bot_id, Bot.is_enabled.is_(True)).first()
+            if not bot:
+                logger.warning("Bot %s not found or disabled for priority response", bot_id)
+                return False
+
+            # Chat'i DB'den çek
+            chat = db.query(Chat).filter(Chat.id == chat_id).first()
+            if not chat:
+                logger.warning("Chat %s not found for priority response", chat_id)
+                return False
+
+            # Kullanıcı mesajını DB'den bul (context için)
+            incoming_msg = db.query(Message).filter(
+                Message.telegram_message_id == telegram_message_id,
+                Message.chat_db_id == chat_id,
+            ).first()
+
+            logger.info(
+                "Processing priority message: bot=%s, chat=%s, mentioned=%s, reply=%s",
+                bot.name,
+                chat.title,
+                is_mentioned,
+                is_reply_to_bot,
+            )
+
+            # Persona/Stance/Holdings verileri
+            (
+                persona_profile,
+                emotion_profile,
+                stances,
+                holdings,
+                persona_hint,
+            ) = self.fetch_psh(db, bot, topic_hint=None)
+
+            # Son mesajları context olarak al
+            recent_msgs = (
+                db.query(Message)
+                .filter(Message.chat_db_id == chat.id)
+                .order_by(Message.created_at.desc())
+                .limit(40)
+                .all()
+            )
+
+            # History transcript (kullanıcı mesajları da dahil!)
+            history_source = list(recent_msgs[:8])  # Daha fazla context
+            history_excerpt = build_history_transcript(list(reversed(history_source)))
+
+            # Contextual examples
+            contextual_examples = build_contextual_examples(
+                list(reversed(recent_msgs)), bot_id=bot.id, max_pairs=3
+            )
+
+            # Topic seçimi (kullanıcı mesajından)
+            topic_pool = chat.topics or ["BIST", "FX", "Kripto", "Makro"]
+            topic = choose_topic_from_messages([incoming_msg] if incoming_msg else history_source, topic_pool)
+
+            # Haber tetikleyici (priority mesajlar için daha düşük olasılık)
+            s = self.settings(db)
+            market_trigger = ""
+            if bool(s.get("news_trigger_enabled", True)) and self.news is not None:
+                if random.random() < 0.4:  # Priority response için %40 olasılık
+                    try:
+                        brief = self.news.get_brief(topic)
+                        if brief:
+                            market_trigger = brief
+                    except Exception as e:
+                        logger.debug("News trigger error in priority response: %s", e)
+
+            # Reaction plan
+            reaction_plan = synthesize_reaction_plan(
+                emotion_profile=emotion_profile,
+                market_trigger=market_trigger,
+            )
+            tempo_multiplier = derive_tempo_multiplier(emotion_profile, reaction_plan)
+
+            # Length hint
+            selected_length_category = choose_message_length_category(
+                s.get("message_length_profile")
+            )
+            length_hint = compose_length_hint(
+                persona_profile=persona_profile,
+                selected_category=selected_length_category,
+            )
+
+            # Time context
+            time_context = generate_time_context()
+
+            # Memories
+            bot_memories = fetch_bot_memories(db, bot.id, limit=8)
+            memories_text = format_memories_for_prompt(bot_memories)
+
+            # Past references
+            temp_metadata = extract_message_metadata(text=user_text, topic=topic)
+            current_symbols = temp_metadata.get("symbols", [])
+            past_references = find_relevant_past_messages(
+                db,
+                bot_id=bot.id,
+                current_topic=topic,
+                current_symbols=current_symbols,
+                days_back=7,
+                limit=3,
+            )
+            past_references_text = format_past_references_for_prompt(past_references)
+
+            # User prompt için reply context
+            reply_excerpt = shorten(user_text, 240)
+            mention_ctx = ""
+
+            # Priority response'da MUTLAKA reply mode
+            user_prompt = generate_user_prompt(
+                topic_name=topic,
+                history_excerpt=shorten(history_excerpt, 400),
+                reply_context=reply_excerpt,
+                market_trigger=market_trigger,
+                mode="reply",  # Priority mesajlar için her zaman reply
+                mention_context=mention_ctx,
+                persona_profile=persona_profile,
+                reaction_guidance=reaction_plan.instructions,
+                emotion_profile=emotion_profile,
+                contextual_examples=contextual_examples,
+                stances=stances,
+                holdings=holdings,
+                memories=memories_text,
+                past_references=past_references_text,
+                length_hint=length_hint,
+                persona_hint=persona_hint,
+                persona_refresh_note="",  # Priority için persona refresh atlayalım
+                time_context=time_context,
+            )
+
+            # LLM üretimi
+            text = self.llm.generate(user_prompt=user_prompt, temperature=0.75, max_tokens=220)
+            if not text:
+                logger.warning("LLM returned empty response for priority message")
+                return False
+
+            # Tutarlılık koruması
+            if bool(s.get("consistency_guard_enabled", True)):
+                revised = self.apply_consistency_guard(
+                    draft_text=text,
+                    persona_profile=persona_profile,
+                    stances=stances,
+                )
+                if revised:
+                    text = revised
+
+            text = self.apply_reaction_overrides(text, reaction_plan)
+            text = self.apply_micro_behaviors(
+                text,
+                emotion_profile=emotion_profile,
+                plan=reaction_plan,
+            )
+
+            # İnsancıl geliştirmeler
+            text = add_conversation_openings(text, probability=0.35)  # Priority için daha yüksek
+            text = add_hesitation_markers(text, probability=0.25)
+            text = add_colloquial_shortcuts(text, probability=0.20)
+            text = self.add_filler_words(text, probability=0.25)
+            text = apply_natural_imperfections(text, probability=0.12)
+
+            # Typing simülasyonu
+            if bool(s.get("typing_enabled", True)):
+                await self.tg.send_typing(
+                    bot.token,
+                    chat.chat_id,
+                    self.typing_seconds(
+                        db,
+                        len(text),
+                        bot=bot,
+                        tempo_multiplier=tempo_multiplier,
+                    ),
+                )
+
+            # Mesajı gönder (reply olarak)
+            msg_id = await self.tg.send_message(
+                token=bot.token,
+                chat_id=chat.chat_id,
+                text=text,
+                reply_to_message_id=telegram_message_id,  # Kullanıcı mesajına yanıt
+                disable_preview=True,
+            )
+
+            # DB log
+            msg_metadata = extract_message_metadata(text, topic)
+            msg_metadata["is_priority_response"] = True
+            msg_metadata["responded_to_message_id"] = telegram_message_id
+
+            db.add(Message(
+                bot_id=bot.id,
+                chat_db_id=chat.id,
+                telegram_message_id=msg_id,
+                text=text,
+                reply_to_message_id=telegram_message_id,
+                msg_metadata=msg_metadata,
+            ))
+            db.commit()
+
+            logger.info("Priority response sent: bot=%s, text_preview=%s", bot.name, text[:50])
+            return True
+
+        except Exception as e:
+            logger.exception("Priority message processing failed: %s", e)
+            return False
+
     # ---- Akış ----
     async def tick_once(self) -> None:
         db: Session = SessionLocal()
@@ -1867,6 +2126,19 @@ METİN:
             if not bool(s.get("simulation_active", False)):
                 await asyncio.sleep(1.0)
                 return
+
+            # ÖNCELİK 1: Priority queue'dan gelen mesajları kontrol et
+            priority_item = self._check_priority_queue(db)
+            if priority_item:
+                # Priority mesajı işle (kullanıcı mention/reply'leri)
+                success = await self._process_priority_message(db, priority_item)
+                if success:
+                    # Priority mesaj işlendikten sonra kısa bir gecikme
+                    await asyncio.sleep(2.0)
+                else:
+                    # Başarısızsa biraz daha bekle
+                    await asyncio.sleep(5.0)
+                return  # Priority işlendikten sonra normal akışa geri dön
 
             # Global rate limit
             if not self.global_rate_ok(db):

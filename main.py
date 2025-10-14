@@ -314,8 +314,10 @@ def login(
     request: Request,
     db: Session = Depends(get_db),
 ):
+    logger.info("Login attempt for username: %s (totp: %s)", payload.username, bool(payload.totp))
     user = authenticate_user(db, payload.username, payload.password, payload.totp)
     if not user:
+        logger.warning("Login failed for username: %s", payload.username)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid credentials or MFA code")
     api_key = rotate_user_api_key(db, user)
     logger.info("User %s performed login and API key rotation", user.username)
@@ -1454,6 +1456,167 @@ def wizard_setup(payload: WizardSetup, db: Session = Depends(get_db)):
         "holdings": created_holdings,
         "simulation_active": payload.start_simulation,
     }
+
+# ==========================================================
+# TELEGRAM WEBHOOK — Incoming message handler
+# ==========================================================
+
+class TelegramUpdate(BaseModel):
+    """Telegram Bot API Update object (simplified)"""
+    update_id: int
+    message: Optional[Dict[str, Any]] = None
+    edited_message: Optional[Dict[str, Any]] = None
+    channel_post: Optional[Dict[str, Any]] = None
+    edited_channel_post: Optional[Dict[str, Any]] = None
+
+
+@app.post("/webhook/telegram/{bot_token}")
+async def telegram_webhook(
+    bot_token: str,
+    update: TelegramUpdate,
+    db: Session = Depends(get_db),
+):
+    """
+    Telegram webhook endpoint. Her bot için ayrı URL:
+    /webhook/telegram/{bot_token}
+
+    Gelen mesajları DB'ye kaydeder ve Redis'e priority queue'ya ekler.
+    """
+    try:
+        # Bot token'ı verify et
+        bot = None
+        for candidate in db.query(Bot).filter(Bot.is_enabled.is_(True)).all():
+            try:
+                if candidate.token == bot_token:
+                    bot = candidate
+                    break
+            except SecurityConfigError:
+                continue
+
+        if not bot:
+            logger.warning("Webhook received for unknown/disabled bot token: %s", mask_token(bot_token))
+            raise HTTPException(status_code=404, detail="Bot not found or disabled")
+
+        # Mesaj extract et (message veya edited_message)
+        msg_data = update.message or update.edited_message
+        if not msg_data:
+            # Channel post'ları şimdilik ignore ediyoruz
+            return {"ok": True, "action": "ignored"}
+
+        # Mesaj detaylarını parse et
+        telegram_msg_id = msg_data.get("message_id")
+        chat_data = msg_data.get("chat", {})
+        telegram_chat_id = str(chat_data.get("id", ""))
+        from_user = msg_data.get("from", {})
+        user_id = from_user.get("id")
+        username = from_user.get("username", "")
+        text = msg_data.get("text", "")
+        reply_to_msg_id = msg_data.get("reply_to_message", {}).get("message_id")
+
+        # Bu mesaj bir bot'tan mı geliyor? (bot mesajlarını ignore et)
+        if from_user.get("is_bot", False):
+            return {"ok": True, "action": "ignored_bot_message"}
+
+        # Chat'i DB'de bul
+        chat = db.query(Chat).filter(Chat.chat_id == telegram_chat_id).first()
+        if not chat:
+            # Auto-create chat if not exists (opsiyonel)
+            logger.info("Auto-creating chat for telegram_chat_id=%s", telegram_chat_id)
+            chat = Chat(
+                chat_id=telegram_chat_id,
+                title=chat_data.get("title") or chat_data.get("first_name") or "Unknown",
+                is_enabled=True,
+                topics=["BIST", "FX", "Kripto", "Makro"],
+            )
+            db.add(chat)
+            db.commit()
+            db.refresh(chat)
+
+        # Incoming mesajı DB'ye kaydet
+        # Not: bot_id None olacak çünkü bu bir kullanıcı mesajı
+        incoming_msg = Message(
+            bot_id=None,  # Kullanıcı mesajı için None
+            chat_db_id=chat.id,
+            telegram_message_id=telegram_msg_id,
+            text=text,
+            reply_to_message_id=reply_to_msg_id,
+            msg_metadata={
+                "from_user_id": user_id,
+                "username": username,
+                "is_incoming": True,
+                "update_id": update.update_id,
+            },
+        )
+        db.add(incoming_msg)
+        db.commit()
+        db.refresh(incoming_msg)
+
+        logger.info(
+            "Incoming message saved: msg_id=%s, chat=%s, user=%s, text_preview=%s",
+            telegram_msg_id,
+            telegram_chat_id,
+            username or user_id,
+            text[:50] if text else "(no text)",
+        )
+
+        # Redis'e priority queue'ya ekle (mention detection için)
+        r = get_redis()
+        if r:
+            try:
+                # Bot'un mention edilip edilmediğini kontrol et
+                bot_username = bot.username or ""
+                is_mentioned = False
+                if bot_username and f"@{bot_username.lstrip('@')}" in text:
+                    is_mentioned = True
+
+                # Mesaj bot'a reply mi?
+                is_reply_to_bot = False
+                if reply_to_msg_id:
+                    # Reply edilen mesajın bot'a ait olup olmadığını kontrol et
+                    replied_msg = db.query(Message).filter(
+                        Message.telegram_message_id == reply_to_msg_id,
+                        Message.chat_db_id == chat.id,
+                        Message.bot_id == bot.id,
+                    ).first()
+                    if replied_msg:
+                        is_reply_to_bot = True
+
+                # Priority queue'ya ekle
+                priority_data = {
+                    "type": "incoming_message",
+                    "message_id": incoming_msg.id,
+                    "telegram_message_id": telegram_msg_id,
+                    "chat_id": chat.id,
+                    "telegram_chat_id": telegram_chat_id,
+                    "bot_id": bot.id,
+                    "text": text,
+                    "is_mentioned": is_mentioned,
+                    "is_reply_to_bot": is_reply_to_bot,
+                    "priority": "high" if (is_mentioned or is_reply_to_bot) else "normal",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+
+                # Redis LPUSH ile queue'ya ekle (priority'ye göre farklı queue'lar)
+                queue_key = f"priority_queue:high" if priority_data["priority"] == "high" else "priority_queue:normal"
+                r.lpush(queue_key, json.dumps(priority_data))
+                logger.debug("Added to priority queue: %s (priority=%s)", queue_key, priority_data["priority"])
+            except Exception as e:
+                logger.warning("Failed to add to priority queue: %s", e)
+
+        return {
+            "ok": True,
+            "action": "saved",
+            "message_id": incoming_msg.id,
+            "chat_id": chat.id,
+            "reply_to_message_id": reply_to_msg_id,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Webhook processing failed: %s", e)
+        raise HTTPException(status_code=500, detail="Internal webhook processing error")
+
 
 # ----------------------
 # Entrypoint
