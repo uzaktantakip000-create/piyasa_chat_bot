@@ -123,7 +123,7 @@ class Message(Base):
 
     # Mesaj metadata - bağlam hatırlama için
     # Örnek: {"topic": "BIST", "symbols": ["AKBNK", "GARAN"], "sentiment": "positive", "references": [123, 456]}
-    metadata = Column(JSON, default=dict, nullable=True)
+    msg_metadata = Column(JSON, default=dict, nullable=True)
 
     bot = relationship("Bot", back_populates="messages")
     chat = relationship("Chat", back_populates="messages")

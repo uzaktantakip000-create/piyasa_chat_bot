@@ -1027,7 +1027,7 @@ def find_relevant_past_messages(
             Message.bot_id == bot_id,
             Message.created_at >= cutoff_date,
             Message.created_at < now_utc() - timedelta(hours=2),  # Son 2 saat hariç
-            Message.metadata.isnot(None)
+            Message.msg_metadata.isnot(None)
         )
         .order_by(Message.created_at.desc())
         .limit(50)  # İlk 50'yi kontrol et
@@ -1038,11 +1038,11 @@ def find_relevant_past_messages(
     relevant: List[tuple[float, Message]] = []
 
     for msg in past_messages:
-        if not msg.metadata:
+        if not msg.msg_metadata:
             continue
 
         score = 0.0
-        msg_meta = msg.metadata
+        msg_meta = msg.msg_metadata
 
         # Aynı konu mu?
         if msg_meta.get("topic") == current_topic:
@@ -1090,9 +1090,9 @@ def find_relevant_past_messages(
         results.append({
             "id": msg.id,
             "text": (msg.text or "")[:150],  # İlk 150 karakter
-            "topic": msg.metadata.get("topic"),
-            "symbols": msg.metadata.get("symbols", []),
-            "sentiment": msg.metadata.get("sentiment"),
+            "topic": msg.msg_metadata.get("topic"),
+            "symbols": msg.msg_metadata.get("symbols", []),
+            "sentiment": msg.msg_metadata.get("sentiment"),
             "time_reference": time_ref,
             "relevance_score": score,
         })
@@ -1962,7 +1962,7 @@ METİN:
                             telegram_message_id=msg_id,
                             text=emoji,
                             reply_to_message_id=target.telegram_message_id,
-                            metadata=emoji_metadata,
+                            msg_metadata=emoji_metadata,
                         ))
                         db.commit()
                     await asyncio.sleep(self.next_delay_seconds(db, bot=bot))
@@ -2172,7 +2172,7 @@ METİN:
                 telegram_message_id=msg_id,
                 text=text,
                 reply_to_message_id=reply_msg.telegram_message_id if reply_msg else None,
-                metadata=msg_metadata,  # <-- Yeni: Mesaj metadata'sını kaydet
+                msg_metadata=msg_metadata,  # <-- Yeni: Mesaj metadata'sını kaydet
             ))
             db.commit()
 
