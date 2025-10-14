@@ -170,6 +170,36 @@ class BotHolding(Base):
     )
 
 
+class BotMemory(Base):
+    """
+    Kişisel hafıza sistemi: Bot'un tutarlı geçmiş hikayesi, anıları ve ilişkileri.
+
+    memory_type örnekleri:
+    - 'personal_fact': Kişisel bilgi (örn: "İstanbul'da yaşıyorum", "Yazılımcıyım")
+    - 'past_event': Geçmiş olay/anı (örn: "2023'te BIST'ten 30% kâr ettim", "Kripto'da yanmıştım")
+    - 'relationship': İlişki bilgisi (örn: "@AliTrader arkadaşımdır", "@MehmetYatırımcı ile her zaman tartışırız")
+    - 'preference': Tercihler (örn: "Teknik analize inanmam", "Altın sevmem")
+    - 'routine': Rutin davranışlar (örn: "Sabahları ilk işim BIST'e bakmaktır")
+    """
+    __tablename__ = "bot_memories"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    bot_id = Column(Integer, ForeignKey("bots.id", ondelete="CASCADE"), nullable=False, index=True)
+    memory_type = Column(String(32), nullable=False)  # personal_fact, past_event, relationship, preference, routine
+    content = Column(Text, nullable=False)  # Hafıza içeriği (Türkçe doğal dil)
+    relevance_score = Column(Float, default=1.0, nullable=False)  # 0.0-1.0, düşük skorlular zaman içinde unutulabilir
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    last_used_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)  # Son kullanım zamanı
+    usage_count = Column(Integer, default=0, nullable=False)  # Kaç kez konuşmalarda kullanıldı
+
+    bot = relationship("Bot", backref="memories")
+
+    __table_args__ = (
+        Index("ix_memories_bot_type", "bot_id", "memory_type"),
+        Index("ix_memories_bot_relevance", "bot_id", "relevance_score"),
+    )
+
+
 class SystemCheck(Base):
     __tablename__ = "system_checks"
 

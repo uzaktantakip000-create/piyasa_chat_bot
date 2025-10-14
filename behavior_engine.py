@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from database import (
     SessionLocal, Bot, Chat, Message, Setting,
-    BotStance, BotHolding,
+    BotStance, BotHolding, BotMemory,
 )
 from settings_utils import (
     DEFAULT_MESSAGE_LENGTH_PROFILE,
@@ -527,6 +527,157 @@ def generate_time_context() -> str:
     return random.choice(contexts)
 
 
+def add_conversation_openings(text: str, probability: float = 0.25) -> str:
+    """
+    Mesajlara doğal konuşma açılışları ekler.
+
+    Args:
+        text: Düzenlenecek metin
+        probability: Açılış ekleme olasılığı (varsayılan %25)
+
+    Returns:
+        Açılış ifadesiyle zenginleştirilmiş metin
+    """
+    if not text or random.random() > probability:
+        return text
+
+    # Türkçe konuşma dilinde yaygın açılışlar
+    openings = [
+        "Bak şimdi",
+        "Şöyle söyleyeyim",
+        "Valla dikkatimi çekti",
+        "Bence şöyle",
+        "Açıkçası",
+        "Bakın",
+        "Şimdi",
+        "Dürüst olmak gerekirse",
+        "Yani şey",
+        "Nasıl desem",
+        "Bakıyorum da",
+        "Gördüm de",
+        "İzliyorum da",
+        "Takip ediyorum",
+        "Bir de",
+    ]
+
+    opening = random.choice(openings)
+
+    # İlk harfi büyük yap, virgül ekle
+    return f"{opening}, {text[0].lower() + text[1:]}"
+
+
+def add_hesitation_markers(text: str, probability: float = 0.30) -> str:
+    """
+    Belirsizlik ve tereddüt belirteçleri ekler (en kritik insanlaştırma özelliği).
+
+    Args:
+        text: Düzenlenecek metin
+        probability: Belirsizlik ekleme olasılığı (varsayılan %30)
+
+    Returns:
+        Belirsizlik ifadeleriyle zenginleştirilmiş metin
+    """
+    if not text or random.random() > probability:
+        return text
+
+    # Türkçe belirsizlik ifadeleri
+    hesitation_phrases = [
+        "sanki",
+        "gibime geliyor",
+        "gibi",
+        "emin değilim ama",
+        "belki de",
+        "olabilir",
+        "muhtemelen",
+        "galiba",
+        "herhalde",
+        "sanırım",
+        "bence",
+        "gibi geldi",
+        "gibi düşünüyorum",
+    ]
+
+    # Cümleleri ayır
+    sentences = re.split(r'([.!?])', text)
+    modified = False
+
+    for i, part in enumerate(sentences):
+        if part in '.!?':
+            continue
+
+        sentence = part.strip()
+        if not sentence or len(sentence.split()) < 3:
+            continue
+
+        # İlk veya ikinci cümleye ekle
+        if i <= 2 and not modified and random.random() < 0.6:
+            hesitation = random.choice(hesitation_phrases)
+            words = sentence.split()
+
+            # Cümlenin başına veya ortasına ekle
+            if random.random() < 0.4 and hesitation in ["sanırım", "bence", "galiba", "muhtemelen"]:
+                # Başa ekle
+                sentences[i] = f"{hesitation} {sentence}"
+            else:
+                # Ortaya ekle (ikinci veya üçüncü kelimeden sonra)
+                if len(words) >= 3:
+                    insert_pos = random.randint(1, min(3, len(words) - 1))
+                    words.insert(insert_pos, hesitation)
+                    sentences[i] = " ".join(words)
+                else:
+                    sentences[i] = f"{sentence} {hesitation}"
+
+            modified = True
+            break
+
+    return "".join(sentences)
+
+
+def add_colloquial_shortcuts(text: str, probability: float = 0.18) -> str:
+    """
+    Günlük konuşma kısaltmaları ekler (Türkçe konuşma diline özgü).
+
+    Args:
+        text: Düzenlenecek metin
+        probability: Kısaltma ekleme olasılığı (varsayılan %18)
+
+    Returns:
+        Kısaltmalarla doğallaştırılmış metin
+    """
+    if not text or random.random() > probability:
+        return text
+
+    # Türkçe konuşma dilindeki yaygın kısaltmalar
+    shortcuts = {
+        " bir ": " bi' ",
+        " bir şey": " bi şey",
+        " birşey": " bi şey",
+        " değil mi": " değil mi",
+        " yok mu": " yok mu",
+        " var mı": " var mı",
+        " falan": " falan",
+        " filan": " filan",
+        " işte": " işte",
+        " hani": " hani",
+    }
+
+    # Sadece birkaç kısaltma uygula (aşırıya kaçmasın)
+    modified = False
+    attempts = 0
+    max_attempts = 2  # En fazla 2 kısaltma
+
+    for full, short in shortcuts.items():
+        if attempts >= max_attempts:
+            break
+
+        if full in text and random.random() < 0.5:
+            text = text.replace(full, short, 1)  # Sadece ilk geçtiği yerde
+            modified = True
+            attempts += 1
+
+    return text
+
+
 def apply_natural_imperfections(text: str, probability: float = 0.15) -> str:
     """
     Doğal kusurlar ekler: bazen yazım hataları yapıp düzeltir.
@@ -669,6 +820,110 @@ def normalize_text(s: str) -> str:
     s = re.sub(r"\s+", " ", s)          # sık boşlukları tek boşluğa indir
     s = re.sub(r"[^\w\sçğıöşü]", "", s) # emojiler/işaretler hariç sadeleştir
     return s[:400]  # kısa kesit yeterli
+
+
+def fetch_bot_memories(
+    db: Session,
+    bot_id: int,
+    *,
+    limit: int = 10,
+    memory_types: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Bot'un kişisel hafızalarını çeker ve relevance_score'a göre sıralar.
+
+    Args:
+        db: Database session
+        bot_id: Bot ID
+        limit: Maksimum hafıza sayısı (varsayılan 10)
+        memory_types: Filtrelenecek hafıza tipleri (None ise hepsi)
+
+    Returns:
+        Hafıza listesi [{"type": ..., "content": ..., "usage_count": ...}, ...]
+    """
+    query = db.query(BotMemory).filter(BotMemory.bot_id == bot_id)
+
+    if memory_types:
+        query = query.filter(BotMemory.memory_type.in_(memory_types))
+
+    # Relevance score'a göre sırala, en alakalılar önce
+    memories = (
+        query
+        .order_by(BotMemory.relevance_score.desc(), BotMemory.last_used_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    result = []
+    for m in memories:
+        result.append({
+            "id": m.id,
+            "type": m.memory_type,
+            "content": m.content,
+            "relevance": m.relevance_score,
+            "usage_count": m.usage_count,
+            "created_at": m.created_at.isoformat() if m.created_at else None,
+        })
+
+    return result
+
+
+def update_memory_usage(db: Session, memory_id: int) -> None:
+    """
+    Hafıza kullanıldığında usage_count ve last_used_at güncellenir.
+
+    Args:
+        db: Database session
+        memory_id: Hafıza ID
+    """
+    memory = db.query(BotMemory).filter(BotMemory.id == memory_id).first()
+    if memory:
+        memory.usage_count += 1
+        memory.last_used_at = now_utc()
+        db.add(memory)
+        db.commit()
+
+
+def format_memories_for_prompt(memories: List[Dict[str, Any]]) -> str:
+    """
+    Hafızaları LLM prompt'u için formatlı string'e dönüştürür.
+
+    Args:
+        memories: Hafıza listesi
+
+    Returns:
+        Formatlanmış string (örn: "Kişisel: İstanbul'da yaşıyorum | Geçmiş: 2023'te kazandım")
+    """
+    if not memories:
+        return ""
+
+    # Tip bazında gruplama
+    grouped: Dict[str, List[str]] = {}
+    for m in memories:
+        mtype = m.get("type", "other")
+        content = (m.get("content") or "").strip()
+        if content:
+            if mtype not in grouped:
+                grouped[mtype] = []
+            grouped[mtype].append(content)
+
+    # Türkçe tip isimleri
+    type_names = {
+        "personal_fact": "Kişisel",
+        "past_event": "Geçmiş",
+        "relationship": "İlişki",
+        "preference": "Tercih",
+        "routine": "Rutin",
+    }
+
+    parts: List[str] = []
+    for mtype, contents in grouped.items():
+        type_label = type_names.get(mtype, mtype.capitalize())
+        # Her tipten en fazla 3 hafıza göster
+        sample = contents[:3]
+        parts.append(f"{type_label}: {'; '.join(sample)}")
+
+    return " | ".join(parts)
 
 
 # ---------------------------
@@ -1305,6 +1560,76 @@ class BehaviorEngine:
 
         return updated
 
+    def add_filler_words(self, text: str, probability: float = 0.20) -> str:
+        """
+        Mesaja doğal konuşma dolgu kelimeleri ekler.
+
+        Args:
+            text: Düzenlenecek metin
+            probability: Dolgu kelime ekleme olasılığı (varsayılan %20)
+
+        Returns:
+            Dolgu kelimelerle zenginleştirilmiş metin
+        """
+        if not text or random.random() > probability:
+            return text
+
+        # Türkçe konuşma dilindeki yaygın dolgu kelimeleri
+        fillers_start = [
+            "aa",
+            "haa",
+            "hmm",
+            "şey",
+            "yani",
+            "işte",
+            "hani",
+            "valla",
+            "ya",
+            "ee",
+            "off",
+        ]
+
+        fillers_middle = [
+            "yani",
+            "işte",
+            "hani",
+            "şey",
+            "demek istediğim",
+        ]
+
+        # Cümleleri ayır
+        sentences = re.split(r'([.!?])', text)
+        modified_sentences = []
+
+        for i, part in enumerate(sentences):
+            # Noktalama işaretlerini aynen koru
+            if part in '.!?':
+                modified_sentences.append(part)
+                continue
+
+            sentence = part.strip()
+            if not sentence:
+                modified_sentences.append(part)
+                continue
+
+            # İlk cümle için başa dolgu ekle (%30 olasılık)
+            if i == 0 and random.random() < 0.30:
+                filler = random.choice(fillers_start)
+                sentence = f"{filler.capitalize()}, {sentence.lower()}"
+            # Diğer cümleler için ortaya dolgu ekle (%15 olasılık)
+            elif i > 0 and random.random() < 0.15:
+                words = sentence.split()
+                if len(words) >= 3:
+                    # Ortaya yakın bir yere ekle
+                    insert_pos = random.randint(1, len(words) - 1)
+                    filler = random.choice(fillers_middle)
+                    words.insert(insert_pos, filler + ",")
+                    sentence = " ".join(words)
+
+            modified_sentences.append(sentence if i == 0 else " " + sentence)
+
+        return "".join(modified_sentences)
+
     # ---- Dedup (tekrar) kontrolü ----
     def is_duplicate_recent(self, db: Session, *, bot_id: int, text: str, hours: int) -> bool:
         if not text:
@@ -1499,6 +1824,18 @@ METİN:
             # Zaman bağlamı oluştur
             time_context = generate_time_context()
 
+            # ---- KİŞİSEL HAFIZA SİSTEMİ ----
+            # Bot'un kişisel hafızalarını çek ve prompt'a ekle
+            bot_memories = fetch_bot_memories(db, bot.id, limit=8)
+            memories_text = format_memories_for_prompt(bot_memories)
+
+            # Kullanılan hafızaları işaretle (usage_count güncelle)
+            for memory in bot_memories:
+                try:
+                    update_memory_usage(db, memory["id"])
+                except Exception as e:
+                    logger.debug("Memory usage update error: %s", e)
+
             user_prompt = generate_user_prompt(
                 topic_name=topic,
                 history_excerpt=shorten(history_excerpt, 400),
@@ -1512,6 +1849,7 @@ METİN:
                 contextual_examples=contextual_examples,
                 stances=stances,
                 holdings=holdings,
+                memories=memories_text,  # <-- Yeni: Kişisel hafızalar
                 length_hint=length_hint,
                 persona_hint=persona_hint,
                 persona_refresh_note=persona_refresh_note,
@@ -1543,7 +1881,20 @@ METİN:
                 plan=reaction_plan,
             )
 
-            # Doğal kusurlar uygula (yazım hataları + düzeltmeler)
+            # İnsancıl geliştirmeler (sıralama önemli!)
+            # 1. Konuşma açılışları ekle
+            text = add_conversation_openings(text, probability=0.25)
+
+            # 2. Belirsizlik belirteçleri ekle (en kritik özellik)
+            text = add_hesitation_markers(text, probability=0.30)
+
+            # 3. Günlük kısaltmalar ekle
+            text = add_colloquial_shortcuts(text, probability=0.18)
+
+            # 4. Dolgu kelimeleri ekle
+            text = self.add_filler_words(text, probability=0.20)
+
+            # 5. Doğal kusurlar uygula (yazım hataları + düzeltmeler)
             text = apply_natural_imperfections(text, probability=0.15)
 
             # Mention'ı metne kibarca ekle (başta değilse)
