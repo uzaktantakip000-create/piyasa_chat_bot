@@ -191,17 +191,23 @@ class MockUser:
             await asyncio.sleep(sleep_time)
 
 
-async def create_test_bots(api_url: str, api_key: str) -> List[Dict[str, Any]]:
-    """Create 50 test bots with different configurations"""
+async def create_test_bots(api_url: str, api_key: str) -> tuple[List[Dict[str, Any]], List[str]]:
+    """Create 50 test bots with different configurations
+
+    Returns:
+        (bots, tokens): List of bot dicts and list of plaintext tokens
+    """
 
     print("📦 Creating 50 test bots...")
 
     bots = []
+    tokens = []
     async with aiohttp.ClientSession() as session:
         for i in range(1, NUM_BOTS + 1):
+            token = f"fake_token_{i}_{int(time.time())}"
             bot_data = {
                 "name": f"LoadTestBot{i}",
-                "token": f"fake_token_{i}_{int(time.time())}",
+                "token": token,
                 "username": f"testbot{i}",
                 "is_enabled": True,
                 "persona_hint": f"Test bot {i}"
@@ -217,6 +223,7 @@ async def create_test_bots(api_url: str, api_key: str) -> List[Dict[str, Any]]:
                     if response.status in [200, 201]:
                         bot = await response.json()
                         bots.append(bot)
+                        tokens.append(token)  # Save plaintext token
                         print(f"  ✅ Created bot {i}/{NUM_BOTS}: {bot['name']}")
                     else:
                         print(f"  ❌ Failed to create bot {i}: HTTP {response.status}")
@@ -225,7 +232,7 @@ async def create_test_bots(api_url: str, api_key: str) -> List[Dict[str, Any]]:
                 print(f"  ❌ Error creating bot {i}: {e}")
 
     print(f"\n✅ Successfully created {len(bots)} bots\n")
-    return bots
+    return bots, tokens
 
 
 async def create_test_chat(api_url: str, api_key: str) -> Dict[str, Any]:
@@ -301,7 +308,7 @@ async def run_load_test(api_url: str, api_key: str, duration_minutes: int):
     metrics = LoadTestMetrics()
 
     # Step 1: Create test bots
-    bots = await create_test_bots(api_url, api_key)
+    bots, tokens = await create_test_bots(api_url, api_key)
     if len(bots) < 10:
         print("❌ Failed to create enough bots. Exiting.")
         return {}, False
@@ -343,8 +350,8 @@ async def run_load_test(api_url: str, api_key: str, duration_minutes: int):
     start_time = time.time()
 
     async with aiohttp.ClientSession() as session:
-        # Use a fake token for all webhook calls (token is masked in response)
-        bot_token = f"fake_token_1_{int(time.time())}"
+        # Use the first bot's plaintext token for webhook calls
+        bot_token = tokens[0]
 
         # Create user tasks
         user_tasks = [

@@ -38,6 +38,9 @@ engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
     future=True,
+    pool_size=20,  # Increased from default 5 for concurrent load
+    max_overflow=40,  # Increased from default 10
+    pool_pre_ping=True,  # Verify connections before using
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, class_=Session)
 
