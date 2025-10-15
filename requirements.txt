@@ -10,6 +10,7 @@ psycopg[binary]>=3.2.0  # Postgres kullanacaksan; SQLite için şart değil
 httpx==0.27.0
 requests==2.31.0
 redis==5.0.4
+aiohttp==3.9.3
 
 # --- LLM ---
 openai==1.43.0           # llm_client.py ile uyumlu (from openai import OpenAI)
