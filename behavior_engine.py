@@ -30,6 +30,7 @@ from system_prompt import (
     summarize_stances,
 )
 from telegram_client import TelegramClient
+from message_queue import MessageQueue, QueuedMessage, MessagePriority
 from news_client import NewsClient, DEFAULT_FEEDS  # <-- HABER TETIKLEYICI
 
 logger = logging.getLogger("behavior")
@@ -1225,6 +1226,11 @@ class BehaviorEngine:
                 logger.warning("Priority queue Redis init failed: %s. User message responses disabled.", e)
                 self._redis_sync_client = None
 
+        # Message queue for rate-limited messages
+        self.msg_queue = MessageQueue(self._redis_sync_client)
+        self._queue_processor_task: Optional[asyncio.Task] = None
+        logger.info("Message queue initialized")
+
         # Persona yenileme takibi (bot bazlı)
         self._persona_refresh: Dict[int, Dict[str, Any]] = {}
 
@@ -1740,6 +1746,81 @@ class BehaviorEngine:
             updated = f"{updated} {emoji}".strip()
 
         return updated
+
+    async def send_message_with_queue(
+        self,
+        bot: Bot,
+        chat: Chat,
+        text: str,
+        *,
+        reply_to_message_id: Optional[int] = None,
+        disable_preview: bool = True,
+        parse_mode: Optional[str] = None,
+        priority: MessagePriority = MessagePriority.NORMAL,
+        db_message_id: Optional[int] = None,
+    ) -> Optional[int]:
+        """
+        Send message to Telegram with automatic queuing on rate limit.
+
+        If rate limited, the message is queued for later delivery.
+
+        Args:
+            bot: Bot to send from
+            chat: Chat to send to
+            text: Message text
+            reply_to_message_id: Optional reply target
+            disable_preview: Disable link preview
+            parse_mode: Markdown/HTML
+            priority: Message priority (affects queue order)
+            db_message_id: Optional database message ID for tracking
+
+        Returns:
+            Telegram message ID if sent immediately, None if queued
+        """
+        try:
+            # Attempt immediate send
+            msg_id = await self.tg.send_message(
+                token=bot.token,
+                chat_id=chat.chat_id,
+                text=text,
+                reply_to_message_id=reply_to_message_id,
+                disable_preview=disable_preview,
+                parse_mode=parse_mode,
+                skip_rate_limit=False,
+            )
+
+            if msg_id:
+                # Successfully sent immediately
+                return msg_id
+
+            # Send returned None (likely rate limited) - enqueue
+            logger.info(
+                "Message rate limited, enqueueing: bot=%s, chat=%s, priority=%s",
+                bot.name, chat.chat_id, priority.name
+            )
+
+            queued_msg = QueuedMessage(
+                bot_token=bot.token,
+                chat_id=chat.chat_id,
+                text=text,
+                priority=priority,
+                reply_to_message_id=reply_to_message_id,
+                disable_preview=disable_preview,
+                parse_mode=parse_mode,
+                message_id=db_message_id,
+                bot_id=bot.id,
+            )
+
+            if self.msg_queue.enqueue(queued_msg):
+                logger.debug("Message enqueued successfully")
+                return None
+            else:
+                logger.warning("Failed to enqueue rate-limited message")
+                return None
+
+        except Exception as e:
+            logger.exception("Error sending message with queue: %s", e)
+            return None
 
     def apply_micro_behaviors(
         self,
@@ -2463,12 +2544,92 @@ METİN:
         finally:
             db.close()
 
+    # ---- Message queue processor ----
+    async def _process_message_queue(self) -> None:
+        """
+        Background task to process queued messages.
+
+        Continuously dequeues messages and attempts to send them via Telegram.
+        Uses blocking dequeue with timeout to avoid busy-waiting.
+        """
+        logger.info("Message queue processor started")
+
+        while True:
+            try:
+                # Dequeue next message (blocks for up to 1 second)
+                message = self.msg_queue.dequeue(block=True, timeout=1.0)
+
+                if message is None:
+                    # No messages in queue, continue
+                    await asyncio.sleep(0.1)
+                    continue
+
+                # Attempt to send message
+                try:
+                    msg_id = await self.tg.send_message(
+                        token=message.bot_token,
+                        chat_id=message.chat_id,
+                        text=message.text,
+                        reply_to_message_id=message.reply_to_message_id,
+                        disable_preview=message.disable_preview,
+                        parse_mode=message.parse_mode,
+                        skip_rate_limit=False,  # Apply rate limiting
+                    )
+
+                    if msg_id:
+                        # Success - acknowledge message
+                        self.msg_queue.ack(message)
+                        logger.debug(
+                            "Queued message sent successfully: chat=%s, msg_id=%s",
+                            message.chat_id, msg_id
+                        )
+
+                        # Update database if message_id provided
+                        if message.message_id and message.bot_id:
+                            db = SessionLocal()
+                            try:
+                                db_msg = db.query(Message).filter(Message.id == message.message_id).first()
+                                if db_msg:
+                                    db_msg.telegram_message_id = msg_id
+                                    db.commit()
+                            except Exception as e:
+                                logger.warning("Failed to update message in DB: %s", e)
+                            finally:
+                                db.close()
+                    else:
+                        # Send failed - nack and retry
+                        self.msg_queue.nack(message, "send_message returned None")
+
+                except Exception as e:
+                    # Send error - nack and retry
+                    error_msg = str(e)
+                    logger.warning(
+                        "Failed to send queued message (retry %d/%d): %s",
+                        message.retry_count + 1, message.max_retries, error_msg
+                    )
+                    self.msg_queue.nack(message, error_msg)
+
+                # Small delay between messages
+                await asyncio.sleep(0.1)
+
+            except Exception as e:
+                logger.exception("Error in message queue processor: %s", e)
+                await asyncio.sleep(1.0)
+
     async def run_forever(self):
         logger.info("BehaviorEngine started. CTRL+C ile durdurabilirsiniz.")
 
         # Redis listener'ı başlat
         if self._redis_url and self._redis_task is None:
             self._redis_task = asyncio.create_task(self._config_listener(), name="config_listener")
+
+        # Message queue processor'ı başlat
+        if self._queue_processor_task is None:
+            self._queue_processor_task = asyncio.create_task(
+                self._process_message_queue(),
+                name="queue_processor"
+            )
+            logger.info("Message queue processor task created")
 
         while True:
             await self.tick_once()
@@ -2482,6 +2643,14 @@ METİN:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._redis_task
             self._redis_task = None
+
+        # Queue processor iptali
+        if self._queue_processor_task:
+            self._queue_processor_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._queue_processor_task
+            self._queue_processor_task = None
+            logger.info("Message queue processor stopped")
 
         # Telegram HTTP istemcisi
         try:

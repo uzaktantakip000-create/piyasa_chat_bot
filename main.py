@@ -989,6 +989,36 @@ def metrics(db: Session = Depends(get_db)):
     return _calculate_metrics(db)
 
 
+@app.get("/queue/stats", dependencies=viewer_dependencies)
+def queue_stats():
+    """
+    Get message queue statistics.
+
+    Returns current queue lengths for each priority level.
+    """
+    try:
+        from behavior_engine import _ENGINE
+
+        if _ENGINE is None:
+            return {
+                "error": "Behavior engine not running",
+                "stats": None
+            }
+
+        stats = _ENGINE.msg_queue.get_stats()
+        return {
+            "stats": stats,
+            "total_queued": sum(stats.values()) - stats.get("dlq", 0),
+            "total_failed": stats.get("dlq", 0),
+        }
+    except Exception as e:
+        logger.exception("Error getting queue stats: %s", e)
+        return {
+            "error": str(e),
+            "stats": None
+        }
+
+
 def _build_dashboard_snapshot() -> Dict[str, Any]:
     db = SessionLocal()
     try:
