@@ -189,27 +189,74 @@ def check_db():
 
 
 def check_llm():
-    key = os.getenv("OPENAI_API_KEY")
-    if not key:
-        _warn("OPENAI_API_KEY set değil (.env doldurun). LLM testi atlanıyor.")
-        return True
+    provider = os.getenv("LLM_PROVIDER", "openai").lower()
 
-    # API içinde değil doğrudan SDK ile çok basit bir deneme yapalım.
-    try:
-        from openai import OpenAI
-        client = OpenAI(api_key=key, base_url=os.getenv("OPENAI_API_BASE"))
-        model = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
-        r = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "system", "content": "ok: kısa yanıt ver"}, {"role": "user", "content": "ping"}],
-            max_tokens=4,
-        )
-        text = r.choices[0].message.content.strip()
-        _ok(f"LLM deneme başarılı (model={model}, çıktı='{text[:20]}...')")
+    # Test OpenAI provider
+    if provider == "openai":
+        key = os.getenv("OPENAI_API_KEY")
+        if not key:
+            _warn("OPENAI_API_KEY set değil (.env doldurun). LLM testi atlanıyor.")
+            return True
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=key, base_url=os.getenv("OPENAI_API_BASE"))
+            model = os.getenv("LLM_MODEL") or "gpt-4o-mini"
+            r = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "system", "content": "ok: kısa yanıt ver"}, {"role": "user", "content": "ping"}],
+                max_tokens=4,
+            )
+            text = r.choices[0].message.content.strip()
+            _ok(f"LLM deneme başarılı (OpenAI {model}, çıktı='{text[:20]}...')")
+            return True
+        except Exception as exc:
+            _fail(f"LLM denemesi başarısız (OpenAI): {exc}")
+            return False
+
+    # Test Gemini provider
+    elif provider == "gemini":
+        key = os.getenv("GEMINI_API_KEY")
+        if not key:
+            _warn("GEMINI_API_KEY set değil (.env doldurun). LLM testi atlanıyor.")
+            return True
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=key)
+            model_name = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+            model = genai.GenerativeModel(model_name=model_name)
+            response = model.generate_content("ping", generation_config=genai.types.GenerationConfig(max_output_tokens=4))
+            text = response.candidates[0].content.parts[0].text.strip()
+            _ok(f"LLM deneme başarılı (Gemini {model_name}, çıktı='{text[:20]}...')")
+            return True
+        except Exception as exc:
+            _fail(f"LLM denemesi başarısız (Gemini): {exc}")
+            return False
+
+    # Test Groq provider
+    elif provider == "groq":
+        key = os.getenv("GROQ_API_KEY")
+        if not key:
+            _warn("GROQ_API_KEY set değil (.env doldurun). LLM testi atlanıyor.")
+            return True
+        try:
+            from groq import Groq
+            client = Groq(api_key=key)
+            model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+            completion = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "system", "content": "ok: kısa yanıt ver"}, {"role": "user", "content": "ping"}],
+                max_tokens=4,
+            )
+            text = completion.choices[0].message.content.strip()
+            _ok(f"LLM deneme başarılı (Groq {model}, çıktı='{text[:20]}...')")
+            return True
+        except Exception as exc:
+            _fail(f"LLM denemesi başarısız (Groq): {exc}")
+            return False
+
+    else:
+        _warn(f"Bilinmeyen LLM_PROVIDER: {provider}. LLM testi atlanıyor.")
         return True
-    except Exception as exc:
-        _fail(f"LLM denemesi başarısız: {exc}")
-        return False
 
 
 def first_bot_token() -> Optional[str]:

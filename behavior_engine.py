@@ -90,7 +90,7 @@ def synthesize_reaction_plan(
     ]
 
     if empathy:
-        directives.append(empathy)
+        directives.append(f"Empati seviyesi: {empathy}.")
     if tone:
         directives.append(f"Genel ton: {tone}.")
     if energy:
@@ -1056,7 +1056,11 @@ def find_relevant_past_messages(
         score += len(common_symbols) * 2.0
 
         # Zamana göre azalma (yeni mesajlar daha alakalı)
-        age_hours = (now_utc() - msg.created_at).total_seconds() / 3600
+        msg_time = msg.created_at
+        if msg_time.tzinfo is None:
+            from datetime import timezone
+            msg_time = msg_time.replace(tzinfo=timezone.utc)
+        age_hours = (now_utc() - msg_time).total_seconds() / 3600
         recency_multiplier = max(0.5, 1.0 - (age_hours / (days_back * 24)))
         score *= recency_multiplier
 
@@ -1068,8 +1072,12 @@ def find_relevant_past_messages(
 
     results = []
     for score, msg in relevant[:limit]:
-        days_ago = (now_utc() - msg.created_at).days
-        hours_ago = int((now_utc() - msg.created_at).total_seconds() / 3600)
+        msg_time = msg.created_at
+        if msg_time.tzinfo is None:
+            from datetime import timezone
+            msg_time = msg_time.replace(tzinfo=timezone.utc)
+        days_ago = (now_utc() - msg_time).days
+        hours_ago = int((now_utc() - msg_time).total_seconds() / 3600)
 
         # Zaman ifadesi
         if days_ago == 0:
@@ -2430,8 +2438,8 @@ METİN:
                 time_context=time_context,
             )
 
-            # LLM üretimi (taslak)
-            text = self.llm.generate(user_prompt=user_prompt, temperature=0.8, max_tokens=220)
+            # LLM üretimi (taslak) - kısa mesajlar için düşük max_tokens
+            text = self.llm.generate(user_prompt=user_prompt, temperature=0.92, max_tokens=80)
             if not text:
                 logger.warning("LLM boş/filtreli çıktı; atlanıyor.")
                 await asyncio.sleep(self.next_delay_seconds(db, bot=bot))

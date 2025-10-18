@@ -366,6 +366,18 @@ def init_default_settings() -> None:
         db.close()
 
 
+def init_demo_bots() -> None:
+    """
+    İlk kurulumda demo bot'ları otomatik yükle.
+    Bu fonksiyon startup'ta çağrılır, bot yoksa 6 demo bot'u oluşturur.
+    """
+    try:
+        from init_demo_bots import init_demo_bots as load_demo_bots
+        load_demo_bots()
+    except Exception as exc:
+        logger.warning("Demo bot'ları yüklenemedi: %s", exc)
+
+
 def migrate_news_feed_urls_setting() -> None:
     """Ensure the ``news_feed_urls`` setting exists for legacy installs."""
     db = SessionLocal()
