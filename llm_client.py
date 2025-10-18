@@ -184,14 +184,28 @@ class OpenAIProvider(BaseLLMProvider):
         user_prompt: str,
         temperature: float = 0.7,
         max_tokens: int = 220,
+        system_prompt: Optional[str] = None,
+        top_p: float = 0.95,
+        frequency_penalty: float = 0.4,
     ) -> Optional[str]:
         """
         System + user prompt ile bir mesaj üretir.
         İçerik filtresi ve post-process uygular.
         Basit exponential backoff ile yeniden dener.
+
+        Args:
+            user_prompt: User mesajı
+            temperature: LLM temperature (default 0.7)
+            max_tokens: Max token sayısı (default 220)
+            system_prompt: Custom system prompt (None ise default kullanılır)
+            top_p: Nucleus sampling (default 0.95)
+            frequency_penalty: Frequency penalty (default 0.4)
         """
+        # System prompt: custom varsa onu kullan, yoksa default
+        system_content = system_prompt if system_prompt is not None else _SYSTEM_CONTENT
+
         messages = [
-            {"role": "system", "content": _SYSTEM_CONTENT},
+            {"role": "system", "content": system_content},
             {"role": "user", "content": user_prompt},
         ]
 
@@ -207,8 +221,9 @@ class OpenAIProvider(BaseLLMProvider):
                         messages=messages,
                         temperature=temperature,
                         max_tokens=max_tokens,
+                        top_p=top_p,
                         presence_penalty=0.4,
-                        frequency_penalty=0.2,
+                        frequency_penalty=frequency_penalty,
                     )
                     text = (resp.choices[0].message.content or "").strip()
                     if not text:
@@ -297,13 +312,19 @@ class GeminiProvider(BaseLLMProvider):
         user_prompt: str,
         temperature: float = 0.7,
         max_tokens: int = 220,
+        system_prompt: Optional[str] = None,
+        top_p: float = 0.95,
+        frequency_penalty: float = 0.4,
     ) -> Optional[str]:
         """
         Gemini API ile mesaj üretir.
         System prompt'u user prompt'a prepend eder (Gemini'de system role yoktur).
         """
+        # System prompt: custom varsa onu kullan, yoksa default
+        system_content = system_prompt if system_prompt is not None else _SYSTEM_CONTENT
+
         # Gemini'de system role yok, user prompt'a ekliyoruz
-        combined_prompt = f"{_SYSTEM_CONTENT}\n\n{user_prompt}"
+        combined_prompt = f"{system_content}\n\n{user_prompt}"
 
         generation_config = genai.types.GenerationConfig(
             temperature=temperature,
@@ -391,13 +412,19 @@ class GroqProvider(BaseLLMProvider):
         user_prompt: str,
         temperature: float = 0.7,
         max_tokens: int = 220,
+        system_prompt: Optional[str] = None,
+        top_p: float = 0.95,
+        frequency_penalty: float = 0.4,
     ) -> Optional[str]:
         """
         Groq API ile mesaj üretir.
         OpenAI-compatible API kullanır.
         """
+        # System prompt: custom varsa onu kullan, yoksa default
+        system_content = system_prompt if system_prompt is not None else _SYSTEM_CONTENT
+
         messages = [
-            {"role": "system", "content": _SYSTEM_CONTENT},
+            {"role": "system", "content": system_content},
             {"role": "user", "content": user_prompt},
         ]
 
@@ -408,8 +435,8 @@ class GroqProvider(BaseLLMProvider):
                     messages=messages,
                     temperature=temperature,
                     max_tokens=max_tokens,
-                    top_p=0.98,
-                    frequency_penalty=0.6,
+                    top_p=top_p,
+                    frequency_penalty=frequency_penalty,
                     presence_penalty=0.7,
                 )
 
@@ -472,12 +499,18 @@ class LLMClient:
         user_prompt: str,
         temperature: float = 0.7,
         max_tokens: int = 220,
+        system_prompt: Optional[str] = None,
+        top_p: float = 0.95,
+        frequency_penalty: float = 0.4,
     ) -> Optional[str]:
         """Delegate to the active provider."""
         return LLMClient._instance.generate(
             user_prompt=user_prompt,
             temperature=temperature,
             max_tokens=max_tokens,
+            system_prompt=system_prompt,
+            top_p=top_p,
+            frequency_penalty=frequency_penalty,
         )
 
     @staticmethod

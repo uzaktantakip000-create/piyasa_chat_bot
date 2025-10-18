@@ -26,6 +26,7 @@ from settings_utils import (
 from llm_client import LLMClient
 from system_prompt import (
     generate_user_prompt,
+    generate_system_prompt,  # <-- YENİ: Her bot için unique system prompt
     summarize_persona,
     summarize_stances,
 )
@@ -2438,8 +2439,54 @@ METİN:
                 time_context=time_context,
             )
 
-            # LLM üretimi (taslak) - kısa mesajlar için düşük max_tokens
-            text = self.llm.generate(user_prompt=user_prompt, temperature=0.92, max_tokens=80)
+            # ==== YENİ: UNIQUE SYSTEM PROMPT ÜRET ====
+            system_prompt = generate_system_prompt(
+                persona_profile=persona_profile,
+                emotion_profile=emotion_profile,
+                bot_name=bot.name,
+            )
+
+            # ==== YENİ: DİNAMİK LLM PARAMETRELERİ ====
+            # Temperature: Bot kişiliğine göre değişir
+            base_temp = 1.0
+            tone = (persona_profile or {}).get("tone", "").lower()
+            if "profesyonel" in tone or "akademik" in tone:
+                temperature = base_temp + random.uniform(0.05, 0.10)  # 1.05-1.10 (kontrollü)
+            else:
+                temperature = base_temp + random.uniform(0.10, 0.20)  # 1.10-1.20 (yaratıcı)
+
+            # Max tokens: Bot persona'ya göre dinamik
+            if "akademik" in tone or "tecrübeli" in tone or "profesyonel" in tone:
+                max_tokens = random.randint(150, 250)  # Uzun mesajlar
+            elif "genç" in tone or "enerjik" in tone:
+                max_tokens = random.randint(80, 150)  # Kısa-orta
+            else:
+                max_tokens = random.randint(100, 200)  # Orta
+
+            # Reply ise daha kısa
+            if mode == "reply":
+                max_tokens = int(max_tokens * 0.7)
+
+            # Top-p sampling
+            top_p = 0.95
+
+            # Frequency penalty (tekrarları önle)
+            frequency_penalty = 0.5
+
+            logger.debug(
+                "LLM params for %s: temp=%.2f, max_tokens=%d, top_p=%.2f, freq_penalty=%.2f",
+                bot.name, temperature, max_tokens, top_p, frequency_penalty
+            )
+
+            # ==== LLM ÜRETİMİ (YENİ PARAMETRELERLE) ====
+            text = self.llm.generate(
+                user_prompt=user_prompt,
+                system_prompt=system_prompt,  # <-- UNIQUE!
+                temperature=temperature,
+                max_tokens=max_tokens,
+                top_p=top_p,
+                frequency_penalty=frequency_penalty,
+            )
             if not text:
                 logger.warning("LLM boş/filtreli çıktı; atlanıyor.")
                 await asyncio.sleep(self.next_delay_seconds(db, bot=bot))

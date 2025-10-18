@@ -7,12 +7,132 @@ from typing import Any, Dict, List, Optional
 # Sistem talimatları (LLM davranışı)
 # ============================================================
 
+# DEPRECATED: Artık tüm botlar için kullanılmıyor
+# Her bot için generate_system_prompt() ile unique prompt üretiliyor
 SYSTEM_STYLE = """\
 Telegram grubunda konuşan gerçek insansın. 1-2 cümle yaz, kısa ol.
 Emoji ASLA kullanma. Kısaltmalar kullan: bi, tmm, niye, yok, var, vb.
 Bazen yazım hatası yap: "mi" bitişik yaz, noktalama atla, büyük harf kullanma.
 Samimi ve doğal ol - robot değilsin.
 """
+
+
+def generate_system_prompt(
+    persona_profile: Optional[Dict[str, Any]] = None,
+    emotion_profile: Optional[Dict[str, Any]] = None,
+    bot_name: str = "Bot",
+) -> str:
+    """
+    Her bot için UNIQUE sistem talimatı üretir.
+    Bot'un kişiliğine, risk profiline, tonuna göre özelleştirilir.
+
+    Args:
+        persona_profile: Bot'un persona bilgileri (risk, tone, watchlist, etc.)
+        emotion_profile: Bot'un emotion bilgileri (tone, empathy, energy, etc.)
+        bot_name: Bot'un adı (opsiyonel, debug için)
+
+    Returns:
+        Unique sistem prompt'u
+    """
+
+    # Base instruction - herkese aynı
+    base = "Sen bir Telegram kullanıcısısın, gerçek bir insansın. "
+
+    persona = persona_profile or {}
+    emotion = emotion_profile or {}
+
+    # === 1. RİSK PROFİLİ ===
+    risk = persona.get("risk_profile", "orta")
+    if risk == "yüksek" or risk == "high":
+        base += "Cesursun, risk almaktan çekinmezsin. İddialarını net söylersin. "
+        base += "Kararlı ve kendine güvenlisin. "
+    elif risk == "düşük" or risk == "low":
+        base += "Temkinlisin, sabırlısın. 'Belki', 'sanırım', 'gibi geliyor' gibi ifadeler kullanırsın. "
+        base += "Risk almayı sevmezsin, dikkatli yaklaşırsın. "
+    else:
+        base += "Dengeli yaklaşırsın, bazen cesur bazen temkinli olursun. "
+
+    # === 2. TON (PERSONA) ===
+    tone = persona.get("tone", "").lower()
+
+    if "genç" in tone or "sokak" in tone or "enerji" in tone:
+        base += "Genç ve güncel dil kullanırsın: aga, yaw, valla, lan gibi. "
+        base += "Hızlı ve enerjik yazarsın. "
+    elif "profesyonel" in tone or "akademik" in tone or "tecrübeli" in tone:
+        base += "Düzgün ama samimi yazarsın. Argo kullanmazsın. "
+        base += "Bilgili ve deneyimli konuşursun. "
+    elif "muhafazakar" in tone:
+        base += "Sakin ve temkinli konuşursun. Abartmadan, ölçülü yazarsın. "
+    else:
+        base += "Doğal ve samimi bir tarzın var. "
+
+    # === 3. TON (EMOTION) ===
+    emotion_tone = emotion.get("tone", "").lower()
+    if emotion_tone and emotion_tone != tone:
+        if "neşeli" in emotion_tone or "pozitif" in emotion_tone:
+            base += "Genelde pozitif ve neşelisin. "
+        elif "ciddi" in emotion_tone or "soğuk" in emotion_tone:
+            base += "Ciddi ve analitik yaklaşırsın. "
+
+    # === 4. EMPATİ ===
+    empathy = emotion.get("empathy")
+    if isinstance(empathy, (int, float)):
+        if empathy > 0.7:
+            base += "Empatiksin, başkalarının durumunu anlarsın. "
+        elif empathy < 0.3:
+            base += "Soğukkanlısın, duygusal konulara mesafelisin. "
+
+    # === 5. ENERGY ===
+    energy = emotion.get("energy", "").lower()
+    if "yüksek" in energy or "hızlı" in energy:
+        base += "Hızlı ve enerjik mesajlar atarsın. "
+    elif "düşük" in energy or "sakin" in energy:
+        base += "Sakin ve ağır başlı yazarsın. "
+
+    # === 6. YAZIM STİLİ ===
+    style = persona.get("style", {})
+
+    # Emoji kullanımı
+    if style.get("emojis") is True or style.get("emojis") == "yes":
+        base += "Bazen emoji kullanırsın ama abartmazsın. "
+    else:
+        base += "Emoji kullanmazsın. "
+
+    # Kısaltmalar ve yazım hataları (genç/sokak tonunda)
+    if "genç" in tone or "sokak" in tone:
+        base += "Kısaltmalar kullan: bi, tmm, niye, yok, var. "
+        base += "Bazen yazım hatası yap: 'mi' bitişik, noktalama atla. "
+    elif "profesyonel" not in tone:
+        # Orta seviye - az da olsa kısaltma
+        base += "Bazen kısaltma kullanabilirsin: bi, tmm, var. "
+
+    # === 7. MESAJ UZUNLUĞU ===
+    length = style.get("length", "").lower()
+    if "uzun" in length or "detaylı" in length:
+        base += "Genelde detaylı yazarsın, 3-5 cümle. "
+    elif "kısa" in length:
+        base += "Kısa ve öz yazarsın, 1-2 cümle. "
+    else:
+        base += "Genelde 1-3 cümle yaz, çok uzatma. "
+
+    # === 8. İMZA İFADELER (varsa) ===
+    signature_phrases = emotion.get("signature_phrases", [])
+    if signature_phrases and len(signature_phrases) > 0:
+        example_phrases = ", ".join([f"'{p}'" for p in signature_phrases[:2]])
+        base += f"Bazen şu tarz ifadeler kullanırsın: {example_phrases}. "
+
+    # === 9. UZMMANLIK ALANI (varsa) ===
+    watchlist = persona.get("watchlist", [])
+    if watchlist and len(watchlist) > 0:
+        symbols = ", ".join(watchlist[:3])
+        base += f"Özellikle {symbols} hakkında konuşmayı seversin. "
+
+    # === 10. KRİTİK: ROBOT OLMA! ===
+    base += "\n\nÖNEMLİ: Robot gibi yazma, gerçek insan gibi doğal ve samimi ol. "
+    base += "Mükemmel gramer kullanma, hata yapabilirsin. "
+    base += "Her mesajda aynı kalıpları kullanma, çeşitli yaz."
+
+    return base.strip()
 
 # ============================================================
 # Yardımcı özetleyiciler (persona / stance / holdings)
@@ -117,7 +237,8 @@ def summarize_holdings(holds: Optional[List[Dict[str, Any]]]) -> str:
 # Prompt oluşturucu (USER tarafı)
 # ============================================================
 
-USER_TEMPLATE = """\
+# DEPRECATED: Basit template - artık USER_TEMPLATE_V2 kullanılıyor
+USER_TEMPLATE_LEGACY = """\
 Karakterin: {emotion_summary}
 {persona_hint_section}
 {reply_context}
@@ -130,6 +251,52 @@ Son mesajlar:
 {mention_context}
 Kısa yaz ({length_hint}), samimi ol.
 """
+
+# YENI: Zenginleştirilmiş template - tüm context dahil
+USER_TEMPLATE_V2 = """\
+## SENİN KİŞİLİĞİN
+{persona_summary}
+{persona_hint_section}
+
+## SENİN GÖRÜŞLERİN (Tutarlı Kal!)
+{stance_summary}
+
+## SENİN POZİSYONLARIN
+{holdings_summary}
+
+## GEÇMIŞTE BU KONUDA SÖYLEDİKLERİN
+{past_references}
+
+## KİŞİSEL NOTLARIN / HAFIZALARIN
+{memory_summary}
+
+## SON SOHBET (DİKKATLE OKU!)
+{history_excerpt}
+
+{contextual_examples}
+
+## ŞİMDİ SENİN SIRAN
+{reply_context}
+
+{market_trigger}
+
+{mention_context}
+
+## TALİMATLAR
+- Yukarıdaki sohbeti OKU ve doğal bir şekilde devam ettir
+- Kişiliğine uygun yaz (persona/emotion: {emotion_summary})
+- Görüşlerine sadık kal (stance)
+- Önceki söylediklerinle çelişme (past_references)
+- {length_hint}
+- Gerçek insan gibi yaz, robot DEĞİLSİN!
+{reaction_guidance}
+
+{time_context}
+{persona_refresh_note}
+"""
+
+# Backward compatibility için
+USER_TEMPLATE = USER_TEMPLATE_V2
 
 
 def generate_user_prompt(

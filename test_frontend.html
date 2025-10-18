@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frontend Test</title>
+</head>
+<body>
+    <h1>Frontend Test Sayfası</h1>
+    <p>Bu sayfa açılıyorsa sunucu çalışıyor.</p>
+    <script>
+        console.log('Test sayfası yüklendi');
+
+        // Ana frontend'e yönlendirme
+        setTimeout(() => {
+            console.log('Ana sayfaya yönlendiriliyor...');
+            window.location.href = 'http://localhost:5173';
+        }, 2000);
+    </script>
+</body>
+</html>
