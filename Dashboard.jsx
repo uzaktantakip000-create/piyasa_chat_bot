@@ -355,6 +355,14 @@ function Dashboard({
 }) {
   const safeMetrics = metrics || {}
   const { t, locale } = useTranslation()
+  const tf = (key, fallback) => {
+    try {
+      return t?.(key) || fallback
+    } catch (error) {
+      console.warn('Translation error:', error)
+      return fallback
+    }
+  }
   const botUtilization = safeMetrics.total_bots > 0 ? (safeMetrics.active_bots / safeMetrics.total_bots) * 100 : 0
   const rateLimit429Rate = safeMetrics.messages_last_hour > 0
     ? (safeMetrics.telegram_429_count / safeMetrics.messages_last_hour) * 100

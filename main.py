@@ -268,6 +268,7 @@ def _startup():
             logger.info("Purged %d expired API sessions during startup", purged)
     except Exception as exc:
         logger.warning("Failed to purge expired sessions: %s", exc)
+
     logger.info("API started. Tables ensured; default settings loaded.")
 
 
@@ -1287,6 +1288,97 @@ def delete_holding(holding_id: int, db: Session = Depends(get_db)):
     db.commit()
     publish_config_update(get_redis(), {"type": "holding_deleted", "bot_id": bot_id, "holding_id": holding_id})
     return {"ok": True}
+
+# ==========================================================
+# DEMO BOTS — Optimize edilmiş demo botları oluştur
+# ==========================================================
+class DemoBotsCreate(BaseModel):
+    count: int = Field(default=6, ge=1, le=6, description="Oluşturulacak demo bot sayısı (1-6)")
+
+@app.post("/demo-bots/create", dependencies=admin_dependencies)
+def create_demo_bots(payload: DemoBotsCreate, db: Session = Depends(get_db)):
+    """
+    Optimize edilmiş demo bot profillerini oluşturur.
+    Token'lar boş bırakılır - kullanıcı panelden doldurur.
+    """
+    template_path = APP_ROOT / "demo_bots_template.json"
+    if not template_path.exists():
+        raise HTTPException(404, "Demo bot template bulunamadı")
+
+    with open(template_path, encoding="utf-8") as f:
+        template_data = json.load(f)
+
+    bots_data = template_data.get("bots", [])[:payload.count]
+    created_bots = []
+    skipped_bots = []
+
+    for bot_data in bots_data:
+        # Check if bot already exists (by username)
+        existing = db.query(Bot).filter(Bot.username == bot_data["username"]).first()
+        if existing:
+            skipped_bots.append({
+                "username": bot_data["username"],
+                "reason": "Zaten mevcut"
+            })
+            continue
+
+        # Create bot with empty token
+        bot = Bot(
+            name=bot_data["name"],
+            token="",  # Token boş - kullanıcı panelden dolduracak
+            username=bot_data["username"],
+            is_enabled=False,  # Başlangıçta disabled
+            speed_profile=bot_data.get("speed_profile", {}),
+            active_hours=bot_data.get("active_hours", []),
+            persona_hint=bot_data.get("persona_hint", ""),
+            persona_profile=bot_data.get("persona_profile", {}),
+            emotion_profile=bot_data.get("emotion_profile", {}),
+        )
+        db.add(bot)
+        db.flush()  # ID'yi al
+
+        # Add stances
+        for stance_data in bot_data.get("stances", []):
+            stance = BotStance(
+                bot_id=bot.id,
+                topic=stance_data["topic"],
+                stance_text=stance_data["stance_text"],
+                confidence=stance_data.get("confidence", "orta"),
+                cooldown_until=stance_data.get("cooldown_until"),
+            )
+            db.add(stance)
+
+        # Add holdings
+        for holding_data in bot_data.get("holdings", []):
+            holding = BotHolding(
+                bot_id=bot.id,
+                symbol=holding_data["symbol"],
+                avg_price=holding_data.get("avg_price"),
+                size=holding_data.get("size"),
+                note=holding_data.get("note", ""),
+            )
+            db.add(holding)
+
+        created_bots.append({
+            "id": bot.id,
+            "name": bot.name,
+            "username": bot.username,
+        })
+
+    db.commit()
+
+    if created_bots:
+        publish_config_update(get_redis(), {
+            "type": "demo_bots_created",
+            "count": len(created_bots)
+        })
+
+    return {
+        "ok": True,
+        "created": created_bots,
+        "skipped": skipped_bots,
+        "message": f"{len(created_bots)} bot oluşturuldu. Token'ları panelden doldurun ve enable edin."
+    }
 
 # ==========================================================
 # WIZARD — Kullanıcı dostu tek adım kurulum

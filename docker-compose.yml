@@ -10,9 +10,16 @@ services:
       - DATABASE_URL=postgresql+psycopg://app:app@db:5432/app
       - REDIS_URL=redis://redis:6379/0
 
-      # LLM ve Telegram
+      # LLM Provider ve API Keys
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-1.5-flash}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_MODEL=${GROQ_MODEL:-llama-3.3-70b-versatile}
+
+      # Telegram
       - TELEGRAM_API_BASE=${TELEGRAM_API_BASE:-https://api.telegram.org}
       - TELEGRAM_TIMEOUT=${TELEGRAM_TIMEOUT:-20}
 
@@ -36,8 +43,15 @@ services:
     environment:
       - DATABASE_URL=postgresql+psycopg://app:app@db:5432/app
       - REDIS_URL=redis://redis:6379/0
+      # LLM Provider ve API Keys
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-1.5-flash}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_MODEL=${GROQ_MODEL:-llama-3.3-70b-versatile}
+      # Telegram
       - TELEGRAM_API_BASE=${TELEGRAM_API_BASE:-https://api.telegram.org}
       - TELEGRAM_TIMEOUT=${TELEGRAM_TIMEOUT:-20}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}

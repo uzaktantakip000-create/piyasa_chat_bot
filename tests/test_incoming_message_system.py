@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 
-from database import Base, Bot, Chat, Message, Setting
+from database import Base, Bot, Chat, Message, Setting, BotStance, BotHolding, BotMemory
 from main import app, get_db
 from behavior_engine import BehaviorEngine
 from message_listener import MessageListenerService

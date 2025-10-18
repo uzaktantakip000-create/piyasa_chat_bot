@@ -840,23 +840,46 @@ function Bots() {
               <div className="space-y-1">
                 <p className="text-muted-foreground text-lg font-medium">{tf('bots.empty.primaryTitle', 'Henüz bot eklenmemiş')}</p>
                 <p className="text-sm text-muted-foreground">
-                  {tf('bots.empty.primaryBody', 'Kurulum sihirbazı veya hızlı ekleme diyaloğu ile ilk botunuzu oluşturun.')}
+                  {tf('bots.empty.primaryBody', 'Optimize edilmiş demo botları veya manuel olarak bot ekleyin.')}
                 </p>
               </div>
               <div className="mx-auto max-w-md space-y-2 text-xs text-muted-foreground">
-                <p>• {tf('bots.empty.tipPersona', 'Persona ve duygu profillerini tanımlayarak ilk sohbet deneyimini kişiselleştirin.')}</p>
-                <p>• {tf('bots.empty.tipSetup', 'Simülasyonu başlatmadan önce sohbet başlıklarını ve izleme listesini güncelleyin.')}</p>
+                <p>• {tf('bots.empty.tipPersona', 'Demo botlar tamamen hazır persona, duygular, stances ve holdings ile gelir.')}</p>
+                <p>• {tf('bots.empty.tipSetup', 'Token\'ları panelden doldurup enable etmeniz yeterli.')}</p>
               </div>
               <div className="flex justify-center gap-3">
-                <Button size="sm" onClick={() => setDialogOpen(true)}>
-                  {tf('bots.actions.add', 'Yeni Bot Ekle')}
-                </Button>
                 <Button
                   size="sm"
-                  variant="outline"
-                  onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                  onClick={async () => {
+                    try {
+                      showToast({ type: 'info', title: 'Demo botlar oluşturuluyor...', description: 'Lütfen bekleyin' })
+                      const response = await apiFetch('/demo-bots/create', {
+                        method: 'POST',
+                        body: JSON.stringify({ count: 6 })
+                      })
+                      const data = await response.json()
+                      await fetchBots()
+                      showToast({
+                        type: 'success',
+                        title: 'Demo botlar eklendi!',
+                        description: data.message || '6 bot oluşturuldu. Token\'ları doldurun ve enable edin.'
+                      })
+                    } catch (error) {
+                      console.error('Demo bots creation failed:', error)
+                      showToast({
+                        type: 'error',
+                        title: 'Demo botlar eklenemedi',
+                        description: error?.message || 'Beklenmeyen bir hata oluştu.'
+                      })
+                    }
+                  }}
+                  className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700"
                 >
-                  {tf('bots.actions.openWizard', 'Kurulum Sihirbazına Git')}
+                  <Bot className="h-4 w-4 mr-2" />
+                  {tf('bots.actions.addDemo', 'Optimize Edilmiş Demo Botları Ekle (6 adet)')}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setDialogOpen(true)}>
+                  {tf('bots.actions.add', 'Manuel Bot Ekle')}
                 </Button>
               </div>
             </div>
