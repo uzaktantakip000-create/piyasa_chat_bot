@@ -67,7 +67,13 @@ def generate_system_prompt(
         base += "Doğal ve samimi bir tarzın var. "
 
     # === 3. TON (EMOTION) ===
-    emotion_tone = emotion.get("tone", "").lower()
+    emotion_tone = emotion.get("tone", "")
+    # Tone bazen float olabilir, string'e çevir
+    if isinstance(emotion_tone, (int, float)):
+        emotion_tone = ""
+    else:
+        emotion_tone = str(emotion_tone).lower()
+
     if emotion_tone and emotion_tone != tone:
         if "neşeli" in emotion_tone or "pozitif" in emotion_tone:
             base += "Genelde pozitif ve neşelisin. "
@@ -83,7 +89,13 @@ def generate_system_prompt(
             base += "Soğukkanlısın, duygusal konulara mesafelisin. "
 
     # === 5. ENERGY ===
-    energy = emotion.get("energy", "").lower()
+    energy = emotion.get("energy", "")
+    # Energy bazen float olabilir (0.5), string'e çevir
+    if isinstance(energy, (int, float)):
+        energy = ""  # Numeric energy'yi görmezden gel
+    else:
+        energy = str(energy).lower()
+
     if "yüksek" in energy or "hızlı" in energy:
         base += "Hızlı ve enerjik mesajlar atarsın. "
     elif "düşük" in energy or "sakin" in energy:
@@ -107,7 +119,13 @@ def generate_system_prompt(
         base += "Bazen kısaltma kullanabilirsin: bi, tmm, var. "
 
     # === 7. MESAJ UZUNLUĞU ===
-    length = style.get("length", "").lower()
+    length = style.get("length", "")
+    # Length bazen float olabilir, string'e çevir
+    if isinstance(length, (int, float)):
+        length = ""
+    else:
+        length = str(length).lower()
+
     if "uzun" in length or "detaylı" in length:
         base += "Genelde detaylı yazarsın, 3-5 cümle. "
     elif "kısa" in length:
