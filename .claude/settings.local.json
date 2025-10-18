@@ -61,7 +61,8 @@
       "Bash(timeout 30 bash:*)",
       "Bash(timeout 15 bash:*)",
       "Bash(http://127.0.0.1:8000/settings/reply_probability)",
-      "Bash(docker cp add_stances.py piyasa_chat_bot-api-1:/app/add_stances.py)"
+      "Bash(docker cp add_stances.py piyasa_chat_bot-api-1:/app/add_stances.py)",
+      "Bash(export API_KEY=\"change-me\")"
     ],
     "deny": [],
     "ask": []

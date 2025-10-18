@@ -1097,5 +1097,4 @@ GET  /quality/bot-consistency # Consistency report
 ---
 
 **Son Güncelleme:** 18 Ekim 2025
-**Hazırlayan:** Claude Code Assistant
 **Versiyon:** 2.0 Architecture Proposal
