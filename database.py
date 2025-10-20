@@ -355,6 +355,9 @@ def init_default_settings() -> None:
             "telegram_5xx_count": 0,
             # Haber akışı RSS adresleri
             "news_feed_urls": list(DEFAULT_FEEDS),
+
+            # PHASE 2 Week 3: Semantic Deduplication
+            "semantic_dedup_enabled": True,  # Anlamsal benzerlik kontrolü
         }
 
         for k, v in defaults.items():

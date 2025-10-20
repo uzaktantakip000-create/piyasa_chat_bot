@@ -33,6 +33,7 @@ from system_prompt import (
 from telegram_client import TelegramClient
 from message_queue import MessageQueue, QueuedMessage, MessagePriority
 from news_client import NewsClient, DEFAULT_FEEDS  # <-- HABER TETIKLEYICI
+from voice_profiles import VoiceProfileGenerator  # <-- PHASE 2 Week 3 Day 4-5: Voice Profiles
 
 logger = logging.getLogger("behavior")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -1243,6 +1244,20 @@ class BehaviorEngine:
         # Persona yenileme takibi (bot bazlı)
         self._persona_refresh: Dict[int, Dict[str, Any]] = {}
 
+        # PHASE 2 Week 3 Day 1-3: Semantic Deduplication
+        self.semantic_dedup = None
+        try:
+            from semantic_dedup import SemanticDeduplicator
+            self.semantic_dedup = SemanticDeduplicator(similarity_threshold=0.85)
+            logger.info("Semantic deduplicator initialized")
+        except Exception as e:
+            logger.warning(f"Semantic deduplicator init failed: {e}. Will use exact-match dedup only.")
+
+        # PHASE 2 Week 3 Day 4-5: Voice Profiles & Writing Style
+        self.voice_generator = VoiceProfileGenerator()
+        self.bot_voices: Dict[int, Any] = {}  # Cache: bot_id -> VoiceProfile
+        logger.info("Voice profile generator initialized")
+
     # ---- Settings cache ----
     def settings(self, db: Session) -> Dict[str, Any]:
         if (now_utc() - self._settings_loaded_at) > timedelta(seconds=15):
@@ -1272,6 +1287,17 @@ class BehaviorEngine:
             logger.info("News feed list updated (%d entries).", len(self._active_news_feeds))
         except Exception as exc:
             logger.warning("Failed to update news feeds: %s", exc)
+
+    def get_bot_voice(self, bot):
+        """
+        Bot için voice profile al (cache'den veya yeni oluştur)
+
+        PHASE 2 Week 3 Day 4-5: Voice Profiles
+        """
+        if bot.id not in self.bot_voices:
+            self.bot_voices[bot.id] = self.voice_generator.generate(bot)
+            logger.debug(f"Voice profile cached for bot {bot.name} (id={bot.id})")
+        return self.bot_voices[bot.id]
 
     # ---- Redis listener ----
     async def _config_listener(self):
@@ -2712,6 +2738,7 @@ METİN:
                     text = f"{text} {mention_ctx}"
 
             # Dedup kontrolü: son X saatte aynısı varsa yeniden yazdırmayı dene
+            # Exact-match deduplication (mevcut)
             if bool(s.get("dedup_enabled", True)):
                 window_h = int(s.get("dedup_window_hours", 12))
                 attempts = int(s.get("dedup_max_attempts", 2))
@@ -2727,6 +2754,44 @@ METİN:
                     logger.info("Dedup: aynı metin tespit edildi, gönderim atlandı.")
                     await asyncio.sleep(self.next_delay_seconds(db, bot=bot))
                     return
+
+            # PHASE 2 Week 3 Day 1-3: Semantic Deduplication
+            if bool(s.get("semantic_dedup_enabled", True)) and self.semantic_dedup and self.semantic_dedup.enabled:
+                # Son 50 bot mesajını al
+                recent_bot_msgs = [
+                    m.text for m in recent_msgs[:50]
+                    if m.text and m.bot_id == bot.id
+                ]
+
+                if recent_bot_msgs:
+                    is_dup, similarity = self.semantic_dedup.is_duplicate(text, recent_bot_msgs)
+
+                    if is_dup:
+                        logger.warning(f"Semantic duplicate detected! Similarity={similarity:.3f}")
+
+                        # 2 deneme: Paraphrase et
+                        paraphrase_attempts = 2
+                        for attempt in range(paraphrase_attempts):
+                            text = self.semantic_dedup.paraphrase_message(text, self.llm)
+                            is_dup, similarity = self.semantic_dedup.is_duplicate(text, recent_bot_msgs)
+
+                            if not is_dup:
+                                logger.info(f"Paraphrase successful! New similarity={similarity:.3f}")
+                                break
+
+                        # Hâlâ duplicate ise mesajı atla
+                        if is_dup:
+                            logger.error("Paraphrase failed after 2 attempts, skipping message")
+                            await asyncio.sleep(self.next_delay_seconds(db, bot=bot))
+                            return
+
+            # PHASE 2 Week 3 Day 4-5: Voice Profile Application
+            # Mesaja bot'un unique writing style'ını uygula
+            voice = self.get_bot_voice(bot)
+            original_text = text
+            text = self.voice_generator.apply_voice(text, voice)
+            if text != original_text:
+                logger.debug(f"Voice profile applied: '{original_text[:50]}...' -> '{text[:50]}...'")
 
             # Typing simülasyonu
             if bool(s.get("typing_enabled", True)):
