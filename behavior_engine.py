@@ -1167,9 +1167,9 @@ def load_settings(db: Session) -> Dict[str, Any]:
     d.setdefault("dedup_window_hours", 12)   # son 12 saatte aynı metni engelle
     d.setdefault("dedup_max_attempts", 2)    # yeniden yazdırma denemesi
     d.setdefault("cooldown_filter_enabled", True)  # cooldown aktif konuları topic seçiminden çıkar
-    # HABER tetikleyici
+    # HABER tetikleyici (PHASE 2 Week 4 Day 1-3: Rich News Integration)
     d.setdefault("news_trigger_enabled", True)     # market_trigger aktif mi?
-    d.setdefault("news_trigger_probability", 0.75) # %75 olasılıkla tetik kullan
+    d.setdefault("news_trigger_probability", 0.5)  # %50 olasılıkla tetik kullan (was 0.75)
 
     stored_feeds = d.get("news_feed_urls")
     if not isinstance(stored_feeds, list):
@@ -2568,11 +2568,12 @@ METİN:
             market_trigger = ""
             try:
                 if bool(s.get("news_trigger_enabled", True)) and self.news is not None:
-                    # Her mesajda değil; bir miktar rastgelelik:
-                    if random.random() < float(s.get("news_trigger_probability", 0.75)):
+                    # PHASE 2 Week 4 Day 1-3: Rich News Integration (%50 olasılık)
+                    if random.random() < float(s.get("news_trigger_probability", 0.5)):
                         brief = self.news.get_brief(topic)
                         if brief:
                             market_trigger = brief
+                            logger.debug(f"News trigger applied for topic '{topic}': {brief[:60]}...")
             except Exception as e:
                 logger.debug("news trigger error: %s", e)
 
@@ -2659,17 +2660,42 @@ METİN:
             else:
                 temperature = base_temp + random.uniform(0.10, 0.20)  # 1.10-1.20 (yaratıcı)
 
-            # Max tokens: Bot persona'ya göre dinamik
+            # PHASE 2 Week 4 Day 4-5: Dynamic Message Length
+            # Base length: Bot persona'ya göre
             if "akademik" in tone or "tecrübeli" in tone or "profesyonel" in tone:
-                max_tokens = random.randint(150, 250)  # Uzun mesajlar
+                base_min, base_max = 150, 250  # Uzun mesajlar
             elif "genç" in tone or "enerjik" in tone:
-                max_tokens = random.randint(80, 150)  # Kısa-orta
+                base_min, base_max = 80, 150  # Kısa-orta
             else:
-                max_tokens = random.randint(100, 200)  # Orta
+                base_min, base_max = 100, 200  # Orta
 
-            # Reply ise daha kısa
-            if mode == "reply":
-                max_tokens = int(max_tokens * 0.7)
+            # Context modifiers
+            is_reply = (mode == "reply")
+            is_question = False
+            is_news_trigger = bool(market_trigger)
+
+            # Soru mu kontrol et
+            if reply_msg and reply_msg.text:
+                is_question = ("?" in reply_msg.text or
+                              any(w in reply_msg.text.lower() for w in ["nasıl", "neden", "ne zaman", "kim", "nerede"]))
+
+            # Modifiers uygula
+            if is_reply and not is_question:
+                # Basit reply: daha kısa
+                base_min = int(base_min * 0.7)
+                base_max = int(base_max * 0.8)
+
+            if is_question:
+                # Soruya cevap: daha uzun
+                base_min = int(base_min * 1.3)
+                base_max = int(base_max * 1.4)
+
+            if is_news_trigger:
+                # Haber varsa: daha detaylı
+                base_min = int(base_min * 1.2)
+                base_max = int(base_max * 1.3)
+
+            max_tokens = random.randint(base_min, base_max)
 
             # Top-p sampling
             top_p = 0.95
@@ -2678,8 +2704,8 @@ METİN:
             frequency_penalty = 0.5
 
             logger.debug(
-                "LLM params for %s: temp=%.2f, max_tokens=%d, top_p=%.2f, freq_penalty=%.2f",
-                bot.name, temperature, max_tokens, top_p, frequency_penalty
+                "LLM params for %s: temp=%.2f, max_tokens=%d (reply=%s, question=%s, news=%s), top_p=%.2f, freq_penalty=%.2f",
+                bot.name, temperature, max_tokens, is_reply, is_question, is_news_trigger, top_p, frequency_penalty
             )
 
             # ==== LLM ÜRETİMİ (YENİ PARAMETRELERLE) ====

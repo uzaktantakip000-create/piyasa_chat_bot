@@ -358,6 +358,10 @@ def init_default_settings() -> None:
 
             # PHASE 2 Week 3: Semantic Deduplication
             "semantic_dedup_enabled": True,  # Anlamsal benzerlik kontrolü
+
+            # PHASE 2 Week 4 Day 1-3: Rich News Integration
+            "news_trigger_enabled": True,     # Haber tetikleyici aktif mi?
+            "news_trigger_probability": 0.5,  # %50 olasılıkla haber kullan (was 0.75)
         }
 
         for k, v in defaults.items():
