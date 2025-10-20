@@ -108,15 +108,18 @@ class VoiceProfileGenerator:
 
         return profile
 
-    def apply_voice(self, message: str, voice: VoiceProfile) -> str:
+    def apply_voice(self, message: str, voice: VoiceProfile, bot_id: int = 0) -> str:
         """
         Mesaja ses profili uygula
+
+        P0.3: Deterministic transformations using bot_id as seed
 
         Kısaltma, emoji, yazım hatası, noktalama hataları ekler.
 
         Args:
             message: Orijinal mesaj
             voice: Voice profile
+            bot_id: Bot ID for deterministic seed (P0.3)
 
         Returns:
             Transformed message
@@ -124,10 +127,14 @@ class VoiceProfileGenerator:
         if not message or not message.strip():
             return message
 
+        # P0.3: Use bot_id + message hash as seed for deterministic behavior
+        message_hash = hash(message + str(bot_id))
+        rng = random.Random(message_hash)  # Deterministic RNG
+
         transformed = message
 
         # === 1. KISALTMALAR EKLE ===
-        if voice.abbreviations and random.random() < voice.slang_frequency:
+        if voice.abbreviations and rng.random() < voice.slang_frequency:
             # Kısaltma transformations
             transforms = {
                 r'\bbir\b': 'bi',
@@ -138,38 +145,38 @@ class VoiceProfileGenerator:
                 r'\bvardır\b': 'var',
             }
 
-            # Rastgele 1-2 transform uygula
+            # Deterministic 1-2 transform uygula
             for pattern, replacement in transforms.items():
-                if random.random() < 0.5:
+                if rng.random() < 0.5:
                     transformed = re.sub(pattern, replacement, transformed, count=1, flags=re.IGNORECASE)
 
         # === 2. YAZIM HATALARI (mi/mı bitişik) ===
-        if voice.typo_frequency > 0 and random.random() < voice.typo_frequency:
+        if voice.typo_frequency > 0 and rng.random() < voice.typo_frequency:
             # Soru eklerini bitişik yaz
             transformed = re.sub(r'\s+(mi|mı|mu|mü)\b', r'\1', transformed)
 
         # === 3. NOKTALAMA HATALARI ===
-        if voice.punctuation_errors > 0 and random.random() < voice.punctuation_errors:
+        if voice.punctuation_errors > 0 and rng.random() < voice.punctuation_errors:
             # Nokta veya virgül atla
-            if random.random() < 0.5:
+            if rng.random() < 0.5:
                 transformed = re.sub(r'\.$', '', transformed)  # Son noktayı sil
             else:
                 transformed = re.sub(r',', '', transformed, count=1)  # İlk virgülü sil
 
         # === 4. BÜYÜK HARF HATALARI ===
-        if voice.typo_frequency > 0 and random.random() < voice.typo_frequency:
+        if voice.typo_frequency > 0 and rng.random() < voice.typo_frequency:
             # İlk harfi küçük yap
             if transformed and transformed[0].isupper():
                 transformed = transformed[0].lower() + transformed[1:]
 
         # === 5. EMOJİ EKLE ===
-        if voice.favorite_emoji and random.random() < voice.emoji_frequency:
+        if voice.favorite_emoji and rng.random() < voice.emoji_frequency:
             # Sona emoji ekle
             transformed = transformed.rstrip() + f" {voice.favorite_emoji}"
 
         # === 6. CÜMLE BAŞLATICI EKLE (bazen) ===
-        if voice.sentence_starters and random.random() < 0.25:  # %25 ihtimal
-            starter = random.choice(voice.sentence_starters)
+        if voice.sentence_starters and rng.random() < 0.25:  # %25 ihtimal
+            starter = rng.choice(voice.sentence_starters)
 
             # Zaten başlamıyorsa ekle
             if not transformed.lower().startswith(starter.lower()):

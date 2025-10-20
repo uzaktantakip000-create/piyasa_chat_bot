@@ -1244,19 +1244,26 @@ class BehaviorEngine:
         # Persona yenileme takibi (bot bazlı)
         self._persona_refresh: Dict[int, Dict[str, Any]] = {}
 
-        # PHASE 2 Week 3 Day 1-3: Semantic Deduplication
+        # PHASE 2 Week 3 Day 1-3: Semantic Deduplication (P0.1: with embedding cache)
         self.semantic_dedup = None
         try:
             from semantic_dedup import SemanticDeduplicator
-            self.semantic_dedup = SemanticDeduplicator(similarity_threshold=0.85)
-            logger.info("Semantic deduplicator initialized")
+            # Pass Redis client for embedding cache
+            self.semantic_dedup = SemanticDeduplicator(
+                similarity_threshold=0.85,
+                redis_client=self._redis_sync_client
+            )
+            logger.info("Semantic deduplicator initialized with embedding cache")
         except Exception as e:
             logger.warning(f"Semantic deduplicator init failed: {e}. Will use exact-match dedup only.")
 
-        # PHASE 2 Week 3 Day 4-5: Voice Profiles & Writing Style
+        # PHASE 2 Week 3 Day 4-5: Voice Profiles & Writing Style (P0.2: LRU cache + TTL)
         self.voice_generator = VoiceProfileGenerator()
-        self.bot_voices: Dict[int, Any] = {}  # Cache: bot_id -> VoiceProfile
-        logger.info("Voice profile generator initialized")
+        # P0.2: Use dict with TTL tracking instead of unlimited cache
+        self.bot_voices: Dict[int, Dict[str, Any]] = {}  # {bot_id: {"profile": VoiceProfile, "cached_at": datetime}}
+        self.voice_cache_ttl_seconds = 3600  # 1 hour TTL
+        self.voice_cache_max_size = 1000  # Max 1000 entries
+        logger.info("Voice profile generator initialized with LRU cache (max=1000, TTL=1h)")
 
     # ---- Settings cache ----
     def settings(self, db: Session) -> Dict[str, Any]:
@@ -1293,11 +1300,40 @@ class BehaviorEngine:
         Bot için voice profile al (cache'den veya yeni oluştur)
 
         PHASE 2 Week 3 Day 4-5: Voice Profiles
+        P0.2: LRU cache with TTL and size limit
         """
-        if bot.id not in self.bot_voices:
-            self.bot_voices[bot.id] = self.voice_generator.generate(bot)
-            logger.debug(f"Voice profile cached for bot {bot.name} (id={bot.id})")
-        return self.bot_voices[bot.id]
+        now = now_utc()
+
+        # Check if cached and not expired
+        if bot.id in self.bot_voices:
+            cached_entry = self.bot_voices[bot.id]
+            cached_at = cached_entry.get("cached_at")
+            age_seconds = (now - cached_at).total_seconds()
+
+            if age_seconds < self.voice_cache_ttl_seconds:
+                # Cache hit - valid
+                return cached_entry["profile"]
+            else:
+                # Expired - remove
+                logger.debug(f"Voice profile expired for bot {bot.name} (age={age_seconds:.0f}s)")
+                del self.bot_voices[bot.id]
+
+        # P0.2: Check cache size limit (LRU eviction)
+        if len(self.bot_voices) >= self.voice_cache_max_size:
+            # Evict oldest entry
+            oldest_bot_id = min(self.bot_voices.keys(), key=lambda k: self.bot_voices[k]["cached_at"])
+            logger.debug(f"Voice cache full, evicting bot_id={oldest_bot_id}")
+            del self.bot_voices[oldest_bot_id]
+
+        # Cache miss - generate new profile
+        profile = self.voice_generator.generate(bot)
+        self.bot_voices[bot.id] = {
+            "profile": profile,
+            "cached_at": now
+        }
+        logger.debug(f"Voice profile cached for bot {bot.name} (id={bot.id}, cache_size={len(self.bot_voices)})")
+
+        return profile
 
     # ---- Redis listener ----
     async def _config_listener(self):
@@ -2811,11 +2847,11 @@ METİN:
                             await asyncio.sleep(self.next_delay_seconds(db, bot=bot))
                             return
 
-            # PHASE 2 Week 3 Day 4-5: Voice Profile Application
+            # PHASE 2 Week 3 Day 4-5: Voice Profile Application (P0.3: deterministic)
             # Mesaja bot'un unique writing style'ını uygula
             voice = self.get_bot_voice(bot)
             original_text = text
-            text = self.voice_generator.apply_voice(text, voice)
+            text = self.voice_generator.apply_voice(text, voice, bot_id=bot.id)  # P0.3: pass bot_id for determinism
             if text != original_text:
                 logger.debug(f"Voice profile applied: '{original_text[:50]}...' -> '{text[:50]}...'")
 
