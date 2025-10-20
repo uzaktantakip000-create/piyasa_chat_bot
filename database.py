@@ -326,7 +326,8 @@ def init_default_settings() -> None:
             "prime_hours": ["09:30-12:00", "14:00-18:00"],
 
             # Olasılıklar
-            "reply_probability": 0.65,
+            "reply_probability": 0.65,  # Genel reply ihtimali
+            "reply_to_bots_probability": 0.5,  # Bot mesajlarına özel reply ihtimali (Week 2 Day 4-5)
             "mention_probability": 0.35,
             "short_reaction_probability": 0.12,
             "new_message_probability": 0.35,

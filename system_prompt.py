@@ -252,6 +252,84 @@ def summarize_holdings(holds: Optional[List[Dict[str, Any]]]) -> str:
 
 
 # ============================================================
+# Master Plan Helper Functions (Week 1 Day 3-4)
+# ============================================================
+
+def format_past_references(db, bot_id: int, current_topic: str, max_refs: int = 3) -> str:
+    """
+    Bot'un geçmişte bu konuda söylediklerini getir (Master Plan requirement)
+
+    Args:
+        db: Database session
+        bot_id: Bot ID
+        current_topic: Current topic (BIST, FX, Kripto, etc.)
+        max_refs: Maximum number of past references to return
+
+    Returns:
+        Formatted string with past references or placeholder
+    """
+    try:
+        from database import Message
+        from datetime import datetime
+
+        # Son 100 mesajdan topic'e uygun olanları bul
+        past_msgs = db.query(Message).filter(
+            Message.bot_id == bot_id
+        ).order_by(Message.created_at.desc()).limit(100).all()
+
+        if not past_msgs:
+            return "(Bu konuda daha önce konuşmamışsın)"
+
+        # Topic'e göre filtrele
+        topic_lower = current_topic.lower()
+        relevant = []
+
+        for msg in past_msgs:
+            text = (msg.text or "").lower()
+            if topic_lower in text:
+                relevant.append(msg)
+            # Symbol extraction için basit check
+            elif any(kw in text for kw in ["bist", "akbnk", "garan", "btc", "eth", "dolar", "euro"]):
+                if any(t in text for t in topic_lower.split()):
+                    relevant.append(msg)
+
+        # En fazla max_refs tane
+        relevant = relevant[:max_refs]
+
+        if not relevant:
+            return "(Bu konuda daha önce konuşmamışsın)"
+
+        lines = []
+        now = datetime.utcnow()
+        for msg in relevant:
+            age = (now - msg.created_at).days
+            age_str = f"{age} gün önce" if age > 0 else "Bugün"
+            text_preview = msg.text[:80] + "..." if len(msg.text) > 80 else msg.text
+            lines.append(f"- {age_str}: '{text_preview}'")
+
+        return "\n".join(lines)
+    except Exception as e:
+        # Hata olursa sessizce placeholder dön
+        return "(Geçmiş mesajlar yüklenemedi)"
+
+
+def extract_symbols_from_topic(topic: str) -> List[str]:
+    """Topic'ten sembol çıkar (helper for format_past_references)"""
+    import re
+    symbols = []
+    topic_upper = topic.upper()
+
+    # Türk hisse kodları (4-6 harf)
+    symbols.extend(re.findall(r'\b[A-Z]{4,6}\b', topic_upper))
+
+    # Kripto sembolleri
+    crypto_pattern = r'\b(BTC|ETH|USDT|BNB|XRP|ADA|SOL|DOGE|AVAX|MATIC|DOT)\b'
+    symbols.extend(re.findall(crypto_pattern, topic_upper))
+
+    return list(set(symbols))
+
+
+# ============================================================
 # Prompt oluşturucu (USER tarafı)
 # ============================================================
 
@@ -446,11 +524,11 @@ def filter_content(text: str) -> Optional[str]:
     if _FINANCIAL_PROMISE_RE.search(lower):
         return None
 
-    # "yatırım tavsiyesi" ifadesi kullanılıyorsa, dipnotu ekle (tek seferlik).
-    if "yatırım tavsiyesi" in lower and _DISCLAIMER_PHRASE not in lower:
-        if cleaned.endswith(('.', '!', '?')):
-            cleaned = f"{cleaned} {_DISCLAIMER_PHRASE.capitalize()}."
-        else:
-            cleaned = f"{cleaned}\n\n(Not: {_DISCLAIMER_PHRASE}.)"
+    # KAPALI: Yatırım tavsiyesi uyarısı - insan gibi görünmek için kaldırıldı
+    # if "yatırım tavsiyesi" in lower and _DISCLAIMER_PHRASE not in lower:
+    #     if cleaned.endswith(('.', '!', '?')):
+    #         cleaned = f"{cleaned} {_DISCLAIMER_PHRASE.capitalize()}."
+    #     else:
+    #         cleaned = f"{cleaned}\n\n(Not: {_DISCLAIMER_PHRASE}.)"
 
     return cleaned
