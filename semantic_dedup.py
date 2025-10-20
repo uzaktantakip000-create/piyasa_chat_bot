@@ -43,28 +43,61 @@ class SemanticDeduplicator:
         self.similarity_threshold = similarity_threshold
         self.model = None
         self.enabled = SEMANTIC_DEDUP_AVAILABLE
+        self.redis = redis_client
 
         # P0.1: Initialize embedding cache
         self.embedding_cache = EmbeddingCache(redis_client, ttl_seconds=86400)  # 24 hour TTL
+
+        # P1.2: Paraphrase cache
+        self.paraphrase_cache_ttl = 21600  # 6 hours
+
+        # P1.3: Model name for lazy loading
+        self.model_name = model_name
+        self.model_loading = False
 
         if not SEMANTIC_DEDUP_AVAILABLE:
             logger.warning("SemanticDeduplicator initialized but sentence-transformers not available")
             return
 
+        # P1.3: Lazy initialization - model will load on first use
+        logger.info(f"SemanticDeduplicator initialized (model: {model_name}, lazy load enabled)")
+
+    def _ensure_model_loaded(self):
+        """
+        P1.3: Lazy load model on first use (non-blocking initialization)
+
+        Returns:
+            bool: True if model loaded successfully
+        """
+        if self.model is not None:
+            return True
+
+        if self.model_loading:
+            logger.debug("Model loading already in progress...")
+            return False
+
+        if not SEMANTIC_DEDUP_AVAILABLE:
+            return False
+
         try:
-            # Lightweight Türkçe destekli model
-            logger.info(f"Loading sentence transformer model: {model_name}")
-            self.model = SentenceTransformer(model_name)
+            self.model_loading = True
+            logger.info(f"Loading sentence transformer model: {self.model_name}")
+            self.model = SentenceTransformer(self.model_name)
             logger.info("Semantic deduplication model loaded successfully")
+            self.model_loading = False
+            return True
         except Exception as e:
             logger.error(f"Failed to load sentence transformer model: {e}")
             self.enabled = False
+            self.model_loading = False
+            return False
 
     def is_duplicate(self, new_message: str, recent_messages: List[str]) -> Tuple[bool, float]:
         """
         Yeni mesaj mevcut mesajlara çok mu benziyor?
 
         P0.1 Fix: Uses embedding cache to avoid recomputation
+        P1.3 Fix: Lazy loads model on first use
 
         Args:
             new_message: Kontrol edilecek yeni mesaj
@@ -73,7 +106,11 @@ class SemanticDeduplicator:
         Returns:
             (is_duplicate: bool, max_similarity: float)
         """
-        if not self.enabled or self.model is None:
+        if not self.enabled:
+            return False, 0.0
+
+        # P1.3: Ensure model is loaded
+        if not self._ensure_model_loaded():
             return False, 0.0
 
         if not recent_messages or not new_message.strip():
@@ -132,20 +169,41 @@ class SemanticDeduplicator:
             logger.error(f"Error in semantic deduplication: {e}")
             return False, 0.0
 
-    def paraphrase_message(self, message: str, llm_client, max_tokens: int = 200) -> str:
+    def _paraphrase_cache_key(self, message: str, bot_id: int = 0) -> str:
+        """Generate cache key for paraphrase (P1.2)"""
+        import hashlib
+        cache_input = f"{message}:{bot_id}"
+        msg_hash = hashlib.sha256(cache_input.encode('utf-8')).hexdigest()[:16]
+        return f"paraphrase:{msg_hash}"
+
+    def paraphrase_message(self, message: str, llm_client, bot_id: int = 0, max_tokens: int = 200) -> str:
         """
         Mesajı paraphrase et (LLM ile)
+
+        P1.2: Uses Redis cache to avoid repeated LLM calls
 
         LLM kullanarak aynı anlamdaki mesajı farklı kelimelerle yeniden yazar.
 
         Args:
             message: Paraphrase edilecek mesaj
             llm_client: LLMClient instance
+            bot_id: Bot ID for cache key uniqueness (P1.2)
             max_tokens: Maksimum token sayısı
 
         Returns:
             Paraphrase edilmiş mesaj
         """
+        # P1.2: Check cache first
+        if self.redis:
+            try:
+                cache_key = self._paraphrase_cache_key(message, bot_id)
+                cached = self.redis.get(cache_key)
+                if cached:
+                    logger.debug(f"Paraphrase cache HIT: {message[:30]}...")
+                    return cached.decode('utf-8') if isinstance(cached, bytes) else cached
+            except Exception as e:
+                logger.error(f"Paraphrase cache get error: {e}")
+
         try:
             prompt = f"""Şu mesajı başka kelimelerle yaz ama anlamı aynı kalsın:
 
@@ -161,8 +219,19 @@ Samimi ve doğal ol. Sadece yeni versiyonu yaz, başka bir şey yazma."""
             )
 
             if paraphrased and paraphrased.strip():
-                logger.debug(f"Paraphrase successful: {len(message)} -> {len(paraphrased)} chars")
-                return paraphrased.strip()
+                result = paraphrased.strip()
+                logger.debug(f"Paraphrase successful: {len(message)} -> {len(result)} chars")
+
+                # P1.2: Cache the result
+                if self.redis:
+                    try:
+                        cache_key = self._paraphrase_cache_key(message, bot_id)
+                        self.redis.setex(cache_key, self.paraphrase_cache_ttl, result)
+                        logger.debug(f"Paraphrase cached: {cache_key}")
+                    except Exception as e:
+                        logger.error(f"Paraphrase cache set error: {e}")
+
+                return result
             else:
                 logger.warning("Paraphrase returned empty, using original")
                 return message

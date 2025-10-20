@@ -2831,10 +2831,10 @@ METİN:
                     if is_dup:
                         logger.warning(f"Semantic duplicate detected! Similarity={similarity:.3f}")
 
-                        # 2 deneme: Paraphrase et
+                        # 2 deneme: Paraphrase et (P1.2: with cache)
                         paraphrase_attempts = 2
                         for attempt in range(paraphrase_attempts):
-                            text = self.semantic_dedup.paraphrase_message(text, self.llm)
+                            text = self.semantic_dedup.paraphrase_message(text, self.llm, bot_id=bot.id)
                             is_dup, similarity = self.semantic_dedup.is_duplicate(text, recent_bot_msgs)
 
                             if not is_dup:
