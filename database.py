@@ -326,7 +326,8 @@ def init_default_settings() -> None:
             "prime_hours": ["09:30-12:00", "14:00-18:00"],
 
             # Olasılıklar
-            "reply_probability": 0.65,
+            "reply_probability": 0.65,  # Genel reply ihtimali
+            "reply_to_bots_probability": 0.5,  # Bot mesajlarına özel reply ihtimali (Week 2 Day 4-5)
             "mention_probability": 0.35,
             "short_reaction_probability": 0.12,
             "new_message_probability": 0.35,
@@ -354,6 +355,13 @@ def init_default_settings() -> None:
             "telegram_5xx_count": 0,
             # Haber akışı RSS adresleri
             "news_feed_urls": list(DEFAULT_FEEDS),
+
+            # PHASE 2 Week 3: Semantic Deduplication
+            "semantic_dedup_enabled": True,  # Anlamsal benzerlik kontrolü
+
+            # PHASE 2 Week 4 Day 1-3: Rich News Integration
+            "news_trigger_enabled": True,     # Haber tetikleyici aktif mi?
+            "news_trigger_probability": 0.5,  # %50 olasılıkla haber kullan (was 0.75)
         }
 
         for k, v in defaults.items():

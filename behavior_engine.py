@@ -26,12 +26,14 @@ from settings_utils import (
 from llm_client import LLMClient
 from system_prompt import (
     generate_user_prompt,
+    generate_system_prompt,  # <-- YENİ: Her bot için unique system prompt
     summarize_persona,
     summarize_stances,
 )
 from telegram_client import TelegramClient
 from message_queue import MessageQueue, QueuedMessage, MessagePriority
 from news_client import NewsClient, DEFAULT_FEEDS  # <-- HABER TETIKLEYICI
+from voice_profiles import VoiceProfileGenerator  # <-- PHASE 2 Week 3 Day 4-5: Voice Profiles
 
 logger = logging.getLogger("behavior")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -1165,9 +1167,9 @@ def load_settings(db: Session) -> Dict[str, Any]:
     d.setdefault("dedup_window_hours", 12)   # son 12 saatte aynı metni engelle
     d.setdefault("dedup_max_attempts", 2)    # yeniden yazdırma denemesi
     d.setdefault("cooldown_filter_enabled", True)  # cooldown aktif konuları topic seçiminden çıkar
-    # HABER tetikleyici
+    # HABER tetikleyici (PHASE 2 Week 4 Day 1-3: Rich News Integration)
     d.setdefault("news_trigger_enabled", True)     # market_trigger aktif mi?
-    d.setdefault("news_trigger_probability", 0.75) # %75 olasılıkla tetik kullan
+    d.setdefault("news_trigger_probability", 0.5)  # %50 olasılıkla tetik kullan (was 0.75)
 
     stored_feeds = d.get("news_feed_urls")
     if not isinstance(stored_feeds, list):
@@ -1242,6 +1244,27 @@ class BehaviorEngine:
         # Persona yenileme takibi (bot bazlı)
         self._persona_refresh: Dict[int, Dict[str, Any]] = {}
 
+        # PHASE 2 Week 3 Day 1-3: Semantic Deduplication (P0.1: with embedding cache)
+        self.semantic_dedup = None
+        try:
+            from semantic_dedup import SemanticDeduplicator
+            # Pass Redis client for embedding cache
+            self.semantic_dedup = SemanticDeduplicator(
+                similarity_threshold=0.85,
+                redis_client=self._redis_sync_client
+            )
+            logger.info("Semantic deduplicator initialized with embedding cache")
+        except Exception as e:
+            logger.warning(f"Semantic deduplicator init failed: {e}. Will use exact-match dedup only.")
+
+        # PHASE 2 Week 3 Day 4-5: Voice Profiles & Writing Style (P0.2: LRU cache + TTL)
+        self.voice_generator = VoiceProfileGenerator()
+        # P0.2: Use dict with TTL tracking instead of unlimited cache
+        self.bot_voices: Dict[int, Dict[str, Any]] = {}  # {bot_id: {"profile": VoiceProfile, "cached_at": datetime}}
+        self.voice_cache_ttl_seconds = 3600  # 1 hour TTL
+        self.voice_cache_max_size = 1000  # Max 1000 entries
+        logger.info("Voice profile generator initialized with LRU cache (max=1000, TTL=1h)")
+
     # ---- Settings cache ----
     def settings(self, db: Session) -> Dict[str, Any]:
         if (now_utc() - self._settings_loaded_at) > timedelta(seconds=15):
@@ -1271,6 +1294,46 @@ class BehaviorEngine:
             logger.info("News feed list updated (%d entries).", len(self._active_news_feeds))
         except Exception as exc:
             logger.warning("Failed to update news feeds: %s", exc)
+
+    def get_bot_voice(self, bot):
+        """
+        Bot için voice profile al (cache'den veya yeni oluştur)
+
+        PHASE 2 Week 3 Day 4-5: Voice Profiles
+        P0.2: LRU cache with TTL and size limit
+        """
+        now = now_utc()
+
+        # Check if cached and not expired
+        if bot.id in self.bot_voices:
+            cached_entry = self.bot_voices[bot.id]
+            cached_at = cached_entry.get("cached_at")
+            age_seconds = (now - cached_at).total_seconds()
+
+            if age_seconds < self.voice_cache_ttl_seconds:
+                # Cache hit - valid
+                return cached_entry["profile"]
+            else:
+                # Expired - remove
+                logger.debug(f"Voice profile expired for bot {bot.name} (age={age_seconds:.0f}s)")
+                del self.bot_voices[bot.id]
+
+        # P0.2: Check cache size limit (LRU eviction)
+        if len(self.bot_voices) >= self.voice_cache_max_size:
+            # Evict oldest entry
+            oldest_bot_id = min(self.bot_voices.keys(), key=lambda k: self.bot_voices[k]["cached_at"])
+            logger.debug(f"Voice cache full, evicting bot_id={oldest_bot_id}")
+            del self.bot_voices[oldest_bot_id]
+
+        # Cache miss - generate new profile
+        profile = self.voice_generator.generate(bot)
+        self.bot_voices[bot.id] = {
+            "profile": profile,
+            "cached_at": now
+        }
+        logger.debug(f"Voice profile cached for bot {bot.name} (id={bot.id}, cache_size={len(self.bot_voices)})")
+
+        return profile
 
     # ---- Redis listener ----
     async def _config_listener(self):
@@ -1417,6 +1480,72 @@ class BehaviorEngine:
                     active.append(t)
         return active
 
+    # ---- Helper functions for Smart Reply Target Selection ----
+
+    def _detect_topics(self, text: str) -> List[str]:
+        """Mesajdaki konuları tespit et (BIST, FX, Kripto, Makro)"""
+        topics = []
+        text_lower = text.lower()
+
+        # BIST (Turkish stock market)
+        if any(w in text_lower for w in ["bist", "borsa", "hisse", "imkb", "endeks"]):
+            topics.append("BIST")
+
+        # FX (Foreign exchange)
+        if any(w in text_lower for w in ["dolar", "euro", "tl", "kur", "forex", "usd", "eur"]):
+            topics.append("FX")
+
+        # Kripto
+        if any(w in text_lower for w in ["btc", "eth", "kripto", "bitcoin", "ethereum", "coin", "altcoin"]):
+            topics.append("Kripto")
+
+        # Makro
+        if any(w in text_lower for w in ["enflasyon", "faiz", "tcmb", "merkez", "fed", "piyasa", "ekonomi"]):
+            topics.append("Makro")
+
+        return topics
+
+    def _detect_sentiment(self, text: str) -> float:
+        """Basit sentiment analizi (-1.0 to +1.0)"""
+        positive_words = [
+            "yükseldi", "arttı", "güçlü", "olumlu", "iyi", "kazanç", "başarılı",
+            "pozitif", "yükseliş", "artış", "rally", "boğa", "al", "alım"
+        ]
+        negative_words = [
+            "düştü", "azaldı", "zayıf", "olumsuz", "kötü", "zarar", "başarısız",
+            "negatif", "düşüş", "azalış", "satış", "ayı", "sat", "risk"
+        ]
+
+        text_lower = text.lower()
+
+        pos_count = sum(1 for w in positive_words if w in text_lower)
+        neg_count = sum(1 for w in negative_words if w in text_lower)
+
+        total = pos_count + neg_count
+        if total == 0:
+            return 0.0
+
+        return (pos_count - neg_count) / total
+
+    def _extract_symbols(self, text: str) -> List[str]:
+        """Mesajdan sembol/hisse kodlarını çıkar (AKBNK, GARAN, BTCUSDT, etc.)"""
+        import re
+
+        symbols = []
+        text_upper = text.upper()
+
+        # Türk hisse kodları (4-6 harf, tüm büyük)
+        turkish_stocks = re.findall(r'\b[A-Z]{4,6}\b', text_upper)
+        symbols.extend(turkish_stocks)
+
+        # Kripto sembolleri (BTC, ETH, USDT, etc.)
+        crypto_pattern = r'\b(BTC|ETH|USDT|BNB|XRP|ADA|SOL|DOGE|AVAX|MATIC|DOT)\b'
+        cryptos = re.findall(crypto_pattern, text_upper)
+        symbols.extend(cryptos)
+
+        # Duplicate'leri temizle
+        return list(set(symbols))
+
     def pick_reply_target(
         self,
         db: Session,
@@ -1425,16 +1554,25 @@ class BehaviorEngine:
         *,
         active_bot_id: Optional[int] = None,
         active_bot_username: Optional[str] = None,
+        active_bot: Optional[Bot] = None,
     ) -> tuple[Optional[Message], Optional[str]]:
-        """Reply yapılacak bir mesaj ve mention handle döndürür (yoksa None, None)."""
+        """
+        Smart Reply Target Selection V2 (Week 2 Day 1-3)
+
+        Bot-to-bot interaction'ı TEŞVİK EDER:
+        - Bot mesajlarına artık pozitif puan (+2.5)
+        - Akıllı scoring: mention, soru, uzmanlık alanı, sentiment, popülerlik
+        - Top 3'ten weighted random seçim (çeşitlilik için)
+        """
         if random.random() > reply_p:
             return None, None
 
+        # Son 30 mesajı al (20'den artırıldı)
         last_msgs = (
             db.query(Message)
             .filter(Message.chat_db_id == chat.id)
             .order_by(Message.created_at.desc())
-            .limit(20)
+            .limit(30)
             .all()
         )
         if not last_msgs:
@@ -1446,8 +1584,28 @@ class BehaviorEngine:
             normalized_username,
         ]
 
+        # Bot'un persona bilgilerini al
+        bot_watchlist = []
+        bot_empathy = 0.5
+        if active_bot and hasattr(active_bot, "persona_profile"):
+            persona = active_bot.persona_profile or {}
+            bot_watchlist = persona.get("watchlist", [])
+
+        if active_bot and hasattr(active_bot, "emotion_profile"):
+            emotion = active_bot.emotion_profile or {}
+            bot_empathy = emotion.get("empathy", 0.5)
+            if isinstance(bot_empathy, str):
+                # Eğer string ise, float'a çevirmeyi dene
+                try:
+                    bot_empathy = float(bot_empathy)
+                except:
+                    bot_empathy = 0.5
+
         scored_candidates: list[tuple[float, int, Message, Optional[str]]] = []
+        now = now_utc()
+
         for idx, msg in enumerate(last_msgs):
+            # Kendi mesajına cevap verme
             if active_bot_id is not None and msg.bot_id == active_bot_id:
                 continue
 
@@ -1455,20 +1613,78 @@ class BehaviorEngine:
             lower_text = text.lower()
 
             score = 0.0
+
+            # === 1. KİM YAZDI? ===
             if msg.bot_id is None:
-                score += 3.0
+                # İnsan mesajı - yüksek öncelik
+                score += 8.0
             else:
-                score -= 1.0
+                # Bot mesajı - ARTIK POZİTİF! (önceden -1.0 idi)
+                score += 2.5  # Bot-to-bot interaction TEŞVİK EDİLİYOR!
 
+            # === 2. TAZELIK ===
+            age_minutes = (now - msg.created_at).total_seconds() / 60
+            if age_minutes < 3:
+                score += 3.0  # Çok taze
+            elif age_minutes < 10:
+                score += 2.0
+            elif age_minutes < 30:
+                score += 1.0
+            else:
+                score -= 1.0  # Eski mesaj
+
+            # === 3. SORU VAR MI? ===
             if "?" in text:
-                score += 1.5
+                score += 4.0  # Soru kesinlikle cevap bekliyor
 
+            # Merak ifadeleri
+            curiosity_phrases = [
+                "ne düşünüyorsun", "sizce", "fikrin", "ne dersin",
+                "katılıyor musun", "öyle mi", "emin misin", "nasıl yapmalı",
+                "ne yapmalı", "önerir misin"
+            ]
+            if any(phrase in lower_text for phrase in curiosity_phrases):
+                score += 3.0
+
+            # === 4. MENTION VAR MI? ===
             if normalized_username:
                 for token in mention_tokens:
                     if token and token in lower_text:
-                        score += 2.5
+                        score += 15.0  # Kesinlikle cevap ver!
                         break
 
+            # === 5. UZMANLIK ALANI (watchlist overlap) ===
+            if bot_watchlist:
+                msg_symbols = self._extract_symbols(text)
+                overlap = set(msg_symbols) & set(bot_watchlist)
+                score += len(overlap) * 2.5  # Her eşleşen sembol +2.5
+
+            # === 6. KONU UYUMU ===
+            msg_topics = self._detect_topics(text)
+            if msg_topics:
+                # Eğer bot'un expertise'i varsa kontrol et
+                # (Şimdilik basit: her topic +1.5)
+                score += len(msg_topics) * 1.5
+
+            # === 7. SENTIMENT UYUMU ===
+            # Empatik botlar negatif mesajlara daha çok tepki verir
+            msg_sentiment = self._detect_sentiment(text)
+            if msg_sentiment < -0.3 and bot_empathy > 0.7:
+                score += 2.0  # Empatik bot, negatif mesaja tepki verir
+
+            # === 8. POPÜLER MESAJ (çok cevap alıyorsa) ===
+            # Eğer birçok bot cevap verdiyse, bu bot da katılabilir
+            try:
+                reply_count = db.query(Message).filter(
+                    Message.reply_to_message_id == msg.telegram_message_id
+                ).count()
+
+                if reply_count >= 2:
+                    score += 1.5  # Popüler tartışma
+            except:
+                pass  # Hata olursa geç
+
+            # Mention handle'ı belirle
             mention_handle = None
             msg_bot = getattr(msg, "bot", None)
             username = getattr(msg_bot, "username", None) if msg_bot else None
@@ -1480,15 +1696,25 @@ class BehaviorEngine:
         if not scored_candidates:
             return None, None
 
-        best_score, _best_index, target, candidate_mention_handle = max(
-            scored_candidates,
-            key=lambda item: (item[0], -item[1]),
+        # Score'a göre sırala
+        scored_candidates.sort(key=lambda x: x[0], reverse=True)
+
+        # Top 3'ten weighted random seç (biraz randomness, çeşitlilik için)
+        top_n = min(3, len(scored_candidates))
+        top_candidates = scored_candidates[:top_n]
+
+        # Weighted random selection
+        weights = [max(c[0], 0.1) for c in top_candidates]  # Negatif score'ları 0.1'e çevir
+        selected = random.choices(top_candidates, weights=weights, k=1)[0]
+
+        score, _idx, target, candidate_mention_handle = selected
+
+        logger.info(
+            f"Reply target selected: '{target.text[:50]}...' (score={score:.1f}, "
+            f"from_bot={target.bot_id is not None}, age={(now - target.created_at).seconds / 60:.1f}min)"
         )
 
-        # Eğer puanlama çok düşükse, cevap vermekten kaçın
-        if best_score <= -1.0:
-            return None, None
-
+        # Mention handle'ı belirle (probability ile)
         settings = self.settings(db)
         mention_handle = None
         if (
@@ -1506,8 +1732,9 @@ class BehaviorEngine:
         base = 30.0  # ortalama gecikme tabanı
         if s.get("prime_hours_boost") and is_prime_hours(s.get("prime_hours", [])):
             base = 18.0
-        # scale factor uygula
-        base = base * float(s.get("scale_factor", 1.0))
+        # scale factor uygula (daha yüksek scale = daha hızlı mesajlar = daha kısa gecikme)
+        scale_factor = max(float(s.get("scale_factor", 1.0)), 0.1)  # Minimum 0.1 to avoid division by zero
+        base = base / scale_factor
         delay_profile = self._resolve_delay_profile(bot)
 
         if "base_delay_seconds" in delay_profile:
@@ -1715,7 +1942,7 @@ class BehaviorEngine:
 - Eğer çelişki VARSA veya cooldown sürerken zıt pozisyon içeriyorsa:
   1) Tonu yumuşat ve kısa bir gerekçe ekleyerek metni düzelt.
   2) Aynı dilde (Türkçe) 2-3 cümle yaz.
-  3) Aşırı iddiadan kaçın; istersen "yatırım tavsiyesi değildir." notu ekleyebilirsin.
+  3) Aşırı iddiadan kaçın, ama doğal ve insan gibi konuş.
 - SADECE nihai metni döndür, başka açıklama yazma.
 """
         # Düşük sıcaklık, kısa yanıt
@@ -2329,18 +2556,7 @@ METİN:
                     await asyncio.sleep(self.next_delay_seconds(db, bot=bot))
                     return
 
-            # Reply hedefi ve mention
-            reply_msg, mention_handle = self.pick_reply_target(
-                db,
-                chat,
-                float(s.get("reply_probability", 0.65)),
-                active_bot_id=bot.id,
-                active_bot_username=getattr(bot, "username", None),
-            )
-            mode = "reply" if reply_msg else "new"
-            mention_ctx = f"@{mention_handle}" if mention_handle else ""
-
-            # Geçmiş özet (son mesajlardan örnekler)
+            # Geçmiş özet (son mesajlardan örnekler) - önce al ki son mesajı kontrol edebiliriz
             recent_msgs = (
                 db.query(Message)
                 .filter(Message.chat_db_id == chat.id)
@@ -2348,12 +2564,37 @@ METİN:
                 .limit(40)
                 .all()
             )
-            history_source = list(recent_msgs[:6])
+
+            # Week 2 Day 4-5: Reply Probability Tuning
+            # Son mesaj bot'tansa, reply_to_bots_probability kullan
+            reply_prob = float(s.get("reply_probability", 0.65))
+            if recent_msgs and len(recent_msgs) > 0:
+                last_msg = recent_msgs[0]
+                if last_msg.bot_id is not None:
+                    # Son mesaj bot'tan - farklı probability kullan
+                    reply_prob = float(s.get("reply_to_bots_probability", 0.5))
+                    logger.debug(f"Last message from bot, using reply_to_bots_probability={reply_prob}")
+
+            # Reply hedefi ve mention
+            reply_msg, mention_handle = self.pick_reply_target(
+                db,
+                chat,
+                reply_prob,  # Dinamik probability
+                active_bot_id=bot.id,
+                active_bot_username=getattr(bot, "username", None),
+                active_bot=bot,  # Smart Reply Target Selection V2 için gerekli
+            )
+            mode = "reply" if reply_msg else "new"
+            mention_ctx = f"@{mention_handle}" if mention_handle else ""
+            # Week 2 Day 6-7: Context Window Expansion (6 → 15 mesaj)
+            history_source = list(recent_msgs[:15])  # 6'dan 15'e çıkarıldı
             history_excerpt = build_history_transcript(list(reversed(history_source)))
             reply_excerpt = shorten(reply_msg.text if reply_msg else "", 240)
 
             contextual_examples = build_contextual_examples(
-                list(reversed(recent_msgs)), bot_id=bot.id, max_pairs=3
+                list(reversed(recent_msgs[:30])),  # 30 mesaj içinden örnek seç (daha zengin)
+                bot_id=bot.id,
+                max_pairs=4  # 3'ten 4'e çıkarıldı
             )
 
             # Topic seç (cooldown filtreli havuzdan)
@@ -2363,11 +2604,12 @@ METİN:
             market_trigger = ""
             try:
                 if bool(s.get("news_trigger_enabled", True)) and self.news is not None:
-                    # Her mesajda değil; bir miktar rastgelelik:
-                    if random.random() < float(s.get("news_trigger_probability", 0.75)):
+                    # PHASE 2 Week 4 Day 1-3: Rich News Integration (%50 olasılık)
+                    if random.random() < float(s.get("news_trigger_probability", 0.5)):
                         brief = self.news.get_brief(topic)
                         if brief:
                             market_trigger = brief
+                            logger.debug(f"News trigger applied for topic '{topic}': {brief[:60]}...")
             except Exception as e:
                 logger.debug("news trigger error: %s", e)
 
@@ -2438,8 +2680,79 @@ METİN:
                 time_context=time_context,
             )
 
-            # LLM üretimi (taslak) - kısa mesajlar için düşük max_tokens
-            text = self.llm.generate(user_prompt=user_prompt, temperature=0.92, max_tokens=80)
+            # ==== YENİ: UNIQUE SYSTEM PROMPT ÜRET ====
+            system_prompt = generate_system_prompt(
+                persona_profile=persona_profile,
+                emotion_profile=emotion_profile,
+                bot_name=bot.name,
+            )
+
+            # ==== YENİ: DİNAMİK LLM PARAMETRELERİ ====
+            # Temperature: Bot kişiliğine göre değişir
+            base_temp = 1.0
+            tone = (persona_profile or {}).get("tone", "").lower()
+            if "profesyonel" in tone or "akademik" in tone:
+                temperature = base_temp + random.uniform(0.05, 0.10)  # 1.05-1.10 (kontrollü)
+            else:
+                temperature = base_temp + random.uniform(0.10, 0.20)  # 1.10-1.20 (yaratıcı)
+
+            # PHASE 2 Week 4 Day 4-5: Dynamic Message Length
+            # Base length: Bot persona'ya göre
+            if "akademik" in tone or "tecrübeli" in tone or "profesyonel" in tone:
+                base_min, base_max = 150, 250  # Uzun mesajlar
+            elif "genç" in tone or "enerjik" in tone:
+                base_min, base_max = 80, 150  # Kısa-orta
+            else:
+                base_min, base_max = 100, 200  # Orta
+
+            # Context modifiers
+            is_reply = (mode == "reply")
+            is_question = False
+            is_news_trigger = bool(market_trigger)
+
+            # Soru mu kontrol et
+            if reply_msg and reply_msg.text:
+                is_question = ("?" in reply_msg.text or
+                              any(w in reply_msg.text.lower() for w in ["nasıl", "neden", "ne zaman", "kim", "nerede"]))
+
+            # Modifiers uygula
+            if is_reply and not is_question:
+                # Basit reply: daha kısa
+                base_min = int(base_min * 0.7)
+                base_max = int(base_max * 0.8)
+
+            if is_question:
+                # Soruya cevap: daha uzun
+                base_min = int(base_min * 1.3)
+                base_max = int(base_max * 1.4)
+
+            if is_news_trigger:
+                # Haber varsa: daha detaylı
+                base_min = int(base_min * 1.2)
+                base_max = int(base_max * 1.3)
+
+            max_tokens = random.randint(base_min, base_max)
+
+            # Top-p sampling
+            top_p = 0.95
+
+            # Frequency penalty (tekrarları önle)
+            frequency_penalty = 0.5
+
+            logger.debug(
+                "LLM params for %s: temp=%.2f, max_tokens=%d (reply=%s, question=%s, news=%s), top_p=%.2f, freq_penalty=%.2f",
+                bot.name, temperature, max_tokens, is_reply, is_question, is_news_trigger, top_p, frequency_penalty
+            )
+
+            # ==== LLM ÜRETİMİ (YENİ PARAMETRELERLE) ====
+            text = self.llm.generate(
+                user_prompt=user_prompt,
+                system_prompt=system_prompt,  # <-- UNIQUE!
+                temperature=temperature,
+                max_tokens=max_tokens,
+                top_p=top_p,
+                frequency_penalty=frequency_penalty,
+            )
             if not text:
                 logger.warning("LLM boş/filtreli çıktı; atlanıyor.")
                 await asyncio.sleep(self.next_delay_seconds(db, bot=bot))
@@ -2487,6 +2800,7 @@ METİN:
                     text = f"{text} {mention_ctx}"
 
             # Dedup kontrolü: son X saatte aynısı varsa yeniden yazdırmayı dene
+            # Exact-match deduplication (mevcut)
             if bool(s.get("dedup_enabled", True)):
                 window_h = int(s.get("dedup_window_hours", 12))
                 attempts = int(s.get("dedup_max_attempts", 2))
@@ -2502,6 +2816,44 @@ METİN:
                     logger.info("Dedup: aynı metin tespit edildi, gönderim atlandı.")
                     await asyncio.sleep(self.next_delay_seconds(db, bot=bot))
                     return
+
+            # PHASE 2 Week 3 Day 1-3: Semantic Deduplication
+            if bool(s.get("semantic_dedup_enabled", True)) and self.semantic_dedup and self.semantic_dedup.enabled:
+                # Son 50 bot mesajını al
+                recent_bot_msgs = [
+                    m.text for m in recent_msgs[:50]
+                    if m.text and m.bot_id == bot.id
+                ]
+
+                if recent_bot_msgs:
+                    is_dup, similarity = self.semantic_dedup.is_duplicate(text, recent_bot_msgs)
+
+                    if is_dup:
+                        logger.warning(f"Semantic duplicate detected! Similarity={similarity:.3f}")
+
+                        # 2 deneme: Paraphrase et (P1.2: with cache)
+                        paraphrase_attempts = 2
+                        for attempt in range(paraphrase_attempts):
+                            text = self.semantic_dedup.paraphrase_message(text, self.llm, bot_id=bot.id)
+                            is_dup, similarity = self.semantic_dedup.is_duplicate(text, recent_bot_msgs)
+
+                            if not is_dup:
+                                logger.info(f"Paraphrase successful! New similarity={similarity:.3f}")
+                                break
+
+                        # Hâlâ duplicate ise mesajı atla
+                        if is_dup:
+                            logger.error("Paraphrase failed after 2 attempts, skipping message")
+                            await asyncio.sleep(self.next_delay_seconds(db, bot=bot))
+                            return
+
+            # PHASE 2 Week 3 Day 4-5: Voice Profile Application (P0.3: deterministic)
+            # Mesaja bot'un unique writing style'ını uygula
+            voice = self.get_bot_voice(bot)
+            original_text = text
+            text = self.voice_generator.apply_voice(text, voice, bot_id=bot.id)  # P0.3: pass bot_id for determinism
+            if text != original_text:
+                logger.debug(f"Voice profile applied: '{original_text[:50]}...' -> '{text[:50]}...'")
 
             # Typing simülasyonu
             if bool(s.get("typing_enabled", True)):

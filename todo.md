@@ -1,71 +1,80 @@
-# Telegram Piyasa Simülasyonu - Yapılacaklar Listesi
+﻿## Kritik Duzeltmeler (Ekim 2025)
 
-**Oluşturma Tarihi:** 2025-10-14
-**Amaç:** 100+ bot ve binlerce kullanıcıya ölçeklenebilir production-ready sistem
+- [ ] `behavior_engine.py`: Kullanici promptuna `persona_hint` alanini ekleyip `tests/test_behavior_engine.py:192` hatasini gider.
+- [ ] `tests/test_incoming_message_system.py`: SQLAlchemy `BotStance` iliskisini yukleyecek test fixture guncellemesi yap, `Base.metadata.create_all` sirasindaki `KeyError: 'BotStance'` hatasini coz.
+- [ ] `preflight.py`: Python 3.13 ortaminda `ModuleNotFoundError: jiter.jiter` hatasini duzeltmek icin uyumlu paket guncellemesi veya alternatif strateji uygula.
+- [ ] `scripts/oneclick.py`: Windows'ta `npm` komutu olmadigi icin olusan `[WinError 2]` hatasini gidermek amaciyla Node.js/NPM erisimi sagla veya baslatma komutunu guncelle.
+- [ ] `tests/frontend/*.mjs`: Vitest ile uyumlu hale getirerek "No test suite found" hatalarini kaldir (ornegin `node:test` yerine Vitest API'sini kullan).
+
+---
+# Telegram Piyasa SimÃ¼lasyonu - YapÄ±lacaklar Listesi
+
+**OluÅŸturma Tarihi:** 2025-10-14
+**AmaÃ§:** 100+ bot ve binlerce kullanÄ±cÄ±ya Ã¶lÃ§eklenebilir production-ready sistem
 
 ---
 
-## ✅ PHASE 1 - TAMAMLANDI: Incoming Message System
+## âœ… PHASE 1 - TAMAMLANDI: Incoming Message System
 
-**Durum:** ✅ Tamamlandı (Ocak 2025)
-**Dokümantasyon:** `docs/phase1_implementation_summary.md`, `docs/phase1_testing_guide.md`
+**Durum:** âœ… TamamlandÄ± (Ocak 2025)
+**DokÃ¼mantasyon:** `docs/phase1_implementation_summary.md`, `docs/phase1_testing_guide.md`
 
-### ✅ Görevler (TAMAMLANDI)
+### âœ… GÃ¶revler (TAMAMLANDI)
 
 - [x] **1.1** Telegram webhook endpoint'i ekle (main.py) - `main.py:1473-1617`
-- [x] **1.2** Incoming mesajları DB'ye kaydetme fonksiyonu (database.py) - Webhook içinde implement edildi
+- [x] **1.2** Incoming mesajlarÄ± DB'ye kaydetme fonksiyonu (database.py) - Webhook iÃ§inde implement edildi
 - [x] **1.3** telegram_client.py'ye get_updates metodu ekle - `telegram_client.py:256-354`
-- [x] **1.4** MessageListenerService sınıfı oluştur (message_listener.py) - Yeni dosya: 259 satır
+- [x] **1.4** MessageListenerService sÄ±nÄ±fÄ± oluÅŸtur (message_listener.py) - Yeni dosya: 259 satÄ±r
 - [x] **1.5** worker.py'ye MessageListenerService'i entegre et - `worker.py:74-98`
 - [x] **1.6** Mention detection fonksiyonu (behavior_engine.py) - `behavior_engine.py` + webhook
 - [x] **1.7** Priority response queue sistemi (Redis-based) - `behavior_engine.py:1875-2141`
-- [x] **1.8** Bot'ların gerçek kullanıcı mesajlarını context olarak kullanması - `behavior_engine.py:1899-2119`
-- [x] **1.9** TEST: Test suite ve dokümantasyon hazır - `tests/test_incoming_message_system.py`, `tests/manual_incoming_test.py`
+- [x] **1.8** Bot'larÄ±n gerÃ§ek kullanÄ±cÄ± mesajlarÄ±nÄ± context olarak kullanmasÄ± - `behavior_engine.py:1899-2119`
+- [x] **1.9** TEST: Test suite ve dokÃ¼mantasyon hazÄ±r - `tests/test_incoming_message_system.py`, `tests/manual_incoming_test.py`
 
-### 🎯 Özellikler
+### ğŸ¯ Ã–zellikler
 
-- ✅ Webhook + Long Polling dual mode
-- ✅ Auto-chat creation
-- ✅ Mention/reply detection
-- ✅ Redis priority queue (high/normal)
-- ✅ Context-aware responses
-- ✅ Concurrent user support
-- ✅ Production-ready
+- âœ… Webhook + Long Polling dual mode
+- âœ… Auto-chat creation
+- âœ… Mention/reply detection
+- âœ… Redis priority queue (high/normal)
+- âœ… Context-aware responses
+- âœ… Concurrent user support
+- âœ… Production-ready
 
-### 📊 Test Sonuçları
+### ğŸ“Š Test SonuÃ§larÄ±
 
 - Manual tests: 6/6 passed
 - Integration tests: Ready
 - Load test: 5 bot + 10 user tested
 - Performance: < 5s response time for mentions
 
-## ✅ PHASE 2 - TAMAMLANDI: Rate Limiting & Scalability
+## âœ… PHASE 2 - TAMAMLANDI: Rate Limiting & Scalability
 
-**Durum:** ✅ Tamamlandı (Ocak 2025)
-**Dokümantasyon:** `PHASE2_SUMMARY.md`, `PHASE2_TEST_RESULTS.md`
+**Durum:** âœ… TamamlandÄ± (Ocak 2025)
+**DokÃ¼mantasyon:** `PHASE2_SUMMARY.md`, `PHASE2_TEST_RESULTS.md`
 
-### ✅ Görevler (TAMAMLANDI)
+### âœ… GÃ¶revler (TAMAMLANDI)
 
-- [x] **2.1** RateLimiter sınıfı (rate_limiter.py) - `rate_limiter.py` (418 satır) oluşturuldu
-- [x] **2.2** Token bucket algoritması (Redis) - Redis-backed token bucket ile entegre edildi
+- [x] **2.1** RateLimiter sÄ±nÄ±fÄ± (rate_limiter.py) - `rate_limiter.py` (418 satÄ±r) oluÅŸturuldu
+- [x] **2.2** Token bucket algoritmasÄ± (Redis) - Redis-backed token bucket ile entegre edildi
 - [x] **2.3** Telegram API rate limits (30/sec, 20/min per chat) - TelegramRateLimiter implementasyonu
-- [x] **2.4** Message queue sistemi - `message_queue.py` (469 satır) ile priority-based queue
+- [x] **2.4** Message queue sistemi - `message_queue.py` (469 satÄ±r) ile priority-based queue
 - [x] **2.5** PostgreSQL indexleri - `database.py` composite indexler eklendi
-- [x] **2.6** Query optimizasyonu (N+1 fix) - 10-100x performans artışı sağlandı
-- [x] **2.7** TEST: 50 bot + 100 kullanıcı load test - ✅ **BAŞARILI** (2025-10-15)
+- [x] **2.6** Query optimizasyonu (N+1 fix) - 10-100x performans artÄ±ÅŸÄ± saÄŸlandÄ±
+- [x] **2.7** TEST: 50 bot + 100 kullanÄ±cÄ± load test - âœ… **BAÅARILI** (2025-10-15)
 
-### 🎯 Özellikler
+### ğŸ¯ Ã–zellikler
 
-- ✅ Token bucket rate limiting (30 msg/sec global, 20 msg/min per chat)
-- ✅ Priority-based message queue (high/normal/low)
-- ✅ Redis-backed queue with retry & DLQ
-- ✅ Composite database indexes (5 indexes added)
-- ✅ Database connection pooling (20 + 40 overflow)
-- ✅ Zero message loss
-- ✅ Graceful degradation
-- ✅ Queue statistics endpoint (`/queue/stats`)
+- âœ… Token bucket rate limiting (30 msg/sec global, 20 msg/min per chat)
+- âœ… Priority-based message queue (high/normal/low)
+- âœ… Redis-backed queue with retry & DLQ
+- âœ… Composite database indexes (5 indexes added)
+- âœ… Database connection pooling (20 + 40 overflow)
+- âœ… Zero message loss
+- âœ… Graceful degradation
+- âœ… Queue statistics endpoint (`/queue/stats`)
 
-### 📊 Test Sonuçları (Task 2.7 - 2025-10-15)
+### ğŸ“Š Test SonuÃ§larÄ± (Task 2.7 - 2025-10-15)
 
 **Load Test Configuration:**
 - 50 bots + 100 concurrent users
@@ -73,14 +82,14 @@
 - 993 messages sent successfully
 
 **Performance Metrics:**
-- ✅ Throughput: 2.77 msg/sec (< 30 limit)
-- ✅ Error Rate: 0.0% (< 1% limit)
-- ✅ P95 Latency: 1,647 ms (< 5,000 ms limit)
-- ✅ P99 Latency: 1,994 ms
-- ✅ Median Latency: 109 ms
-- ✅ Max Queue Size: 0 (< 1,000 limit)
+- âœ… Throughput: 2.77 msg/sec (< 30 limit)
+- âœ… Error Rate: 0.0% (< 1% limit)
+- âœ… P95 Latency: 1,647 ms (< 5,000 ms limit)
+- âœ… P99 Latency: 1,994 ms
+- âœ… Median Latency: 109 ms
+- âœ… Max Queue Size: 0 (< 1,000 limit)
 
-**All Pass Criteria Met:** ✅
+**All Pass Criteria Met:** âœ…
 
 **Test Files:**
 - Load test script: `tests/test_load_phase2.py` (458 lines)
@@ -88,48 +97,48 @@
 - Test report: `tests/load_test_report_1760521972.json`
 
 **Fixes Applied During Testing:**
-1. Database connection pool increased (5→20 + 10→40 overflow)
+1. Database connection pool increased (5â†’20 + 10â†’40 overflow)
 2. Test script token handling fixed
 3. Webhook endpoint validated
 
-## 🟢 PHASE 3: Kullanıcı Etkileşimi (2 Hafta)
+## ğŸŸ¢ PHASE 3: KullanÄ±cÄ± EtkileÅŸimi (2 Hafta)
 
-- [ ] **3.1** ConversationManager sınıfı
-- [ ] **3.2** Akıllı yanıt logic (mention/reply/topic-based)
-- [ ] **3.3** Echo chamber önleme
+- [ ] **3.1** ConversationManager sÄ±nÄ±fÄ±
+- [ ] **3.2** AkÄ±llÄ± yanÄ±t logic (mention/reply/topic-based)
+- [ ] **3.3** Echo chamber Ã¶nleme
 - [ ] **3.4** Bot expertise sistemi
 - [ ] **3.5** Conversation thread tracking
-- [ ] **3.6** TEST: Etkileşim kalitesi
+- [ ] **3.6** TEST: EtkileÅŸim kalitesi
 
-## 🔵 PHASE 4: Güvenlik & Moderasyon (1-2 Hafta)
+## ğŸ”µ PHASE 4: GÃ¼venlik & Moderasyon (1-2 Hafta)
 
-- [ ] **4.1** ContentModerator sınıfı
+- [ ] **4.1** ContentModerator sÄ±nÄ±fÄ±
 - [ ] **4.2** Spam detection
 - [ ] **4.3** User rate limiting
 - [ ] **4.4** Blacklist/whitelist
 - [ ] **4.5** Admin alert sistemi
 - [ ] **4.6** Content filtering
-- [ ] **4.7** TEST: Spam/troll senaryoları
+- [ ] **4.7** TEST: Spam/troll senaryolarÄ±
 
-## 🛠️ MONITORING (1 Hafta)
+## ğŸ› ï¸ MONITORING (1 Hafta)
 
 - [ ] **M.1** Grafana dashboard
 - [ ] **M.2** Prometheus metrics
 - [ ] **M.3** Alert rules
 
-## 🏗️ INFRASTRUCTURE (1 Hafta)
+## ğŸ—ï¸ INFRASTRUCTURE (1 Hafta)
 
 - [ ] **I.1** PostgreSQL production config
 - [ ] **I.2** Redis Cluster
 - [ ] **I.3** Docker production config
 
-## 🧪 TESTING (1-2 Hafta)
+## ğŸ§ª TESTING (1-2 Hafta)
 
 - [ ] **T.1** E2E test suite (10 bot + 50 user)
 - [ ] **T.2** Load test (100 bot + 1000 user, 1 saat)
 - [ ] **T.3** Chaos engineering
 
-## 📚 DOCUMENTATION (3-5 Gün)
+## ğŸ“š DOCUMENTATION (3-5 GÃ¼n)
 
 - [ ] **D.1** Webhook setup guide
 - [ ] **D.2** Scaling guide (1000+ user)
@@ -137,18 +146,18 @@
 
 ---
 
-## 🎯 Öncelik Sıralaması
+## ğŸ¯ Ã–ncelik SÄ±ralamasÄ±
 
-### ✅ Tamamlandı
-1. ~~PHASE 1~~ - **TAMAMLANDI** ✅
-2. ~~PHASE 2 (2.1-2.6)~~ - **TAMAMLANDI** ✅
+### âœ… TamamlandÄ±
+1. ~~PHASE 1~~ - **TAMAMLANDI** âœ…
+2. ~~PHASE 2 (2.1-2.6)~~ - **TAMAMLANDI** âœ…
 
 ### Hemen (1-2 Hafta)
-1. **PHASE 2.7** - Load test (50 bot + 100 kullanıcı) - **YÜKSEK ÖNCELİK**
-2. MONITORING - **ÖNEMLİ**
-3. TESTING (T.1) - **ÖNEMLİ**
+1. **PHASE 2.7** - Load test (50 bot + 100 kullanÄ±cÄ±) - **YÃœKSEK Ã–NCELÄ°K**
+2. MONITORING - **Ã–NEMLÄ°**
+3. TESTING (T.1) - **Ã–NEMLÄ°**
 
-### Yakın Gelecek (2-4 Hafta)
+### YakÄ±n Gelecek (2-4 Hafta)
 4. INFRASTRUCTURE
 5. TESTING (T.2)
 6. PHASE 3
@@ -160,16 +169,67 @@
 
 ---
 
-**Detaylı açıklamalar için:** docs/ klasörüne bakın
+**DetaylÄ± aÃ§Ä±klamalar iÃ§in:** docs/ klasÃ¶rÃ¼ne bakÄ±n
 
-**Phase 1 Dokümantasyonu:**
+**Phase 1 DokÃ¼mantasyonu:**
 - Implementation Summary: `docs/phase1_implementation_summary.md`
 - Testing Guide: `docs/phase1_testing_guide.md`
 - Test Scripts: `tests/manual_incoming_test.py`
 
-**Phase 2 Dokümantasyonu:**
+**Phase 2 DokÃ¼mantasyonu:**
 - Implementation Summary: `PHASE2_SUMMARY.md`
 - Files: `rate_limiter.py`, `message_queue.py`
 - Commit: `25d424c`
 
-**Son Güncelleme:** 2025-10-15 (Phase 2 tamamlandı, 2.7 hariç)
+**Son GÃ¼ncelleme:** 2025-10-15 (Phase 2 tamamlandÄ±, 2.7 hariÃ§)
+
+
+
+
+# 🚨 CRITICAL FIXES - Production Readiness for 50-100 Bots
+
+## Priority 0 (CRITICAL - Must Fix Now)
+
+### P0.1: Semantic Dedup - Embedding Cache Implementation
+- [ ] Create EmbeddingCache class with Redis backend
+- [ ] Cache embeddings with TTL (24 hours)
+- [ ] Use message_id as cache key
+- [ ] Only encode new message once
+- [ ] Retrieve old embeddings from cache
+
+### P0.2: Voice Profile - Memory Leak Fix
+- [ ] Implement LRU cache with max size (1000 entries)
+- [ ] Add TTL (1 hour) to voice profiles
+- [ ] Listen to bot update events for cache invalidation
+- [ ] Add cache metrics (hit/miss rate)
+
+### P0.3: Voice Profile - Deterministic Transformations
+- [ ] Use bot_id as random seed for transformations
+- [ ] Create word-level whitelist for abbreviations
+- [ ] Apply transformations consistently per bot
+- [ ] Remove pure randomness from apply_voice()
+
+## Priority 1 (HIGH - Fix This Week)
+
+### P1.1: Database Query Optimization
+- [ ] Implement Redis cache for recent messages
+- [ ] Cache message text only (not full objects)
+- [ ] Add database query indexes
+- [ ] Reduce query frequency (cache for 30 seconds)
+
+### P1.2: LLM Call Reduction - Paraphrase Cache
+- [ ] Implement paraphrase result cache (Redis)
+- [ ] Cache key: hash(original_message + bot_id)
+- [ ] TTL: 6 hours
+- [ ] Add rate limiter for paraphrase calls
+
+### P1.3: Async Model Loading
+- [ ] Move model loading to background thread
+- [ ] Add health check endpoint
+- [ ] Implement lazy initialization
+- [ ] Add startup timeout (60 seconds)
+
+---
+
+**Critical Fixes Added:** 2025-10-20
+
