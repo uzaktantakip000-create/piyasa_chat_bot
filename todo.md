@@ -184,3 +184,52 @@
 **Son GÃ¼ncelleme:** 2025-10-15 (Phase 2 tamamlandÄ±, 2.7 hariÃ§)
 
 
+
+
+# 🚨 CRITICAL FIXES - Production Readiness for 50-100 Bots
+
+## Priority 0 (CRITICAL - Must Fix Now)
+
+### P0.1: Semantic Dedup - Embedding Cache Implementation
+- [ ] Create EmbeddingCache class with Redis backend
+- [ ] Cache embeddings with TTL (24 hours)
+- [ ] Use message_id as cache key
+- [ ] Only encode new message once
+- [ ] Retrieve old embeddings from cache
+
+### P0.2: Voice Profile - Memory Leak Fix
+- [ ] Implement LRU cache with max size (1000 entries)
+- [ ] Add TTL (1 hour) to voice profiles
+- [ ] Listen to bot update events for cache invalidation
+- [ ] Add cache metrics (hit/miss rate)
+
+### P0.3: Voice Profile - Deterministic Transformations
+- [ ] Use bot_id as random seed for transformations
+- [ ] Create word-level whitelist for abbreviations
+- [ ] Apply transformations consistently per bot
+- [ ] Remove pure randomness from apply_voice()
+
+## Priority 1 (HIGH - Fix This Week)
+
+### P1.1: Database Query Optimization
+- [ ] Implement Redis cache for recent messages
+- [ ] Cache message text only (not full objects)
+- [ ] Add database query indexes
+- [ ] Reduce query frequency (cache for 30 seconds)
+
+### P1.2: LLM Call Reduction - Paraphrase Cache
+- [ ] Implement paraphrase result cache (Redis)
+- [ ] Cache key: hash(original_message + bot_id)
+- [ ] TTL: 6 hours
+- [ ] Add rate limiter for paraphrase calls
+
+### P1.3: Async Model Loading
+- [ ] Move model loading to background thread
+- [ ] Add health check endpoint
+- [ ] Implement lazy initialization
+- [ ] Add startup timeout (60 seconds)
+
+---
+
+**Critical Fixes Added:** 2025-10-20
+
