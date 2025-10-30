@@ -106,6 +106,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ----------------------
+# PROMETHEUS METRICS
+# ----------------------
+# Prometheus monitoring setup - Her HTTP isteği otomatik ölçülecek
+try:
+    from backend.metrics import setup_metrics
+    setup_metrics(app)
+    logger.info("✅ Prometheus metrics aktif: /metrics endpoint hazır")
+except ImportError as e:
+    logger.warning(f"⚠️ Prometheus metrics yüklenemedi: {e}")
+except Exception as e:
+    logger.error(f"❌ Prometheus metrics setup hatası: {e}")
+
 
 class AuthenticatedUser(BaseModel):
     username: str

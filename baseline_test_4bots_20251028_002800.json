@@ -1,0 +1,84 @@
+{
+  "test_info": {
+    "num_bots": 4,
+    "start_time": "2025-10-28T00:25:58.181531",
+    "end_time": "2025-10-28T00:28:00.020763",
+    "duration_minutes": 2.0306538780530294,
+    "samples_collected": 4
+  },
+  "message_generation": {
+    "success_rate_avg": 0,
+    "success_rate_max": 0,
+    "failed_rate_avg": 0,
+    "failed_rate_max": 0,
+    "error_rate_percent": 0
+  },
+  "latency": {
+    "message_duration_p50_avg": 0,
+    "message_duration_p50_max": 0,
+    "message_duration_p95_avg": 0,
+    "message_duration_p95_max": 0,
+    "message_duration_p99_avg": 0,
+    "message_duration_p99_max": 0
+  },
+  "database": {
+    "query_duration_p95_avg_ms": 0,
+    "query_duration_p95_max_ms": 0,
+    "connections_avg": 0,
+    "connections_max": 0
+  },
+  "raw_samples": [
+    {
+      "message_rate_success": 0.0,
+      "message_rate_failed": 0.0,
+      "message_duration_p50": NaN,
+      "message_duration_p95": NaN,
+      "message_duration_p99": NaN,
+      "db_query_duration_p95": 0.0,
+      "active_bots": 0.0,
+      "db_connections": 0.0,
+      "api_request_rate": 0.13602533957754415,
+      "api_duration_p95": NaN,
+      "timestamp": 1761600358.645474
+    },
+    {
+      "message_rate_success": 0.0,
+      "message_rate_failed": 0.0,
+      "message_duration_p50": NaN,
+      "message_duration_p95": NaN,
+      "message_duration_p99": NaN,
+      "db_query_duration_p95": 0.0,
+      "active_bots": 0.0,
+      "db_connections": 0.0,
+      "api_request_rate": 0.09627233518176216,
+      "api_duration_p95": NaN,
+      "timestamp": 1761600389.1029017
+    },
+    {
+      "message_rate_success": 0.0,
+      "message_rate_failed": 0.0,
+      "message_duration_p50": NaN,
+      "message_duration_p95": NaN,
+      "message_duration_p99": NaN,
+      "db_query_duration_p95": 0.0,
+      "active_bots": 0.0,
+      "db_connections": 0.0,
+      "api_request_rate": 0.09639111659469463,
+      "api_duration_p95": NaN,
+      "timestamp": 1761600419.5576656
+    },
+    {
+      "message_rate_success": 0.0,
+      "message_rate_failed": 0.0,
+      "message_duration_p50": NaN,
+      "message_duration_p95": NaN,
+      "message_duration_p99": NaN,
+      "db_query_duration_p95": 0.0,
+      "active_bots": 0.0,
+      "db_connections": 0.0,
+      "api_request_rate": 0.09639855016580551,
+      "api_duration_p95": NaN,
+      "timestamp": 1761600450.0175655
+    }
+  ]
+}

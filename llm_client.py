@@ -410,7 +410,7 @@ class GroqProvider(BaseLLMProvider):
         self,
         *,
         user_prompt: str,
-        temperature: float = 0.7,
+        temperature: float = 1.7,
         max_tokens: int = 220,
         system_prompt: Optional[str] = None,
         top_p: float = 0.95,

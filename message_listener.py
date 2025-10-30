@@ -159,81 +159,94 @@ class MessageListenerService:
                 db.commit()
                 db.refresh(chat)
 
-            # Incoming mesajı DB'ye kaydet
-            incoming_msg = Message(
-                bot_id=None,  # Kullanıcı mesajı
-                chat_db_id=chat.id,
-                telegram_message_id=telegram_msg_id,
-                text=text,
-                reply_to_message_id=reply_to_msg_id,
-                msg_metadata={
-                    "from_user_id": user_id,
-                    "username": username,
-                    "is_incoming": True,
-                    "update_id": update_id,
-                },
-            )
-            db.add(incoming_msg)
-            db.commit()
-            db.refresh(incoming_msg)
+            # Incoming mesajı DB'ye kaydet (duplicate kontrolü)
+            # Aynı telegram_message_id zaten kaydedildiyse, tekrar kaydetme
+            existing_msg = db.query(Message).filter(
+                Message.telegram_message_id == telegram_msg_id,
+                Message.chat_db_id == chat.id,
+            ).first()
 
-            logger.info(
-                "Incoming message saved: msg_id=%s, chat=%s, user=%s, text_preview=%s",
-                telegram_msg_id,
-                telegram_chat_id,
-                username or user_id,
-                text[:50] if text else "(no text)",
-            )
+            if existing_msg:
+                # Mesaj zaten kaydedilmiş, mevcut mesajı kullan
+                incoming_msg = existing_msg
+                logger.debug("Message already exists: msg_id=%s, using existing", telegram_msg_id)
+                # Mesaj zaten işlenmiş, bu bot queue kontrolünü ATLASIN
+                return  # ÖNEMLİ: Duplicate mesajlar için queue'ya EKLEME
+            else:
+                # Yeni kullanıcı mesajı - şimdilik kaydetmiyoruz (bot_id NOT NULL constraint)
+                # TODO: Schema'yı bot_id nullable yap veya system bot ID kullan
+                logger.info(
+                    "Incoming user message (not saved to DB): msg_id=%s, chat=%s, user=%s, text_preview=%s",
+                    telegram_msg_id,
+                    telegram_chat_id,
+                    username or user_id,
+                    text[:50] if text else "(no text)",
+                )
+                # Skip DB insert, queue kontrolüne geç
+                incoming_msg = None  # Placeholder
 
             # Redis priority queue'ya ekle
             if self.redis_client:
-                try:
-                    # Mention detection
-                    bot_username = bot.username or ""
-                    is_mentioned = False
-                    if bot_username and f"@{bot_username.lstrip('@')}" in text:
-                        is_mentioned = True
+                # Mention detection
+                bot_username = bot.username or ""
+                is_mentioned = False
+                if bot_username and f"@{bot_username.lstrip('@')}" in text:
+                    is_mentioned = True
 
-                    # Reply to bot check
-                    is_reply_to_bot = False
-                    if reply_to_msg_id:
-                        replied_msg = db.query(Message).filter(
-                            Message.telegram_message_id == reply_to_msg_id,
-                            Message.chat_db_id == chat.id,
-                            Message.bot_id == bot.id,
-                        ).first()
-                        if replied_msg:
-                            is_reply_to_bot = True
+                # Reply to bot check
+                is_reply_to_bot = False
+                if reply_to_msg_id:
+                    replied_msg = db.query(Message).filter(
+                        Message.telegram_message_id == reply_to_msg_id,
+                        Message.chat_db_id == chat.id,
+                        Message.bot_id == bot.id,
+                    ).first()
+                    if replied_msg:
+                        is_reply_to_bot = True
 
-                    # Priority data
-                    priority_data = {
-                        "type": "incoming_message",
-                        "message_id": incoming_msg.id,
-                        "telegram_message_id": telegram_msg_id,
-                        "chat_id": chat.id,
-                        "telegram_chat_id": telegram_chat_id,
-                        "bot_id": bot.id,
-                        "text": text,
-                        "is_mentioned": is_mentioned,
-                        "is_reply_to_bot": is_reply_to_bot,
-                        "priority": "high" if (is_mentioned or is_reply_to_bot) else "normal",
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                    }
-
-                    # Redis queue'ya ekle
-                    queue_key = (
-                        "priority_queue:high"
-                        if priority_data["priority"] == "high"
-                        else "priority_queue:normal"
-                    )
-                    self.redis_client.lpush(queue_key, json.dumps(priority_data))
+                # SADECE mention veya reply edilen bot queue'ya eklensin
+                if not (is_mentioned or is_reply_to_bot):
+                    # Bu bot mention/reply edilmedi, SKIP
                     logger.debug(
-                        "Added to priority queue: %s (priority=%s)",
-                        queue_key,
-                        priority_data["priority"],
+                        "Bot %s not mentioned/replied, skipping queue (msg=%s)",
+                        bot.name,
+                        telegram_msg_id
                     )
-                except Exception as e:
-                    logger.warning("Failed to add to priority queue: %s", e)
+                else:
+                    # Bu bot mention/reply edildi, queue'ya ekle
+                    try:
+                        # Priority data
+                        priority_data = {
+                            "type": "incoming_message",
+                            "message_id": incoming_msg.id,
+                            "telegram_message_id": telegram_msg_id,
+                            "chat_id": chat.id,
+                            "telegram_chat_id": telegram_chat_id,
+                            "bot_id": bot.id,
+                            "text": text,
+                            "is_mentioned": is_mentioned,
+                            "is_reply_to_bot": is_reply_to_bot,
+                            "priority": "high" if (is_mentioned or is_reply_to_bot) else "normal",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }
+
+                        # Redis queue'ya ekle
+                        queue_key = (
+                            "priority_queue:high"
+                            if priority_data["priority"] == "high"
+                            else "priority_queue:normal"
+                        )
+                        self.redis_client.lpush(queue_key, json.dumps(priority_data))
+                        logger.info(
+                            "Added to priority queue: %s (priority=%s, bot=%s, mentioned=%s, reply=%s)",
+                            queue_key,
+                            priority_data["priority"],
+                            bot.name,
+                            is_mentioned,
+                            is_reply_to_bot,
+                        )
+                    except Exception as e:
+                        logger.warning("Failed to add to priority queue: %s", e)
 
         except Exception as e:
             logger.exception("Failed to process update %s: %s", update.get("update_id"), e)

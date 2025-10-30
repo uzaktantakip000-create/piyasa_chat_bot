@@ -1,0 +1,12 @@
+# Grafana Data Source Configuration
+# Basit Açıklama: Grafana'ya "metrikleri Prometheus'tan al" diyoruz
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090  # Docker compose'daki Prometheus servisi
+    isDefault: true
+    editable: true

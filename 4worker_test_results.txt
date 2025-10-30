@@ -1,0 +1,22 @@
+4-Worker Performance Test Results
+==================================
+
+Test Date: 2025-10-31 00:33:51
+Duration: 10.0 minutes
+Workers: 4
+Redis L2 Cache: Enabled
+
+Results:
+  Start messages: 36
+  Final messages: 36
+  New messages: 0
+  Throughput: 0.00 msg/min
+
+Comparison to Previous Sessions:
+  Session 5 (1 worker, no cache): 1.4 msg/min
+  Session 6 (1 worker, L1 cache): 1.5 msg/min
+  Session 7 (4 workers, L1+L2): 0.00 msg/min
+
+Improvement:
+  vs Session 5: -100.0%
+  vs Session 6: -100.0%
