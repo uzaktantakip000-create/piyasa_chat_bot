@@ -35,6 +35,72 @@ from message_queue import MessageQueue, QueuedMessage, MessagePriority
 from news_client import NewsClient, DEFAULT_FEEDS  # <-- HABER TETIKLEYICI
 from voice_profiles import VoiceProfileGenerator  # <-- PHASE 2 Week 3 Day 4-5: Voice Profiles
 
+# Backend behavior modules (Session 10-11: Modularization)
+from backend.behavior import (
+    # Topic management
+    TOPIC_KEYWORDS,
+    choose_topic_from_messages,
+    score_topics_from_messages,
+    # Persona management
+    ReactionPlan,
+    compose_persona_refresh_note,
+    derive_tempo_multiplier,
+    now_utc,
+    should_refresh_persona,
+    synthesize_reaction_plan,
+    update_persona_refresh_state,
+    # Bot selection utilities
+    is_prime_hours,
+    is_within_active_hours,
+    parse_ranges,
+    # Reply handler utilities
+    detect_sentiment,
+    detect_topics,
+    extract_symbols,
+    # Deduplication
+    normalize_text,
+    # Message utilities
+    choose_message_length_category,
+    compose_length_hint,
+    # General utilities
+    clamp,
+    safe_float,
+    shorten,
+    # Message processing
+    anonymize_example_text,
+    build_contextual_examples,
+    build_history_transcript,
+    resolve_message_speaker,
+)
+
+# Prometheus metrics (opsiyonel)
+try:
+    from backend.metrics import (
+        message_generation_total,
+        message_generation_duration_seconds,
+        active_bots_gauge,
+        MetricTimer,
+    )
+    METRICS_ENABLED = True
+except ImportError:
+    METRICS_ENABLED = False
+    # Dummy objects - metrik yoksa hata vermesin
+    class DummyCounter:
+        def labels(self, **kwargs): return self
+        def inc(self): pass
+    class DummyGauge:
+        def set(self, val): pass
+    class DummyHistogram:
+        def observe(self, val): pass
+    class DummyTimer:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+
+    message_generation_total = DummyCounter()
+    active_bots_gauge = DummyGauge()
+    message_generation_duration_seconds = DummyHistogram()
+    MetricTimer = lambda hist: DummyTimer()
+
 logger = logging.getLogger("behavior")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 
@@ -47,20 +113,8 @@ _ENGINE: Optional["BehaviorEngine"] = None
 # ---------------------------
 # Yardımcı fonksiyonlar
 # ---------------------------
-TOPIC_KEYWORDS: Dict[str, set] = {
-    "bist": {"bist", "borsa", "hisse", "hisseler", "bist100", "x100"},
-    "fx": {"fx", "doviz", "döviz", "kur", "usd", "eur", "parite"},
-    "kripto": {"kripto", "crypto", "bitcoin", "btc", "eth", "ethereum", "altcoin", "coin"},
-    "makro": {"makro", "enflasyon", "faiz", "ekonomi", "gsyih", "büyüme", "veri"},
-}
-
-
-@dataclass
-class ReactionPlan:
-    instructions: str
-    signature_phrase: Optional[str] = None
-    anecdote: Optional[str] = None
-    emoji: Optional[str] = None
+# NOTE: Most helper functions moved to backend/behavior/ modules (Session 10-11)
+# TOPIC_KEYWORDS, ReactionPlan, and 20+ other functions now imported from backend.behavior
 
 
 def _choose_text_item(values: Optional[Sequence[Any]]) -> Optional[str]:
@@ -1210,6 +1264,15 @@ class BehaviorEngine:
         self._last_settings: Dict[str, Any] = {}
         self._settings_loaded_at: datetime = datetime.min.replace(tzinfo=UTC)
 
+        # Multi-worker coordination (PHASE 1B.1: Multi-Worker Architecture)
+        self.worker_id = int(os.getenv("WORKER_ID", "0"))
+        self.total_workers = int(os.getenv("TOTAL_WORKERS", "1"))
+        logger.info(f"Worker {self.worker_id}/{self.total_workers} initialized")
+
+        # Cache manager (PHASE 1A.2: Multi-layer caching)
+        # Will be initialized after Redis client is set up below
+        self.cache = None  # type: ignore
+
         # Haber tetikleyici (opsiyonel, bağımlılık yoksa bozulmasın)
         self.news: Optional[NewsClient] = None
         try:
@@ -1240,6 +1303,15 @@ class BehaviorEngine:
         self.msg_queue = MessageQueue(self._redis_sync_client)
         self._queue_processor_task: Optional[asyncio.Task] = None
         logger.info("Message queue initialized")
+
+        # Initialize cache manager (SESSION 13: Multi-layer caching)
+        try:
+            from backend.caching import CacheManager
+            self.cache = CacheManager.get_instance()
+            logger.info("CacheManager initialized (L1+L2 multi-layer)")
+        except Exception as e:
+            logger.warning("CacheManager init failed: %s. Running without cache.", e)
+            self.cache = None
 
         # Persona yenileme takibi (bot bazlı)
         self._persona_refresh: Dict[int, Dict[str, Any]] = {}
@@ -1279,6 +1351,21 @@ class BehaviorEngine:
         # Bir sonraki erişimde yeniden yüklensin
         self._settings_loaded_at = datetime.min.replace(tzinfo=UTC)
         logger.info("Settings cache invalidated via config update.")
+
+    # ---- Cache Invalidation (PHASE 1A.2) ----
+    def invalidate_bot_cache(self, bot_id: int):
+        """Invalidate bot profile cache (called when bot is updated) - SESSION 13"""
+        if self.cache:
+            from backend.caching import invalidate_bot_cache
+            invalidate_bot_cache(bot_id)
+            logger.info("Bot cache invalidated: bot_id=%d", bot_id)
+
+    def invalidate_chat_cache(self, chat_id: int):
+        """Invalidate chat message cache (called when new message arrives) - SESSION 13"""
+        if self.cache:
+            from backend.caching import invalidate_chat_message_cache
+            invalidate_chat_message_cache(chat_id)
+            logger.debug("Chat cache invalidated: chat_id=%d", chat_id)
 
     def _update_news_feeds(self, feeds: List[str]) -> None:
         if self.news is None:
@@ -1418,6 +1505,14 @@ class BehaviorEngine:
         bots = db.query(Bot).filter(Bot.is_enabled.is_(True)).all()
         if not bots:
             return None
+
+        # Multi-worker coordination: Consistent hashing for bot distribution
+        # Each worker only handles bots where bot_id % total_workers == worker_id
+        if self.total_workers > 1:
+            my_bots = [b for b in bots if b.id % self.total_workers == self.worker_id]
+            if not my_bots:
+                return None  # This worker has no bots assigned
+            bots = my_bots
 
         # Saatlik limit kontrolü
         one_hour_ago = now_utc() - timedelta(hours=1)
@@ -1567,14 +1662,8 @@ class BehaviorEngine:
         if random.random() > reply_p:
             return None, None
 
-        # Son 30 mesajı al (20'den artırıldı)
-        last_msgs = (
-            db.query(Message)
-            .filter(Message.chat_db_id == chat.id)
-            .order_by(Message.created_at.desc())
-            .limit(30)
-            .all()
-        )
+        # Son 30 mesajı al (20'den artırıldı) - PHASE 1A.2: Cache-aware
+        last_msgs = self.fetch_recent_messages(db, chat.id, limit=30)
         if not last_msgs:
             return None, None
 
@@ -1623,7 +1712,18 @@ class BehaviorEngine:
                 score += 2.5  # Bot-to-bot interaction TEŞVİK EDİLİYOR!
 
             # === 2. TAZELIK ===
-            age_minutes = (now - msg.created_at).total_seconds() / 60
+            # Handle timezone-naive or string created_at
+            created_at = msg.created_at
+            if isinstance(created_at, str):
+                from datetime import datetime as dt_class
+                try:
+                    created_at = dt_class.fromisoformat(created_at)
+                except Exception:
+                    created_at = now  # Fallback to now if parsing fails
+            if created_at.tzinfo is None:
+                from datetime import timezone
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            age_minutes = (now - created_at).total_seconds() / 60
             if age_minutes < 3:
                 score += 3.0  # Çok taze
             elif age_minutes < 10:
@@ -1709,9 +1809,14 @@ class BehaviorEngine:
 
         score, _idx, target, candidate_mention_handle = selected
 
+        # Handle timezone-naive created_at in log
+        target_created_at = target.created_at
+        if target_created_at.tzinfo is None:
+            from datetime import timezone
+            target_created_at = target_created_at.replace(tzinfo=timezone.utc)
         logger.info(
             f"Reply target selected: '{target.text[:50]}...' (score={score:.1f}, "
-            f"from_bot={target.bot_id is not None}, age={(now - target.created_at).seconds / 60:.1f}min)"
+            f"from_bot={target.bot_id is not None}, age={(now - target_created_at).seconds / 60:.1f}min)"
         )
 
         # Mention handle'ı belirle (probability ile)
@@ -1856,6 +1961,37 @@ class BehaviorEngine:
         last_min_msgs = db.query(Message).filter(Message.created_at >= one_min_ago).count()
         return last_min_msgs < per_min_limit
 
+    # ---- Cached Message History Fetch (PHASE 1A.2) ----
+    def fetch_recent_messages(self, db: Session, chat_id: int, limit: int) -> List[Message]:
+        """
+        Fetch recent messages for a chat (cache-aware)
+
+        SESSION 13: Uses helper function with multi-layer caching
+        TTL: 60 seconds (messages change frequently)
+
+        Args:
+            db: Database session
+            chat_id: Chat ID (database ID, not telegram_chat_id)
+            limit: Number of recent messages to fetch
+
+        Returns:
+            List of Message objects (ordered by created_at desc)
+        """
+        # Use cached helper function
+        if self.cache:
+            from backend.caching import get_recent_messages_cached
+            return get_recent_messages_cached(chat_id, db, limit=limit)
+        else:
+            # Fallback to direct DB query
+            messages = (
+                db.query(Message)
+                .filter(Message.chat_db_id == chat_id)
+                .order_by(Message.created_at.desc())
+                .limit(limit)
+                .all()
+            )
+            return messages
+
     # ---- Persona/Stance/Holdings çekme ----
     def fetch_psh(
         self,
@@ -1863,18 +1999,28 @@ class BehaviorEngine:
         bot: Bot,
         topic_hint: Optional[str],
     ) -> tuple[Dict[str, Any], Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]], str]:
-        """Bot için persona/emotion profilleri ile stance/holding verilerini oku ve sadeleştir."""
+        """
+        Bot için persona/emotion profilleri ile stance/holding verilerini oku ve sadeleştir.
+
+        SESSION 13: Now uses helper functions with multi-layer caching
+        """
+        # Get persona and emotion profiles (cached)
         persona_profile = bot.persona_profile or {}
         emotion_profile = bot.emotion_profile or {}
         persona_hint = (bot.persona_hint or "").strip()
 
-        # Stance'ler: son güncellenene öncelik
-        stance_rows: List[BotStance] = (
-            db.query(BotStance)
-            .filter(BotStance.bot_id == bot.id)
-            .order_by(BotStance.updated_at.desc())
-            .all()
-        )
+        # Stance'ler: son güncellenene öncelik (cached with helper)
+        if self.cache:
+            from backend.caching import get_bot_stances_cached
+            stance_rows = get_bot_stances_cached(bot.id, db)
+        else:
+            stance_rows = (
+                db.query(BotStance)
+                .filter(BotStance.bot_id == bot.id)
+                .order_by(BotStance.updated_at.desc())
+                .all()
+            )
+
         stances: List[Dict[str, Any]] = []
         for s in stance_rows:
             stances.append({
@@ -1885,17 +2031,18 @@ class BehaviorEngine:
                 "cooldown_until": s.cooldown_until.isoformat() if s.cooldown_until else None,
             })
 
-        # İpucu verilen topic'i öne taşı (okunurluk için)
-        if topic_hint:
-            stances.sort(key=lambda x: (0 if (x.get("topic") or "").lower() == topic_hint.lower() else 1))
+        # Holdings: son güncellenene öncelik (cached with helper)
+        if self.cache:
+            from backend.caching import get_bot_holdings_cached
+            holding_rows = get_bot_holdings_cached(bot.id, db)
+        else:
+            holding_rows = (
+                db.query(BotHolding)
+                .filter(BotHolding.bot_id == bot.id)
+                .order_by(BotHolding.updated_at.desc())
+                .all()
+            )
 
-        # Holdings: son güncellenene öncelik
-        holding_rows: List[BotHolding] = (
-            db.query(BotHolding)
-            .filter(BotHolding.bot_id == bot.id)
-            .order_by(BotHolding.updated_at.desc())
-            .all()
-        )
         holdings: List[Dict[str, Any]] = []
         for h in holding_rows:
             holdings.append({
@@ -1905,6 +2052,10 @@ class BehaviorEngine:
                 "note": h.note,
                 "updated_at": h.updated_at.isoformat() if h.updated_at else None,
             })
+
+        # Sort stances by topic_hint (okunurluk için)
+        if topic_hint:
+            stances.sort(key=lambda x: (0 if (x.get("topic") or "").lower() == topic_hint.lower() else 1))
 
         return persona_profile, emotion_profile, stances, holdings, persona_hint
 
@@ -2264,14 +2415,8 @@ METİN:
                 persona_hint,
             ) = self.fetch_psh(db, bot, topic_hint=None)
 
-            # Son mesajları context olarak al
-            recent_msgs = (
-                db.query(Message)
-                .filter(Message.chat_db_id == chat.id)
-                .order_by(Message.created_at.desc())
-                .limit(40)
-                .all()
-            )
+            # Son mesajları context olarak al - PHASE 1A.2: Cache-aware
+            recent_msgs = self.fetch_recent_messages(db, chat.id, limit=40)
 
             # History transcript (kullanıcı mesajları da dahil!)
             history_source = list(recent_msgs[:8])  # Daha fazla context
@@ -2427,6 +2572,9 @@ METİN:
             ))
             db.commit()
 
+            # PHASE 1A.2: Invalidate chat cache after new message
+            self.invalidate_chat_cache(chat.id)
+
             logger.info("Priority response sent: bot=%s, text_preview=%s", bot.name, text[:50])
             return True
 
@@ -2437,6 +2585,10 @@ METİN:
     # ---- Akış ----
     async def tick_once(self) -> None:
         db: Session = SessionLocal()
+        import time  # Timer için
+        start_time = time.time()  # Kronometre başlat
+        bot_id_for_metric = None  # Metrik için bot ID'yi saklayacağız
+
         try:
             s = self.settings(db)
             if not bool(s.get("simulation_active", False)):
@@ -2476,6 +2628,9 @@ METİN:
                 logger.info("Saatlik sınır nedeniyle uygun bot bulunamadı; bekleniyor.")
                 await asyncio.sleep(3.0)
                 return
+
+            # Metrik için bot ID'yi sakla
+            bot_id_for_metric = bot.id
 
             # Persona/Stance/Holdings verilerini çek (erken çekiyoruz çünkü topic seçiminde cooldown gerekiyor)
             topic_hint_pool = (chat.topics or ["BIST", "FX", "Kripto", "Makro"]).copy()
@@ -2557,13 +2712,8 @@ METİN:
                     return
 
             # Geçmiş özet (son mesajlardan örnekler) - önce al ki son mesajı kontrol edebiliriz
-            recent_msgs = (
-                db.query(Message)
-                .filter(Message.chat_db_id == chat.id)
-                .order_by(Message.created_at.desc())
-                .limit(40)
-                .all()
-            )
+            # PHASE 1A.2: Cache-aware
+            recent_msgs = self.fetch_recent_messages(db, chat.id, limit=40)
 
             # Week 2 Day 4-5: Reply Probability Tuning
             # Son mesaj bot'tansa, reply_to_bots_probability kullan
@@ -2889,6 +3039,19 @@ METİN:
             ))
             db.commit()
 
+            # PHASE 1A.2: Invalidate chat cache after new message
+            self.invalidate_chat_cache(chat.id)
+
+            # ✅ PROMETHEUS METRIC: Başarılı mesaj
+            if METRICS_ENABLED and bot_id_for_metric:
+                duration = time.time() - start_time
+                message_generation_total.labels(
+                    bot_id=str(bot_id_for_metric),
+                    status="success"
+                ).inc()
+                message_generation_duration_seconds.observe(duration)
+                logger.debug(f"📊 Metric kaydedildi: bot={bot_id_for_metric}, süre={duration:.2f}s")
+
             self._persona_refresh[bot.id] = update_persona_refresh_state(
                 refresh_state,
                 triggered=should_refresh,
@@ -2900,6 +3063,15 @@ METİN:
 
         except Exception as e:
             logger.exception("tick_once error: %s", e)
+
+            # ❌ PROMETHEUS METRIC: Başarısız mesaj
+            if METRICS_ENABLED and bot_id_for_metric:
+                message_generation_total.labels(
+                    bot_id=str(bot_id_for_metric),
+                    status="failed"
+                ).inc()
+                logger.debug(f"📊 Metric kaydedildi: bot={bot_id_for_metric}, status=failed")
+
             await asyncio.sleep(3.0)
         finally:
             db.close()

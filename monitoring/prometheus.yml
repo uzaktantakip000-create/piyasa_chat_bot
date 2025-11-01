@@ -1,0 +1,27 @@
+# Prometheus Configuration
+# Basit Açıklama: Prometheus'a "nereden metrikleri toplayacağını" söylüyoruz
+
+global:
+  scrape_interval: 15s  # Her 15 saniyede bir metrikleri topla
+  evaluation_interval: 15s  # Her 15 saniyede bir kuralları değerlendir
+
+# Metrik toplama hedefleri
+scrape_configs:
+  # API servisi metrikleri
+  - job_name: 'piyasa-chatbot-api'
+    static_configs:
+      - targets: ['api:8000']  # Docker compose'daki 'api' servisi
+    metrics_path: '/metrics'  # Metrikler bu endpoint'te
+    scrape_interval: 10s  # API için daha sık toplama (10 saniye)
+
+  # Worker servisi metrikleri (mesaj üretimi metrikleri burada)
+  - job_name: 'piyasa-chatbot-worker'
+    static_configs:
+      - targets: ['worker:8001']  # Docker compose'daki 'worker' servisi
+    metrics_path: '/metrics'  # Metrikler bu endpoint'te
+    scrape_interval: 10s  # Worker için daha sık toplama (10 saniye)
+
+  # Prometheus'un kendi metrikleri (opsiyonel)
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

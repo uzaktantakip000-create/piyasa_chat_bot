@@ -72,6 +72,15 @@ def _get_redis_client() -> redis.Redis | None:
 
 
 async def _amain():
+    # Start Prometheus metrics HTTP server for worker metrics
+    try:
+        from prometheus_client import start_http_server
+        WORKER_METRICS_PORT = int(os.getenv("WORKER_METRICS_PORT", "8001"))
+        start_http_server(WORKER_METRICS_PORT)
+        logger.info(f"Worker Prometheus metrics server started on port {WORKER_METRICS_PORT}")
+    except Exception as e:
+        logger.warning(f"Failed to start worker metrics server: {e}")
+
     logger.info("Worker starting… (LOG_LEVEL=%s)", LOG_LEVEL)
 
     # Redis client (priority queue için)

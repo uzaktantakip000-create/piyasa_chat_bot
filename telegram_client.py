@@ -15,6 +15,7 @@ import redis
 
 from database import SessionLocal, Setting
 from rate_limiter import TelegramRateLimiter
+from backend.resilience import CircuitBreaker, CircuitBreakerError
 
 logger = logging.getLogger("telegram")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -108,22 +109,54 @@ class TelegramClient:
         else:
             self.rate_limiter = rate_limiter
 
+        # Initialize circuit breaker
+        failure_threshold = int(os.getenv("TELEGRAM_CIRCUIT_BREAKER_THRESHOLD", "10"))
+        timeout_seconds = int(os.getenv("TELEGRAM_CIRCUIT_BREAKER_TIMEOUT", "60"))
+        self.circuit_breaker = CircuitBreaker(
+            service_name="telegram_api",
+            failure_threshold=failure_threshold,
+            timeout=timeout_seconds,
+            half_open_max_calls=3
+        )
+        logger.info(
+            f"TelegramClient circuit breaker initialized "
+            f"(threshold={failure_threshold}, timeout={timeout_seconds}s)"
+        )
+
     def _url(self, token: str, method: str) -> str:
         return f"{self.base_url}/bot{token}/{method}"
 
     async def _post(self, token: str, method: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
-        POST request with exponential backoff retry logic.
+        POST request with exponential backoff retry logic and circuit breaker protection.
 
         Retry strategy:
         - 429 (rate limit): Use Retry-After header or exponential backoff with jitter
         - 5xx (server errors): Exponential backoff with jitter
         - Network errors: Exponential backoff with jitter
+
+        Circuit breaker:
+        - Opens after failure_threshold consecutive failures
+        - Blocks requests for timeout period
+        - Transitions to HALF_OPEN to test recovery
         """
         url = self._url(token, method)
         max_retries = int(os.getenv("TELEGRAM_MAX_RETRIES", "5"))
         base_delay = float(os.getenv("TELEGRAM_BASE_DELAY", "1.0"))
         max_delay = float(os.getenv("TELEGRAM_MAX_DELAY", "60.0"))
+
+        # Check circuit breaker before attempting
+        try:
+            circuit_state = self.circuit_breaker.get_state()
+            if circuit_state["state"] == "open":
+                logger.warning(
+                    f"Circuit breaker OPEN for Telegram API. "
+                    f"Retry after {circuit_state['retry_after']:.1f}s. Request blocked."
+                )
+                _bump_setting("telegram_circuit_open_blocks", 1)
+                return None
+        except Exception as e:
+            logger.debug(f"Circuit breaker state check failed: {e}")
 
         for attempt in range(1, max_retries + 1):
             try:
@@ -155,6 +188,14 @@ class TelegramClient:
                     _bump_setting("telegram_5xx_count", 1)
                     _bump_setting("rate_limit_hits", 1)  # Backward compatibility
 
+                    # Circuit breaker: track failure
+                    try:
+                        self.circuit_breaker._on_failure(
+                            Exception(f"5xx error: {r.status_code}")
+                        )
+                    except Exception as e:
+                        logger.debug(f"Circuit breaker failure tracking failed: {e}")
+
                     # Exponential backoff with jitter
                     exp_delay = base_delay * (2 ** (attempt - 1))
                     jitter = random.uniform(0, exp_delay * 0.1)
@@ -173,10 +214,28 @@ class TelegramClient:
                 if not data.get("ok", False):
                     desc = data.get("description", "Unknown error")
                     logger.warning("Telegram %s API error: %s", method, desc)
+                    # Circuit breaker: track API-level failure
+                    try:
+                        self.circuit_breaker._on_failure(Exception(f"API error: {desc}"))
+                    except Exception as e:
+                        logger.debug(f"Circuit breaker failure tracking failed: {e}")
                     return None
+
+                # Circuit breaker: track success
+                try:
+                    self.circuit_breaker._on_success()
+                except Exception as e:
+                    logger.debug(f"Circuit breaker success tracking failed: {e}")
+
                 return data.get("result")
 
             except httpx.HTTPError as e:
+                # Circuit breaker: track failure
+                try:
+                    self.circuit_breaker._on_failure(e)
+                except Exception as cb_error:
+                    logger.debug(f"Circuit breaker failure tracking failed: {cb_error}")
+
                 # Network/connection errors - exponential backoff
                 exp_delay = base_delay * (2 ** (attempt - 1))
                 jitter = random.uniform(0, exp_delay * 0.1)
@@ -193,9 +252,17 @@ class TelegramClient:
                     logger.error("Max retries exceeded for %s: %s", method, e)
 
             except Exception as e:
+                # Circuit breaker: track unexpected failure
+                try:
+                    self.circuit_breaker._on_failure(e)
+                except Exception as cb_error:
+                    logger.debug(f"Circuit breaker failure tracking failed: {cb_error}")
+
                 logger.exception("Unexpected error on %s attempt %d/%d: %s", method, attempt, max_retries, e)
                 return None
 
+        # All retries exhausted - final failure
+        logger.error(f"Telegram API {method}: All retries exhausted")
         return None
 
     # -----------------------------
