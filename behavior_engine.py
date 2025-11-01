@@ -2686,7 +2686,9 @@ METİN:
                 candidates = [m for m in last if m.bot_id != bot.id]
                 if candidates:
                     target = random.choice(candidates)
-                    ok = await self.tg.try_set_reaction(bot.token, chat.chat_id, target.telegram_message_id)
+                    # TEMPORARY FIX (Session 14): Telegram setMessageReaction returns 400
+                    # ok = await self.tg.try_set_reaction(bot.token, chat.chat_id, target.telegram_message_id)
+                    ok = False  # Skip reaction API, use fallback emoji message
                     if not ok:
                         # fallback: çok kısa bir emoji mesajı
                         emoji = LLMClient.pick_reaction_for_text(getattr(target, "text", ""))
