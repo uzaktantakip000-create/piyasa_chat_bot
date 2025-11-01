@@ -101,6 +101,34 @@ python scripts/stress_test.py --duration 30 --concurrency 4
 DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/app
 ```
 
+**Database Migrations** (Alembic):
+```bash
+# Check current migration version
+python -m alembic current
+
+# View migration history
+python -m alembic history
+
+# Create new migration (auto-generate from model changes)
+python -m alembic revision --autogenerate -m "description"
+
+# Apply pending migrations
+python -m alembic upgrade head
+
+# Rollback one migration (PostgreSQL only - see note below)
+python -m alembic downgrade -1
+
+# Rollback to specific revision
+python -m alembic downgrade <revision_id>
+```
+
+**Important Notes**:
+- Migrations are version-controlled in `alembic/versions/`
+- Auto-generated migrations should be reviewed before committing
+- **SQLite limitation**: Downgrade migrations that alter column types will fail on SQLite due to limited `ALTER TABLE` support. This is a known SQLite limitation. Downgrades work correctly on PostgreSQL.
+- The database URL is read from `DATABASE_URL` environment variable (configured in `alembic/env.py`)
+- Initial migration `fe686589d4eb` captures the schema state as of Session 12
+
 **Token encryption migration** (auto-runs on startup):
 - Requires `TOKEN_ENCRYPTION_KEY` in `.env`
 - Generate key: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`

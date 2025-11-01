@@ -1,14 +1,41 @@
 """
-Multi-layer caching module for piyasa_chat_bot
+Multi-layer caching system for piyasa_chat_bot.
 
-Provides:
-- In-memory LRU cache (Layer 1)
-- Redis cache (Layer 2, optional)
-- Cache manager orchestration
+Provides L1 (in-memory) and L2 (Redis) caching with automatic fallback.
 """
 
-from .cache_manager import CacheManager, CacheStats, BotProfileData
-from .lru_cache import LRUCache
-from .redis_cache import RedisCache
+from backend.caching.cache_manager import CacheManager
+from backend.caching.bot_cache_helpers import (
+    get_bot_profile_cached,
+    get_bot_persona_cached,
+    get_bot_emotion_cached,
+    get_bot_stances_cached,
+    get_bot_holdings_cached,
+    invalidate_bot_cache,
+    invalidate_all_bot_caches,
+)
+from backend.caching.message_cache_helpers import (
+    get_recent_messages_cached,
+    get_bot_recent_messages_cached,
+    invalidate_chat_message_cache,
+    invalidate_bot_message_cache,
+    invalidate_all_message_caches,
+)
 
-__all__ = ["CacheManager", "CacheStats", "BotProfileData", "LRUCache", "RedisCache"]
+__all__ = [
+    'CacheManager',
+    # Bot caching
+    'get_bot_profile_cached',
+    'get_bot_persona_cached',
+    'get_bot_emotion_cached',
+    'get_bot_stances_cached',
+    'get_bot_holdings_cached',
+    'invalidate_bot_cache',
+    'invalidate_all_bot_caches',
+    # Message caching
+    'get_recent_messages_cached',
+    'get_bot_recent_messages_cached',
+    'invalidate_chat_message_cache',
+    'invalidate_bot_message_cache',
+    'invalidate_all_message_caches',
+]

@@ -1,249 +1,336 @@
 """
-Cache Manager - Multi-layer caching orchestrator
+Multi-Layer Caching System
 
-Coordinates L1 (LRU) and L2 (Redis) caches for bot profiles and message history
+Provides L1 (in-memory) and L2 (Redis) caching with:
+- Automatic fallback if Redis unavailable
+- TTL (time-to-live) support
+- Pattern-based invalidation
+- Cache-aside pattern with loader functions
+- Thread-safe operations
 """
 
 import logging
-from typing import Any, Optional, List, Dict
-from dataclasses import dataclass, asdict
-from datetime import datetime
+import pickle
+import time
+from typing import Any, Callable, Optional, Dict
+from threading import Lock
+import os
 
-from .lru_cache import LRUCache
-from .redis_cache import RedisCache
+# Redis (optional dependency)
+try:
+    import redis
+    REDIS_AVAILABLE = True
+except ImportError:
+    REDIS_AVAILABLE = False
+    redis = None
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class BotProfileData:
-    """Cached bot profile data"""
-    bot_id: int
-    name: str
-    persona_profile: Dict[str, Any]
-    emotion_profile: Dict[str, Any]
-    stances: List[Dict[str, Any]]
-    holdings: List[Dict[str, Any]]
-    persona_hint: str
-    cached_at: str  # ISO timestamp
+class CacheEntry:
+    """Cache entry with TTL support."""
+    __slots__ = ('value', 'expires_at')
+
+    def __init__(self, value: Any, ttl: Optional[int] = None):
+        self.value = value
+        self.expires_at = time.time() + ttl if ttl else None
+
+    def is_expired(self) -> bool:
+        """Check if entry has expired."""
+        if self.expires_at is None:
+            return False
+        return time.time() > self.expires_at
 
 
-@dataclass
-class CacheStats:
-    """Aggregate cache statistics"""
-    l1_stats: Dict[str, Any]
-    l2_stats: Dict[str, Any]
-    total_hit_rate: float
+class L1Cache:
+    """In-memory LRU cache with TTL support. Thread-safe, process-local."""
+
+    def __init__(self, max_size: int = 1000):
+        self.max_size = max_size
+        self._cache: Dict[str, CacheEntry] = {}
+        self._lock = Lock()
+        self._hits = 0
+        self._misses = 0
+
+    def get(self, key: str) -> Optional[Any]:
+        """Get value from cache if exists and not expired."""
+        with self._lock:
+            entry = self._cache.get(key)
+            if entry is None:
+                self._misses += 1
+                return None
+
+            if entry.is_expired():
+                del self._cache[key]
+                self._misses += 1
+                return None
+
+            self._hits += 1
+            return entry.value
+
+    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
+        """Set value in cache with optional TTL."""
+        with self._lock:
+            # Simple LRU: remove oldest if at capacity
+            if len(self._cache) >= self.max_size and key not in self._cache:
+                first_key = next(iter(self._cache))
+                del self._cache[first_key]
+
+            self._cache[key] = CacheEntry(value, ttl)
+
+    def invalidate(self, key: str) -> None:
+        """Remove specific key from cache."""
+        with self._lock:
+            self._cache.pop(key, None)
+
+    def invalidate_pattern(self, pattern: str) -> int:
+        """Remove all keys matching pattern (simple glob). Returns count."""
+        with self._lock:
+            if '*' in pattern:
+                prefix = pattern.split('*')[0]
+                keys_to_remove = [k for k in self._cache if k.startswith(prefix)]
+            else:
+                keys_to_remove = [pattern] if pattern in self._cache else []
+
+            for key in keys_to_remove:
+                del self._cache[key]
+
+            return len(keys_to_remove)
+
+    def clear(self) -> None:
+        """Clear all cache entries."""
+        with self._lock:
+            self._cache.clear()
+            self._hits = 0
+            self._misses = 0
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get cache statistics."""
+        with self._lock:
+            total = self._hits + self._misses
+            hit_rate = (self._hits / total * 100) if total > 0 else 0
+            return {
+                "size": len(self._cache),
+                "max_size": self.max_size,
+                "hits": self._hits,
+                "misses": self._misses,
+                "hit_rate": round(hit_rate, 2),
+            }
+
+
+class L2Cache:
+    """Redis-based distributed cache. Shared across workers, optional fallback."""
+
+    def __init__(self, redis_url: Optional[str] = None):
+        self.redis_client = None
+        self.available = False
+
+        if not REDIS_AVAILABLE:
+            logger.warning("redis package not installed, L2 cache disabled")
+            return
+
+        redis_url = redis_url or os.getenv("REDIS_URL")
+        if not redis_url:
+            logger.info("REDIS_URL not set, L2 cache disabled")
+            return
+
+        try:
+            self.redis_client = redis.from_url(
+                redis_url,
+                decode_responses=False,  # We'll use pickle
+                socket_connect_timeout=2,
+                socket_timeout=2,
+            )
+            # Test connection
+            self.redis_client.ping()
+            self.available = True
+            logger.info("L2 Redis cache connected")
+        except Exception as e:
+            logger.warning("L2 Redis cache unavailable: %s", e)
+            self.redis_client = None
+
+    def get(self, key: str) -> Optional[Any]:
+        """Get value from Redis cache."""
+        if not self.available or not self.redis_client:
+            return None
+
+        try:
+            data = self.redis_client.get(key)
+            if data is None:
+                return None
+            return pickle.loads(data)
+        except Exception as e:
+            logger.debug("L2 cache get error for %s: %s", key, e)
+            return None
+
+    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
+        """Set value in Redis cache with optional TTL."""
+        if not self.available or not self.redis_client:
+            return
+
+        try:
+            data = pickle.dumps(value)
+            if ttl:
+                self.redis_client.setex(key, ttl, data)
+            else:
+                self.redis_client.set(key, data)
+        except Exception as e:
+            logger.debug("L2 cache set error for %s: %s", key, e)
+
+    def invalidate(self, key: str) -> None:
+        """Remove specific key from Redis."""
+        if not self.available or not self.redis_client:
+            return
+
+        try:
+            self.redis_client.delete(key)
+        except Exception:
+            pass
+
+    def invalidate_pattern(self, pattern: str) -> int:
+        """Remove all keys matching pattern using Redis SCAN. Returns count."""
+        if not self.available or not self.redis_client:
+            return 0
+
+        try:
+            count = 0
+            cursor = 0
+            while True:
+                cursor, keys = self.redis_client.scan(cursor, match=pattern, count=100)
+                if keys:
+                    self.redis_client.delete(*keys)
+                    count += len(keys)
+                if cursor == 0:
+                    break
+            return count
+        except Exception:
+            return 0
 
 
 class CacheManager:
     """
-    Multi-layer cache manager
-
-    Architecture:
-    - L1: In-memory LRU cache (fast, process-local)
-    - L2: Redis cache (shared, optional)
-
-    Cache keys:
-    - Bot profile: bot:{bot_id}:profile
-    - Message history: chat:{chat_id}:messages:last:{limit}
+    Multi-layer cache manager with L1 (in-memory) and L2 (Redis).
+    Implements cache-aside pattern with automatic loader function.
+    Thread-safe singleton.
     """
 
-    def __init__(
-        self,
-        redis_client: Optional[Any] = None,
-        l1_max_size: int = 1000,
-        l1_default_ttl: int = 900,  # 15 minutes
-        l2_default_ttl: int = 1800,  # 30 minutes
-    ):
-        """
-        Args:
-            redis_client: Optional Redis client for L2 cache
-            l1_max_size: L1 cache max size (default 1000)
-            l1_default_ttl: L1 TTL in seconds (default 15 min)
-            l2_default_ttl: L2 TTL in seconds (default 30 min)
-        """
-        # Layer 1: In-memory LRU cache
-        self.l1_cache = LRUCache(max_size=l1_max_size, default_ttl_seconds=l1_default_ttl)
+    _instance: Optional['CacheManager'] = None
+    _lock = Lock()
 
-        # Layer 2: Redis cache (optional)
-        self.l2_cache = RedisCache(redis_client=redis_client, default_ttl_seconds=l2_default_ttl)
+    def __init__(self):
+        # L1: In-memory cache (fast, process-local)
+        max_size = int(os.getenv("CACHE_L1_MAX_SIZE", "1000"))
+        self.l1 = L1Cache(max_size=max_size)
+
+        # L2: Redis cache (shared, optional)
+        self.l2 = L2Cache()
 
         logger.info(
-            "CacheManager initialized (L1: max_size=%d, ttl=%ds | L2: enabled=%s, ttl=%ds)",
-            l1_max_size,
-            l1_default_ttl,
-            self.l2_cache.enabled,
-            l2_default_ttl,
+            "CacheManager initialized (L1: %d entries, L2: %s)",
+            max_size,
+            "enabled" if self.l2.available else "disabled"
         )
 
-    # ===== Bot Profile Caching =====
+    @classmethod
+    def get_instance(cls) -> 'CacheManager':
+        """Get singleton instance (thread-safe)."""
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = cls()
+        return cls._instance
 
-    def get_bot_profile(self, bot_id: int) -> Optional[BotProfileData]:
+    def get(
+        self,
+        key: str,
+        loader: Optional[Callable[[], Any]] = None,
+        ttl: Optional[int] = None,
+        use_l2: bool = True
+    ) -> Optional[Any]:
         """
-        Get bot profile from cache
-
-        Flow:
-        1. Check L1 (LRU)
-        2. If miss, check L2 (Redis)
-        3. If L2 hit, populate L1
-        4. Return None if both miss (caller must fetch from DB)
+        Get value from cache or load with loader function.
 
         Args:
-            bot_id: Bot ID
+            key: Cache key
+            loader: Function to load value if not in cache
+            ttl: Time-to-live in seconds (None = no expiration)
+            use_l2: Whether to use L2 (Redis) cache
 
         Returns:
-            BotProfileData if found, None otherwise
+            Cached or loaded value, None if not found and no loader
         """
-        key = f"bot:{bot_id}:profile"
+        # Try L1 cache
+        value = self.l1.get(key)
+        if value is not None:
+            return value
 
-        # Try L1 first
-        data = self.l1_cache.get(key)
-        if data:
-            return BotProfileData(**data)
+        # Try L2 cache
+        if use_l2:
+            value = self.l2.get(key)
+            if value is not None:
+                # Populate L1 from L2
+                self.l1.set(key, value, ttl)
+                return value
 
-        # Try L2
-        data = self.l2_cache.get(key)
-        if data:
-            # Populate L1
-            self.l1_cache.set(key, data, ttl_seconds=900)  # 15 min in L1
-            return BotProfileData(**data)
+        # Load from source if loader provided
+        if loader is not None:
+            try:
+                value = loader()
+                if value is not None:
+                    self.set(key, value, ttl, use_l2=use_l2)
+                return value
+            except Exception as e:
+                logger.exception("Cache loader error for %s: %s", key, e)
+                return None
 
-        # Cache miss
         return None
 
-    def set_bot_profile(self, profile: BotProfileData) -> None:
-        """
-        Set bot profile in cache (both L1 and L2)
+    def set(
+        self,
+        key: str,
+        value: Any,
+        ttl: Optional[int] = None,
+        use_l2: bool = True
+    ) -> None:
+        """Set value in both cache layers."""
+        self.l1.set(key, value, ttl)
+        if use_l2:
+            self.l2.set(key, value, ttl)
 
-        Args:
-            profile: BotProfileData to cache
-        """
-        key = f"bot:{profile.bot_id}:profile"
-        data = asdict(profile)
+    def invalidate(self, key: str, use_l2: bool = True) -> None:
+        """Invalidate specific key in both cache layers."""
+        self.l1.invalidate(key)
+        if use_l2:
+            self.l2.invalidate(key)
 
-        # Set in L1 (15 min TTL)
-        self.l1_cache.set(key, data, ttl_seconds=900)
+    def invalidate_pattern(self, pattern: str, use_l2: bool = True) -> int:
+        """Invalidate all keys matching pattern in both cache layers. Returns count."""
+        count_l1 = self.l1.invalidate_pattern(pattern)
+        count_l2 = 0
+        if use_l2:
+            count_l2 = self.l2.invalidate_pattern(pattern)
 
-        # Set in L2 (30 min TTL)
-        self.l2_cache.set(key, data, ttl_seconds=1800)
+        total = count_l1 + count_l2
+        if total > 0:
+            logger.info("Invalidated %d keys matching pattern: %s", total, pattern)
+        return total
 
-        logger.debug("Cached bot profile: bot_id=%d", profile.bot_id)
+    def clear(self, use_l2: bool = False) -> None:
+        """Clear all cache entries."""
+        self.l1.clear()
+        logger.info("L1 cache cleared")
 
-    def invalidate_bot(self, bot_id: int) -> None:
-        """
-        Invalidate bot profile cache
+        if use_l2 and self.l2.available:
+            # Note: We don't implement full Redis flush for safety
+            # Use invalidate_pattern() for targeted clearing
+            logger.warning("L2 cache clear not implemented (use invalidate_pattern)")
 
-        Args:
-            bot_id: Bot ID to invalidate
-        """
-        pattern = f"bot:{bot_id}:"
-
-        # Delete from L1
-        self.l1_cache.delete_pattern(pattern)
-
-        # Delete from L2
-        self.l2_cache.delete_pattern(f"{pattern}*")
-
-        logger.info("Invalidated bot cache: bot_id=%d", bot_id)
-
-    # ===== Message History Caching =====
-
-    def get_chat_messages(self, chat_id: int, limit: int) -> Optional[List[Dict[str, Any]]]:
-        """
-        Get chat message history from cache
-
-        Flow: Same as get_bot_profile
-
-        Args:
-            chat_id: Chat ID
-            limit: Number of messages (last N)
-
-        Returns:
-            List of message dicts if found, None otherwise
-        """
-        key = f"chat:{chat_id}:messages:last:{limit}"
-
-        # Try L1 first
-        data = self.l1_cache.get(key)
-        if data:
-            return data
-
-        # Try L2
-        data = self.l2_cache.get(key)
-        if data:
-            # Populate L1 (shorter TTL for messages - 30 sec)
-            self.l1_cache.set(key, data, ttl_seconds=30)
-            return data
-
-        # Cache miss
-        return None
-
-    def set_chat_messages(self, chat_id: int, limit: int, messages: List[Dict[str, Any]]) -> None:
-        """
-        Set chat message history in cache
-
-        Args:
-            chat_id: Chat ID
-            limit: Number of messages
-            messages: List of message dicts
-        """
-        key = f"chat:{chat_id}:messages:last:{limit}"
-
-        # Set in L1 (30 sec TTL - messages change frequently)
-        self.l1_cache.set(key, messages, ttl_seconds=30)
-
-        # Set in L2 (60 sec TTL)
-        self.l2_cache.set(key, messages, ttl_seconds=60)
-
-        logger.debug("Cached chat messages: chat_id=%d, limit=%d, count=%d", chat_id, limit, len(messages))
-
-    def invalidate_chat(self, chat_id: int) -> None:
-        """
-        Invalidate chat message cache
-
-        Args:
-            chat_id: Chat ID to invalidate
-        """
-        pattern = f"chat:{chat_id}:"
-
-        # Delete from L1
-        self.l1_cache.delete_pattern(pattern)
-
-        # Delete from L2
-        self.l2_cache.delete_pattern(f"{pattern}*")
-
-        logger.info("Invalidated chat cache: chat_id=%d", chat_id)
-
-    # ===== Statistics & Management =====
-
-    def get_stats(self) -> CacheStats:
-        """
-        Get aggregate cache statistics
-
-        Returns:
-            CacheStats with L1 and L2 stats
-        """
-        l1_stats = self.l1_cache.get_stats()
-        l2_stats = self.l2_cache.get_stats()
-
-        # Calculate total hit rate (weighted by L1 since it's checked first)
-        total_hit_rate = l1_stats.get("hit_rate_percent", 0.0)
-
-        return CacheStats(
-            l1_stats=l1_stats,
-            l2_stats=l2_stats,
-            total_hit_rate=total_hit_rate,
-        )
-
-    def clear_all(self) -> None:
-        """Clear all caches (L1 and L2)"""
-        self.l1_cache.clear()
-        self.l2_cache.clear()
-        logger.warning("All caches cleared")
-
-    def reset_stats(self) -> None:
-        """Reset statistics counters"""
-        self.l1_cache.reset_stats()
-        self.l2_cache.reset_stats()
-        logger.info("Cache statistics reset")
+    def get_stats(self) -> Dict[str, Any]:
+        """Get cache statistics for monitoring."""
+        return {
+            "l1": self.l1.get_stats(),
+            "l2": {
+                "available": self.l2.available,
+                "enabled": self.l2.redis_client is not None,
+            }
+        }

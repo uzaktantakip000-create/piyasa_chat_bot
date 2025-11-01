@@ -35,6 +35,44 @@ from message_queue import MessageQueue, QueuedMessage, MessagePriority
 from news_client import NewsClient, DEFAULT_FEEDS  # <-- HABER TETIKLEYICI
 from voice_profiles import VoiceProfileGenerator  # <-- PHASE 2 Week 3 Day 4-5: Voice Profiles
 
+# Backend behavior modules (Session 10-11: Modularization)
+from backend.behavior import (
+    # Topic management
+    TOPIC_KEYWORDS,
+    choose_topic_from_messages,
+    score_topics_from_messages,
+    # Persona management
+    ReactionPlan,
+    compose_persona_refresh_note,
+    derive_tempo_multiplier,
+    now_utc,
+    should_refresh_persona,
+    synthesize_reaction_plan,
+    update_persona_refresh_state,
+    # Bot selection utilities
+    is_prime_hours,
+    is_within_active_hours,
+    parse_ranges,
+    # Reply handler utilities
+    detect_sentiment,
+    detect_topics,
+    extract_symbols,
+    # Deduplication
+    normalize_text,
+    # Message utilities
+    choose_message_length_category,
+    compose_length_hint,
+    # General utilities
+    clamp,
+    safe_float,
+    shorten,
+    # Message processing
+    anonymize_example_text,
+    build_contextual_examples,
+    build_history_transcript,
+    resolve_message_speaker,
+)
+
 # Prometheus metrics (opsiyonel)
 try:
     from backend.metrics import (
@@ -75,20 +113,8 @@ _ENGINE: Optional["BehaviorEngine"] = None
 # ---------------------------
 # Yardımcı fonksiyonlar
 # ---------------------------
-TOPIC_KEYWORDS: Dict[str, set] = {
-    "bist": {"bist", "borsa", "hisse", "hisseler", "bist100", "x100"},
-    "fx": {"fx", "doviz", "döviz", "kur", "usd", "eur", "parite"},
-    "kripto": {"kripto", "crypto", "bitcoin", "btc", "eth", "ethereum", "altcoin", "coin"},
-    "makro": {"makro", "enflasyon", "faiz", "ekonomi", "gsyih", "büyüme", "veri"},
-}
-
-
-@dataclass
-class ReactionPlan:
-    instructions: str
-    signature_phrase: Optional[str] = None
-    anecdote: Optional[str] = None
-    emoji: Optional[str] = None
+# NOTE: Most helper functions moved to backend/behavior/ modules (Session 10-11)
+# TOPIC_KEYWORDS, ReactionPlan, and 20+ other functions now imported from backend.behavior
 
 
 def _choose_text_item(values: Optional[Sequence[Any]]) -> Optional[str]:
@@ -1278,15 +1304,10 @@ class BehaviorEngine:
         self._queue_processor_task: Optional[asyncio.Task] = None
         logger.info("Message queue initialized")
 
-        # Initialize cache manager with Redis client (if available)
+        # Initialize cache manager (SESSION 13: Multi-layer caching)
         try:
             from backend.caching import CacheManager
-            self.cache = CacheManager(
-                redis_client=self._redis_sync_client,
-                l1_max_size=1000,      # 1000 entries max in L1
-                l1_default_ttl=900,    # 15 minutes in L1
-                l2_default_ttl=1800,   # 30 minutes in L2 (Redis)
-            )
+            self.cache = CacheManager.get_instance()
             logger.info("CacheManager initialized (L1+L2 multi-layer)")
         except Exception as e:
             logger.warning("CacheManager init failed: %s. Running without cache.", e)
@@ -1333,15 +1354,17 @@ class BehaviorEngine:
 
     # ---- Cache Invalidation (PHASE 1A.2) ----
     def invalidate_bot_cache(self, bot_id: int):
-        """Invalidate bot profile cache (called when bot is updated)"""
+        """Invalidate bot profile cache (called when bot is updated) - SESSION 13"""
         if self.cache:
-            self.cache.invalidate_bot(bot_id)
+            from backend.caching import invalidate_bot_cache
+            invalidate_bot_cache(bot_id)
             logger.info("Bot cache invalidated: bot_id=%d", bot_id)
 
     def invalidate_chat_cache(self, chat_id: int):
-        """Invalidate chat message cache (called when new message arrives)"""
+        """Invalidate chat message cache (called when new message arrives) - SESSION 13"""
         if self.cache:
-            self.cache.invalidate_chat(chat_id)
+            from backend.caching import invalidate_chat_message_cache
+            invalidate_chat_message_cache(chat_id)
             logger.debug("Chat cache invalidated: chat_id=%d", chat_id)
 
     def _update_news_feeds(self, feeds: List[str]) -> None:
@@ -1943,8 +1966,8 @@ class BehaviorEngine:
         """
         Fetch recent messages for a chat (cache-aware)
 
-        PHASE 1A.2: Checks cache before DB query
-        TTL: 30 seconds (messages change frequently)
+        SESSION 13: Uses helper function with multi-layer caching
+        TTL: 60 seconds (messages change frequently)
 
         Args:
             db: Database session
@@ -1954,47 +1977,20 @@ class BehaviorEngine:
         Returns:
             List of Message objects (ordered by created_at desc)
         """
-        # Try cache first
+        # Use cached helper function
         if self.cache:
-            cached_msgs = self.cache.get_chat_messages(chat_id, limit)
-            if cached_msgs:
-                # Cache hit! Reconstruct Message objects from dicts
-                messages = []
-                for msg_dict in cached_msgs:
-                    # Create a minimal Message object (read-only)
-                    msg = Message()
-                    for key, value in msg_dict.items():
-                        setattr(msg, key, value)
-                    messages.append(msg)
-                return messages
-
-        # Cache miss - fetch from database
-        messages = (
-            db.query(Message)
-            .filter(Message.chat_db_id == chat_id)
-            .order_by(Message.created_at.desc())
-            .limit(limit)
-            .all()
-        )
-
-        # Store in cache (serialize to dicts)
-        if self.cache and messages:
-            msg_dicts = []
-            for msg in messages:
-                msg_dict = {
-                    "id": msg.id,
-                    "bot_id": msg.bot_id,
-                    "chat_db_id": msg.chat_db_id,
-                    "telegram_message_id": msg.telegram_message_id,
-                    "text": msg.text,
-                    "reply_to_message_id": msg.reply_to_message_id,
-                    "created_at": msg.created_at.isoformat() if msg.created_at else None,
-                    "msg_metadata": msg.msg_metadata,
-                }
-                msg_dicts.append(msg_dict)
-            self.cache.set_chat_messages(chat_id, limit, msg_dicts)
-
-        return messages
+            from backend.caching import get_recent_messages_cached
+            return get_recent_messages_cached(chat_id, db, limit=limit)
+        else:
+            # Fallback to direct DB query
+            messages = (
+                db.query(Message)
+                .filter(Message.chat_db_id == chat_id)
+                .order_by(Message.created_at.desc())
+                .limit(limit)
+                .all()
+            )
+            return messages
 
     # ---- Persona/Stance/Holdings çekme ----
     def fetch_psh(
@@ -2006,40 +2002,25 @@ class BehaviorEngine:
         """
         Bot için persona/emotion profilleri ile stance/holding verilerini oku ve sadeleştir.
 
-        PHASE 1A.2: Cache-aware version - checks L1/L2 cache before DB query
+        SESSION 13: Now uses helper functions with multi-layer caching
         """
-        # Try cache first (if available)
-        if self.cache:
-            cached = self.cache.get_bot_profile(bot.id)
-            if cached:
-                # Cache hit! Return cached data
-                persona_profile = cached.persona_profile
-                emotion_profile = cached.emotion_profile
-                stances = cached.stances
-                holdings = cached.holdings
-                persona_hint = cached.persona_hint
-
-                # Sort stances by topic_hint (query-specific, not cached)
-                if topic_hint:
-                    stances = sorted(
-                        stances,
-                        key=lambda x: (0 if (x.get("topic") or "").lower() == topic_hint.lower() else 1)
-                    )
-
-                return persona_profile, emotion_profile, stances, holdings, persona_hint
-
-        # Cache miss - fetch from database
+        # Get persona and emotion profiles (cached)
         persona_profile = bot.persona_profile or {}
         emotion_profile = bot.emotion_profile or {}
         persona_hint = (bot.persona_hint or "").strip()
 
-        # Stance'ler: son güncellenene öncelik
-        stance_rows: List[BotStance] = (
-            db.query(BotStance)
-            .filter(BotStance.bot_id == bot.id)
-            .order_by(BotStance.updated_at.desc())
-            .all()
-        )
+        # Stance'ler: son güncellenene öncelik (cached with helper)
+        if self.cache:
+            from backend.caching import get_bot_stances_cached
+            stance_rows = get_bot_stances_cached(bot.id, db)
+        else:
+            stance_rows = (
+                db.query(BotStance)
+                .filter(BotStance.bot_id == bot.id)
+                .order_by(BotStance.updated_at.desc())
+                .all()
+            )
+
         stances: List[Dict[str, Any]] = []
         for s in stance_rows:
             stances.append({
@@ -2050,13 +2031,18 @@ class BehaviorEngine:
                 "cooldown_until": s.cooldown_until.isoformat() if s.cooldown_until else None,
             })
 
-        # Holdings: son güncellenene öncelik
-        holding_rows: List[BotHolding] = (
-            db.query(BotHolding)
-            .filter(BotHolding.bot_id == bot.id)
-            .order_by(BotHolding.updated_at.desc())
-            .all()
-        )
+        # Holdings: son güncellenene öncelik (cached with helper)
+        if self.cache:
+            from backend.caching import get_bot_holdings_cached
+            holding_rows = get_bot_holdings_cached(bot.id, db)
+        else:
+            holding_rows = (
+                db.query(BotHolding)
+                .filter(BotHolding.bot_id == bot.id)
+                .order_by(BotHolding.updated_at.desc())
+                .all()
+            )
+
         holdings: List[Dict[str, Any]] = []
         for h in holding_rows:
             holdings.append({
@@ -2066,21 +2052,6 @@ class BehaviorEngine:
                 "note": h.note,
                 "updated_at": h.updated_at.isoformat() if h.updated_at else None,
             })
-
-        # Store in cache for next time (if cache available)
-        if self.cache:
-            from backend.caching import BotProfileData
-            profile_data = BotProfileData(
-                bot_id=bot.id,
-                name=bot.name,
-                persona_profile=persona_profile,
-                emotion_profile=emotion_profile,
-                stances=stances,
-                holdings=holdings,
-                persona_hint=persona_hint,
-                cached_at=datetime.now(UTC).isoformat(),
-            )
-            self.cache.set_bot_profile(profile_data)
 
         # Sort stances by topic_hint (okunurluk için)
         if topic_hint:
