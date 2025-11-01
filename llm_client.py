@@ -26,6 +26,9 @@ try:
 except Exception:  # pragma: no cover
     Groq = None  # type: ignore
 
+# Circuit Breaker
+from backend.resilience import CircuitBreaker
+
 # -------------------------------------------------------------------
 # system_prompt bağımlılıkları: geçmiş sürümle uyumlu olacak şekilde
 # -------------------------------------------------------------------
@@ -176,7 +179,17 @@ class OpenAIProvider(BaseLLMProvider):
         base_url = os.getenv("OPENAI_BASE_URL") or None
         self.client = OpenAI(base_url=base_url, timeout=self.timeout)
 
-        logger.info("OpenAIProvider initialized (model=%s)", self.model)
+        # Circuit breaker
+        failure_threshold = int(os.getenv("LLM_CIRCUIT_BREAKER_THRESHOLD", "5"))
+        timeout_seconds = int(os.getenv("LLM_CIRCUIT_BREAKER_TIMEOUT", "120"))
+        self.circuit_breaker = CircuitBreaker(
+            service_name="openai_api",
+            failure_threshold=failure_threshold,
+            timeout=timeout_seconds,
+            half_open_max_calls=2
+        )
+
+        logger.info("OpenAIProvider initialized (model=%s, circuit_breaker=enabled)", self.model)
 
     def generate(
         self,
@@ -192,6 +205,7 @@ class OpenAIProvider(BaseLLMProvider):
         System + user prompt ile bir mesaj üretir.
         İçerik filtresi ve post-process uygular.
         Basit exponential backoff ile yeniden dener.
+        Circuit breaker ile fail-fast protection.
 
         Args:
             user_prompt: User mesajı
@@ -201,6 +215,15 @@ class OpenAIProvider(BaseLLMProvider):
             top_p: Nucleus sampling (default 0.95)
             frequency_penalty: Frequency penalty (default 0.4)
         """
+        # Circuit breaker check
+        circuit_state = self.circuit_breaker.get_state()
+        if circuit_state["state"] == "open":
+            logger.warning(
+                f"Circuit breaker OPEN for OpenAI API. "
+                f"Retry after {circuit_state['retry_after']:.1f}s. Request blocked."
+            )
+            return None
+
         # System prompt: custom varsa onu kullan, yoksa default
         system_content = system_prompt if system_prompt is not None else _SYSTEM_CONTENT
 
@@ -236,9 +259,16 @@ class OpenAIProvider(BaseLLMProvider):
 
                     # Son işlem (AI izleri törpüleme vb.)
                     processed = _postprocess(filtered)
+
+                    # Circuit breaker: track success
+                    self.circuit_breaker._on_success()
+
                     return processed
 
                 except Exception as e:
+                    # Circuit breaker: track failure
+                    self.circuit_breaker._on_failure(e)
+
                     base = 0.6 * (2 ** (attempt - 1))
                     sleep_s = min(base + random.uniform(0, 0.3), 6.0)
                     logger.warning(
@@ -278,6 +308,16 @@ class GeminiProvider(BaseLLMProvider):
         # Not: SDK kendi başına model adını kullanır, "models/" prefix gerekmez
         self.model_name: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
         self.max_retries: int = int(os.getenv("LLM_MAX_RETRIES", "3"))
+
+        # Circuit breaker
+        failure_threshold = int(os.getenv("LLM_CIRCUIT_BREAKER_THRESHOLD", "5"))
+        timeout_seconds = int(os.getenv("LLM_CIRCUIT_BREAKER_TIMEOUT", "120"))
+        self.circuit_breaker = CircuitBreaker(
+            service_name="gemini_api",
+            failure_threshold=failure_threshold,
+            timeout=timeout_seconds,
+            half_open_max_calls=2
+        )
 
         # Safety settings: BLOCK_NONE for all categories (finans tartışması için gerekli)
         self.safety_settings = [
@@ -319,7 +359,17 @@ class GeminiProvider(BaseLLMProvider):
         """
         Gemini API ile mesaj üretir.
         System prompt'u user prompt'a prepend eder (Gemini'de system role yoktur).
+        Circuit breaker ile fail-fast protection.
         """
+        # Circuit breaker check
+        circuit_state = self.circuit_breaker.get_state()
+        if circuit_state["state"] == "open":
+            logger.warning(
+                f"Circuit breaker OPEN for Gemini API. "
+                f"Retry after {circuit_state['retry_after']:.1f}s. Request blocked."
+            )
+            return None
+
         # System prompt: custom varsa onu kullan, yoksa default
         system_content = system_prompt if system_prompt is not None else _SYSTEM_CONTENT
 
@@ -362,9 +412,16 @@ class GeminiProvider(BaseLLMProvider):
 
                 # Son işlem
                 processed = _postprocess(filtered)
+
+                # Circuit breaker: track success
+                self.circuit_breaker._on_success()
+
                 return processed
 
             except Exception as e:
+                # Circuit breaker: track failure
+                self.circuit_breaker._on_failure(e)
+
                 base = 0.6 * (2 ** (attempt - 1))
                 sleep_s = min(base + random.uniform(0, 0.3), 6.0)
                 logger.warning(
@@ -404,7 +461,17 @@ class GroqProvider(BaseLLMProvider):
         self.model: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
         self.max_retries: int = int(os.getenv("LLM_MAX_RETRIES", "3"))
 
-        logger.info("GroqProvider initialized (model=%s)", self.model)
+        # Circuit breaker
+        failure_threshold = int(os.getenv("LLM_CIRCUIT_BREAKER_THRESHOLD", "5"))
+        timeout_seconds = int(os.getenv("LLM_CIRCUIT_BREAKER_TIMEOUT", "120"))
+        self.circuit_breaker = CircuitBreaker(
+            service_name="groq_api",
+            failure_threshold=failure_threshold,
+            timeout=timeout_seconds,
+            half_open_max_calls=2
+        )
+
+        logger.info("GroqProvider initialized (model=%s, circuit_breaker=enabled)", self.model)
 
     def generate(
         self,
@@ -419,7 +486,17 @@ class GroqProvider(BaseLLMProvider):
         """
         Groq API ile mesaj üretir.
         OpenAI-compatible API kullanır.
+        Circuit breaker ile fail-fast protection.
         """
+        # Circuit breaker check
+        circuit_state = self.circuit_breaker.get_state()
+        if circuit_state["state"] == "open":
+            logger.warning(
+                f"Circuit breaker OPEN for Groq API. "
+                f"Retry after {circuit_state['retry_after']:.1f}s. Request blocked."
+            )
+            return None
+
         # System prompt: custom varsa onu kullan, yoksa default
         system_content = system_prompt if system_prompt is not None else _SYSTEM_CONTENT
 
@@ -451,9 +528,16 @@ class GroqProvider(BaseLLMProvider):
 
                 # Son işlem
                 processed = _postprocess(filtered)
+
+                # Circuit breaker: track success
+                self.circuit_breaker._on_success()
+
                 return processed
 
             except Exception as e:
+                # Circuit breaker: track failure
+                self.circuit_breaker._on_failure(e)
+
                 base = 0.6 * (2 ** (attempt - 1))
                 sleep_s = min(base + random.uniform(0, 0.3), 6.0)
                 logger.warning(

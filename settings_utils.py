@@ -51,7 +51,23 @@ def normalize_message_length_profile(raw: Any) -> Dict[str, float]:
 
 
 def unwrap_setting_value(value: Any) -> Any:
-    """Unwrap legacy ``{"value": ...}`` payloads stored in the database."""
+    """
+    Unwrap legacy ``{"value": ...}`` payloads stored in the database.
+
+    Also parses JSON strings to dicts/lists if possible.
+    """
+    import json
+
+    # First, try to parse JSON strings
+    if isinstance(value, str):
+        # Try JSON parsing
+        if value.strip().startswith('{') or value.strip().startswith('['):
+            try:
+                value = json.loads(value)
+            except (json.JSONDecodeError, ValueError):
+                pass  # Not valid JSON, keep as string
+
+    # Then unwrap legacy {"value": ...} wrapper
     seen = set()
     current = value
     while isinstance(current, dict) and "value" in current and len(current) == 1:
