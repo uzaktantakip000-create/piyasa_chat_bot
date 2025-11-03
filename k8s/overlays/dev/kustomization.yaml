@@ -50,8 +50,10 @@ patches:
         path: /spec/template/spec/containers/0/resources/limits/cpu
         value: "500m"
 
-  # Reduce HPA limits for dev (applies to API and Frontend only)
-  # NOTE: Worker HPA is removed from base (coordination issues)
+  # Reduce HPA limits for dev (HPA remains ACTIVE, just with lower thresholds)
+  # Applies to API and Frontend HPA only
+  # NOTE: Worker HPA is removed from base due to coordination issues with TOTAL_WORKERS
+  # This patch reduces scale range from default (2-10) to dev-friendly (1-3)
   - target:
       kind: HorizontalPodAutoscaler
     patch: |-

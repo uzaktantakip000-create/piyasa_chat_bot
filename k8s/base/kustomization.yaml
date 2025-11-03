@@ -10,7 +10,11 @@ resources:
   # Create manually: kubectl create secret generic piyasa-secrets --from-env-file=.env -n piyasa-chatbot
   # Or copy k8s/base/secret.yaml.template to secret.yaml and edit values
   # - secret.yaml  # Commented out - create manually!
-  - postgres-deployment.yaml
+
+  # PostgreSQL: Choose ONE (StatefulSet recommended for production)
+  - postgres-deployment.yaml  # Simple Deployment (current, works but not best practice)
+  # - postgres-statefulset.yaml  # StatefulSet (recommended, requires migration)
+
   - redis-statefulset.yaml
   - api-deployment.yaml
   - worker-statefulset.yaml

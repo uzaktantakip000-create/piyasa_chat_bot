@@ -1,0 +1,137 @@
+# PostgreSQL StatefulSet Configuration
+#
+# MIGRATION FROM DEPLOYMENT:
+# WARNING: This changes the underlying resource type from Deployment to StatefulSet
+#
+# Migration steps (choose one approach):
+#
+# Approach A - Fresh install (data loss):
+#   1. kubectl delete deployment/postgres -n piyasa-chatbot
+#   2. kubectl delete pvc/postgres-pvc -n piyasa-chatbot
+#   3. kubectl apply -f postgres-statefulset.yaml
+#   4. Restore database from backup
+#
+# Approach B - Migrate data (safe):
+#   1. Backup database: pg_dump > backup.sql
+#   2. kubectl delete deployment/postgres -n piyasa-chatbot (keeps PVC)
+#   3. kubectl apply -f postgres-statefulset.yaml
+#   4. StatefulSet creates postgres-0 with new PVC
+#   5. Restore: psql < backup.sql
+#   6. Delete old PVC after verification
+#
+# Approach C - No migration (keep using Deployment):
+#   Keep using postgres-deployment.yaml instead of this file
+#
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-service
+  namespace: piyasa-chatbot
+  labels:
+    app: postgres
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5432
+    targetPort: 5432
+    protocol: TCP
+    name: postgres
+  selector:
+    app: postgres
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: piyasa-chatbot
+  labels:
+    app: postgres
+spec:
+  serviceName: db-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      # Security context for PostgreSQL
+      securityContext:
+        fsGroup: 999  # PostgreSQL GID
+        runAsUser: 999  # PostgreSQL UID
+        runAsNonRoot: true
+      containers:
+      - name: postgres
+        image: postgres:16-alpine
+        ports:
+        - containerPort: 5432
+          name: postgres
+        env:
+        - name: POSTGRES_DB
+          value: piyasa_db
+        - name: POSTGRES_USER
+          value: piyasa_user
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: piyasa-secrets
+              key: DATABASE_PASSWORD
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - piyasa_user
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - piyasa_user
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: false  # PostgreSQL needs write access
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-data
+      labels:
+        app: postgres
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      # Storage class varies by cloud provider
+      # AWS: gp2, gp3, io1
+      # GCP: standard, pd-ssd, pd-balanced
+      # Azure: default, managed-premium
+      # Local: standard, hostpath
+      storageClassName: standard  # Change based on your cluster
+      resources:
+        requests:
+          storage: 10Gi

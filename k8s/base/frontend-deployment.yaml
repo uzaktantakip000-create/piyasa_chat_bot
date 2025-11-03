@@ -18,8 +18,22 @@ spec:
         app: piyasa-frontend
         component: frontend
     spec:
+      # Security context for pod
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
       containers:
       - name: frontend
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        # IMPORTANT: Use semantic versioning in production (not :latest)
+        # Examples: frontend:v1.0.0, frontend:v1.0.1, frontend:v1.1.0
+        # Using :latest makes rollbacks difficult and versions unclear
         image: ghcr.io/uzaktantakip000-create/piyasa_chat_bot/frontend:latest
         imagePullPolicy: Always
         ports:
@@ -65,7 +79,17 @@ spec:
           limits:
             memory: "512Mi"
             cpu: "500m"
-      # Image pull secret (if using private registry)
+      # Image pull secret for GHCR (GitHub Container Registry)
+      #
+      # REQUIRED if repository is private. Uncomment and create secret:
+      #   kubectl create secret docker-registry ghcr-secret \
+      #     --docker-server=ghcr.io \
+      #     --docker-username=<github-username> \
+      #     --docker-password=<github-personal-access-token> \
+      #     --namespace=piyasa-chatbot
+      #
+      # NOT REQUIRED if repository is public (image pulls work without auth)
+      #
       # imagePullSecrets:
       # - name: ghcr-secret
 

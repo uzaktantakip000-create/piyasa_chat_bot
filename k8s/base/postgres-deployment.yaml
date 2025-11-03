@@ -8,6 +8,12 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
+  # Storage class varies by cloud provider:
+  # AWS: gp2, gp3, io1
+  # GCP: standard, pd-ssd, pd-balanced
+  # Azure: default, managed-premium
+  # Local: standard, hostpath
+  storageClassName: standard  # Change based on your cluster
   resources:
     requests:
       storage: 10Gi
@@ -30,8 +36,19 @@ spec:
       labels:
         app: postgres
     spec:
+      # Security context for pod
+      securityContext:
+        fsGroup: 999  # PostgreSQL GID for volume permissions
+        runAsUser: 999  # PostgreSQL UID
+        runAsNonRoot: true
       containers:
       - name: postgres
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: false  # PostgreSQL needs write access
         image: postgres:16-alpine
         ports:
         - containerPort: 5432

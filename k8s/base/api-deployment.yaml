@@ -18,8 +18,22 @@ spec:
         app: piyasa-api
         component: backend
     spec:
+      # Security context for pod
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
       containers:
       - name: api
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        # IMPORTANT: Use semantic versioning in production (not :latest)
+        # Examples: api:v1.0.0, api:v1.0.1, api:v1.1.0
+        # Using :latest makes rollbacks difficult and versions unclear
         image: ghcr.io/uzaktantakip000-create/piyasa_chat_bot/api:latest
         imagePullPolicy: Always
         ports:
@@ -121,6 +135,11 @@ spec:
             secretKeyRef:
               name: piyasa-secrets
               key: DEFAULT_ADMIN_API_KEY
+        - name: DEFAULT_ADMIN_MFA_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: piyasa-secrets
+              key: DEFAULT_ADMIN_MFA_SECRET
         livenessProbe:
           httpGet:
             path: /healthz
@@ -144,7 +163,17 @@ spec:
           limits:
             memory: "1Gi"
             cpu: "1000m"
-      # Image pull secret (if using private registry)
+      # Image pull secret for GHCR (GitHub Container Registry)
+      #
+      # REQUIRED if repository is private. Uncomment and create secret:
+      #   kubectl create secret docker-registry ghcr-secret \
+      #     --docker-server=ghcr.io \
+      #     --docker-username=<github-username> \
+      #     --docker-password=<github-personal-access-token> \
+      #     --namespace=piyasa-chatbot
+      #
+      # NOT REQUIRED if repository is public (image pulls work without auth)
+      #
       # imagePullSecrets:
       # - name: ghcr-secret
 

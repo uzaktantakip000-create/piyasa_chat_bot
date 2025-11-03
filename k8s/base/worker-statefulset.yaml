@@ -19,8 +19,22 @@ spec:
         app: piyasa-worker
         component: worker
     spec:
+      # Security context for pod
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
       containers:
       - name: worker
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        # IMPORTANT: Use semantic versioning in production (not :latest)
+        # Examples: api:v1.0.0, api:v1.0.1, api:v1.1.0
+        # Using :latest makes rollbacks difficult and versions unclear
         image: ghcr.io/uzaktantakip000-create/piyasa_chat_bot/api:latest
         imagePullPolicy: Always
         # Wrapper script to extract WORKER_ID from pod name
@@ -112,6 +126,20 @@ spec:
               key: TOKEN_ENCRYPTION_KEY
         # NOTE: WORKER_ID is now dynamically extracted in the command wrapper
         # from POD_NAME (no explicit env var needed)
+
+        # Health checks for worker process
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "ps aux | grep -v grep | grep 'python worker.py' || exit 1"
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        # Note: No readinessProbe for worker (background process, no traffic)
+
         resources:
           requests:
             memory: "512Mi"
@@ -119,7 +147,17 @@ spec:
           limits:
             memory: "2Gi"
             cpu: "2000m"
-      # Image pull secret (if using private registry)
+      # Image pull secret for GHCR (GitHub Container Registry)
+      #
+      # REQUIRED if repository is private. Uncomment and create secret:
+      #   kubectl create secret docker-registry ghcr-secret \
+      #     --docker-server=ghcr.io \
+      #     --docker-username=<github-username> \
+      #     --docker-password=<github-personal-access-token> \
+      #     --namespace=piyasa-chatbot
+      #
+      # NOT REQUIRED if repository is public (image pulls work without auth)
+      #
       # imagePullSecrets:
       # - name: ghcr-secret
 

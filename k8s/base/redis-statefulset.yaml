@@ -35,8 +35,19 @@ spec:
       labels:
         app: redis
     spec:
+      # Security context for pod
+      securityContext:
+        fsGroup: 999  # Redis GID for volume permissions
+        runAsUser: 999  # Redis UID
+        runAsNonRoot: true
       containers:
       - name: redis
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: false  # Redis needs write access to /data
         image: redis:7-alpine
         ports:
         - containerPort: 6379
@@ -86,6 +97,9 @@ spec:
     spec:
       accessModes:
       - ReadWriteOnce
+      # Storage class - must match cluster's available storage classes
+      # Use: kubectl get storageclasses
+      storageClassName: standard  # Change based on your cluster
       resources:
         requests:
           storage: 5Gi
