@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Sequence
 
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from database import (
     SessionLocal, Bot, Chat, Message, Setting,
@@ -470,17 +471,33 @@ class BehaviorEngine:
             bots = my_bots
 
         # Saatlik limit kontrolü
+        # SESSION 27: Optimized to avoid N+1 query problem
+        # Instead of querying each bot separately, fetch all counts in one query
         one_hour_ago = now_utc() - timedelta(hours=1)
+        max_hourly = hourly_limit.get("max", 12)
+
+        # Single query to get message counts for all bots in the last hour
+        bot_ids = [b.id for b in bots]
+        hourly_counts = (
+            db.query(Message.bot_id, func.count(Message.id))
+            .filter(
+                Message.bot_id.in_(bot_ids),
+                Message.created_at >= one_hour_ago
+            )
+            .group_by(Message.bot_id)
+            .all()
+        )
+
+        # Build a dict for O(1) lookup
+        bot_message_counts = {bot_id: count for bot_id, count in hourly_counts}
+
+        # Filter eligible bots
         eligible: List[Bot] = []
         for b in bots:
             if not self._bot_is_active_now(b):
                 continue
-            sent_last_hour = (
-                db.query(Message)
-                .filter(Message.bot_id == b.id, Message.created_at >= one_hour_ago)
-                .count()
-            )
-            if sent_last_hour < hourly_limit.get("max", 12):
+            sent_last_hour = bot_message_counts.get(b.id, 0)
+            if sent_last_hour < max_hourly:
                 eligible.append(b)
 
         if not eligible:
