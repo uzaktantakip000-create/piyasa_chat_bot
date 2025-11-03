@@ -26,6 +26,11 @@ services:
       # Genel
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - PORT=8000
+
+      # Backup configuration
+      - BACKUP_DIR=/backups
+    volumes:
+      - backup_data:/backups
     ports:
       - "8000:8000"
     depends_on:
@@ -263,3 +268,4 @@ volumes:
   redis_data:       # Redis cache verilerini saklar
   prometheus-data:  # Prometheus verilerini saklar
   grafana-data:     # Grafana dashboardlarını saklar
+  backup_data:      # Database backups (daily/weekly/monthly)
