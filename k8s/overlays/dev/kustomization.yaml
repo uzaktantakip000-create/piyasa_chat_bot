@@ -1,0 +1,84 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: piyasa-chatbot-dev
+
+bases:
+  - ../../base
+
+namePrefix: dev-
+
+commonLabels:
+  environment: development
+
+# Patch for development-specific settings
+patches:
+  # Reduce replicas for dev
+  - target:
+      kind: Deployment
+      name: api
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+
+  - target:
+      kind: StatefulSet
+      name: worker
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+
+  - target:
+      kind: Deployment
+      name: frontend
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+
+  # Use smaller resource limits in dev
+  - target:
+      kind: Deployment
+      name: api
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "512Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "500m"
+
+  # Disable HPA in dev
+  - target:
+      kind: HorizontalPodAutoscaler
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 3
+
+configMapGenerator:
+  - name: piyasa-config
+    behavior: merge
+    literals:
+      - LOG_LEVEL=DEBUG
+      - TOTAL_WORKERS=2
+
+# Use different ingress hosts for dev
+patchesJson6902:
+  - target:
+      group: networking.k8s.io
+      version: v1
+      kind: Ingress
+      name: piyasa-ingress
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: api.dev.piyasa-chatbot.example.com
+      - op: replace
+        path: /spec/rules/1/host
+        value: dev.piyasa-chatbot.example.com

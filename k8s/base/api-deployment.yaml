@@ -1,0 +1,166 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: piyasa-chatbot
+  labels:
+    app: piyasa-api
+    component: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: piyasa-api
+      component: backend
+  template:
+    metadata:
+      labels:
+        app: piyasa-api
+        component: backend
+    spec:
+      containers:
+      - name: api
+        image: ghcr.io/uzaktantakip000-create/piyasa_chat_bot/api:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        env:
+        # ConfigMap references
+        - name: DATABASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: piyasa-config
+              key: DATABASE_URL
+        - name: REDIS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: piyasa-config
+              key: REDIS_URL
+        - name: LLM_PROVIDER
+          valueFrom:
+            configMapKeyRef:
+              name: piyasa-config
+              key: LLM_PROVIDER
+        - name: LLM_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: piyasa-config
+              key: LLM_MODEL
+        - name: TELEGRAM_API_BASE
+          valueFrom:
+            configMapKeyRef:
+              name: piyasa-config
+              key: TELEGRAM_API_BASE
+        - name: TELEGRAM_TIMEOUT
+          valueFrom:
+            configMapKeyRef:
+              name: piyasa-config
+              key: TELEGRAM_TIMEOUT
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: piyasa-config
+              key: LOG_LEVEL
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: piyasa-config
+              key: PORT
+        - name: DASHBOARD_STREAM_INTERVAL
+          valueFrom:
+            configMapKeyRef:
+              name: piyasa-config
+              key: DASHBOARD_STREAM_INTERVAL
+        - name: CACHE_L1_MAX_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: piyasa-config
+              key: CACHE_L1_MAX_SIZE
+        # Secret references
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: piyasa-secrets
+              key: OPENAI_API_KEY
+        - name: GROQ_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: piyasa-secrets
+              key: GROQ_API_KEY
+        - name: GEMINI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: piyasa-secrets
+              key: GEMINI_API_KEY
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: piyasa-secrets
+              key: API_KEY
+        - name: TOKEN_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: piyasa-secrets
+              key: TOKEN_ENCRYPTION_KEY
+        - name: DEFAULT_ADMIN_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: piyasa-secrets
+              key: DEFAULT_ADMIN_USERNAME
+        - name: DEFAULT_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: piyasa-secrets
+              key: DEFAULT_ADMIN_PASSWORD
+        - name: DEFAULT_ADMIN_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: piyasa-secrets
+              key: DEFAULT_ADMIN_API_KEY
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+      # Image pull secret (if using private registry)
+      # imagePullSecrets:
+      # - name: ghcr-secret
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-service
+  namespace: piyasa-chatbot
+  labels:
+    app: piyasa-api
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  selector:
+    app: piyasa-api
+    component: backend

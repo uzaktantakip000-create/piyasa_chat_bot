@@ -1,0 +1,124 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: worker
+  namespace: piyasa-chatbot
+  labels:
+    app: piyasa-worker
+    component: worker
+spec:
+  serviceName: worker-service
+  replicas: 4
+  selector:
+    matchLabels:
+      app: piyasa-worker
+      component: worker
+  template:
+    metadata:
+      labels:
+        app: piyasa-worker
+        component: worker
+    spec:
+      containers:
+      - name: worker
+        image: ghcr.io/uzaktantakip000-create/piyasa_chat_bot/api:latest
+        imagePullPolicy: Always
+        command: ["python", "worker.py"]
+        env:
+        # ConfigMap references
+        - name: DATABASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: piyasa-config
+              key: DATABASE_URL
+        - name: REDIS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: piyasa-config
+              key: REDIS_URL
+        - name: LLM_PROVIDER
+          valueFrom:
+            configMapKeyRef:
+              name: piyasa-config
+              key: LLM_PROVIDER
+        - name: LLM_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: piyasa-config
+              key: LLM_MODEL
+        - name: TELEGRAM_API_BASE
+          valueFrom:
+            configMapKeyRef:
+              name: piyasa-config
+              key: TELEGRAM_API_BASE
+        - name: TELEGRAM_TIMEOUT
+          valueFrom:
+            configMapKeyRef:
+              name: piyasa-config
+              key: TELEGRAM_TIMEOUT
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: piyasa-config
+              key: LOG_LEVEL
+        - name: TOTAL_WORKERS
+          valueFrom:
+            configMapKeyRef:
+              name: piyasa-config
+              key: TOTAL_WORKERS
+        - name: CACHE_L1_MAX_SIZE
+          valueFrom:
+            configMapKeyRef:
+              name: piyasa-config
+              key: CACHE_L1_MAX_SIZE
+        # Secret references
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: piyasa-secrets
+              key: OPENAI_API_KEY
+        - name: GROQ_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: piyasa-secrets
+              key: GROQ_API_KEY
+        - name: GEMINI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: piyasa-secrets
+              key: GEMINI_API_KEY
+        - name: TOKEN_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: piyasa-secrets
+              key: TOKEN_ENCRYPTION_KEY
+        # WORKER_ID is extracted from pod name (worker-0, worker-1, worker-2, worker-3)
+        - name: WORKER_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+      # Image pull secret (if using private registry)
+      # imagePullSecrets:
+      # - name: ghcr-secret
+
+---
+# Headless service for StatefulSet
+apiVersion: v1
+kind: Service
+metadata:
+  name: worker-service
+  namespace: piyasa-chatbot
+  labels:
+    app: piyasa-worker
+spec:
+  clusterIP: None
+  selector:
+    app: piyasa-worker
+    component: worker

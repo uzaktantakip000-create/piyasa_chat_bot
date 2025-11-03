@@ -1,0 +1,83 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  namespace: piyasa-chatbot
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  clusterIP: None  # Headless service for StatefulSet
+  ports:
+  - port: 6379
+    targetPort: 6379
+    protocol: TCP
+    name: redis
+  selector:
+    app: redis
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: piyasa-chatbot
+  labels:
+    app: redis
+spec:
+  serviceName: redis-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+          name: redis
+        command:
+        - redis-server
+        - --appendonly
+        - "yes"
+        - --save
+        - "60"
+        - "1"
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+        livenessProbe:
+          tcpSocket:
+            port: 6379
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+  volumeClaimTemplates:
+  - metadata:
+      name: redis-data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 5Gi

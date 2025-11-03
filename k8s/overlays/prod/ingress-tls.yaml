@@ -1,0 +1,17 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: piyasa-ingress
+  namespace: piyasa-chatbot
+  annotations:
+    # Enable TLS certificate generation with cert-manager
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # Enforce HTTPS
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  tls:
+  - hosts:
+    - api.piyasa-chatbot.example.com
+    - piyasa-chatbot.example.com
+    secretName: piyasa-tls-cert

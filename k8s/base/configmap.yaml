@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: piyasa-config
+  namespace: piyasa-chatbot
+  labels:
+    app: piyasa-chatbot
+data:
+  # Database configuration
+  DATABASE_URL: "postgresql://piyasa_user:piyasa_pass@db-service:5432/piyasa_db"
+
+  # Redis configuration
+  REDIS_URL: "redis://redis-service:6379/0"
+
+  # LLM configuration
+  LLM_PROVIDER: "openai"
+  LLM_MODEL: "gpt-4o-mini"
+
+  # Telegram configuration
+  TELEGRAM_API_BASE: "https://api.telegram.org"
+  TELEGRAM_TIMEOUT: "30"
+
+  # Logging
+  LOG_LEVEL: "INFO"
+
+  # Application settings
+  PORT: "8000"
+  TOTAL_WORKERS: "4"
+
+  # Dashboard settings
+  DASHBOARD_STREAM_INTERVAL: "5"
+  DASHBOARD_STREAM_MAX_MESSAGES: "20"
+
+  # Cache settings
+  CACHE_L1_MAX_SIZE: "1000"
+
+  # Monitoring
+  PROMETHEUS_ENABLED: "true"
+  PROMETHEUS_PORT: "9090"
