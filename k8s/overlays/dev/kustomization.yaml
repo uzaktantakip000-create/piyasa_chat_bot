@@ -97,6 +97,19 @@ patches:
       - op: replace
         path: /spec/template/spec/containers/0/imagePullPolicy
         value: IfNotPresent
+      - op: replace
+        path: /spec/template/spec/containers/0/securityContext/readOnlyRootFilesystem
+        value: false
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts
+        value:
+          - name: vite-cache
+            mountPath: /app/node_modules/.vite
+      - op: add
+        path: /spec/template/spec/volumes
+        value:
+          - name: vite-cache
+            emptyDir: {}
 
   - target:
       kind: StatefulSet
