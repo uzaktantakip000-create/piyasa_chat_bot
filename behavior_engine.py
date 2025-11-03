@@ -731,7 +731,13 @@ class BehaviorEngine:
         # scale factor uygula (daha yüksek scale = daha hızlı mesajlar = daha kısa gecikme)
         scale_factor = max(float(s.get("scale_factor", 1.0)), 0.1)  # Minimum 0.1 to avoid division by zero
         base = base / scale_factor
-        delay_profile = self._resolve_delay_profile(bot)
+
+        # Resolve delay profile inline
+        speed_profile = getattr(bot, "speed_profile", None) if bot else None
+        delay_profile = {}
+        if isinstance(speed_profile, dict):
+            delay = speed_profile.get("delay")
+            delay_profile = delay if isinstance(delay, dict) else speed_profile
 
         if "base_delay_seconds" in delay_profile:
             base = safe_float(delay_profile.get("base_delay_seconds"), base)
@@ -780,7 +786,13 @@ class BehaviorEngine:
         min_wpm = safe_float(wpm.get("min"), 2.5)
         max_wpm = safe_float(wpm.get("max"), 4.5)
 
-        typing_profile = self._resolve_typing_profile(bot)
+        # Resolve typing profile inline
+        speed_profile = getattr(bot, "speed_profile", None) if bot else None
+        typing_profile = {}
+        if isinstance(speed_profile, dict):
+            typing = speed_profile.get("typing")
+            typing_profile = typing if isinstance(typing, dict) else speed_profile
+
         if isinstance(typing_profile.get("wpm"), dict):
             wpm_dict = typing_profile.get("wpm", {})
             min_wpm = safe_float(wpm_dict.get("min"), min_wpm)
@@ -825,24 +837,6 @@ class BehaviorEngine:
         seconds = clamp(seconds, min_seconds, max_seconds)
         tempo_multiplier = clamp(float(tempo_multiplier or 1.0), 0.5, 1.6)
         return seconds * tempo_multiplier
-
-    def _resolve_delay_profile(self, bot: Optional[Bot]) -> Dict[str, Any]:
-        profile = getattr(bot, "speed_profile", None) if bot else None
-        if isinstance(profile, dict):
-            delay = profile.get("delay")
-            if isinstance(delay, dict):
-                return delay
-            return profile
-        return {}
-
-    def _resolve_typing_profile(self, bot: Optional[Bot]) -> Dict[str, Any]:
-        profile = getattr(bot, "speed_profile", None) if bot else None
-        if isinstance(profile, dict):
-            typing = profile.get("typing")
-            if isinstance(typing, dict):
-                return typing
-            return profile
-        return {}
 
     # ---- Rate limit ----
     def global_rate_ok(self, db: Session) -> bool:
