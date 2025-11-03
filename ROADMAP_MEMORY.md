@@ -3103,3 +3103,74 @@ Clean up duplicate persona management functions in behavior_engine.py that are a
 *Persona Management Deduplication: 8 duplicate functions removed*
 *Architecture Refactoring: 34.4% complete (1,108 lines reduced)*
 
+## Session 22: Message Processing Deduplication
+
+**Date**: 2025-11-03
+**Duration**: ~30 minutes
+**Focus**: Remove duplicate message processing and length management functions
+**Status**: ✅ COMPLETED
+
+### Objective
+Clean up duplicate message processing functions in behavior_engine.py that are already available in backend.behavior modules, completing the message-related deduplication.
+
+### What Was Done
+
+#### 1. Removed 7 Duplicate Functions + Constants (211 lines)
+**Functions Removed**:
+- _resolve_message_speaker() - Speaker identification from message object (line 150-185, 36 lines)
+- build_history_transcript() - Multi-line dialog transcript builder (line 188-203, 16 lines)
+- _ANON_HANDLE_RE + _anonymize_example_text() - Text anonymization (line 206-215, 10 lines)
+- build_contextual_examples() - Turn-taking pattern examples (line 218-241, 24 lines)
+- generate_time_context() - Time-of-day context generator (line 244-307, 65 lines)
+- choose_message_length_category() - Length category sampler (line 310-335, 26 lines)
+- _MESSAGE_LENGTH_HINTS + compose_length_hint() - Length hint composition (line 338-359, 22 lines)
+
+**Import Status**: ✅ All already imported from backend.behavior modules
+**Source Modules**:
+- backend/behavior/message_processor.py (message functions)
+- backend/behavior/message_utils.py (length functions)
+- backend/behavior/micro_behaviors.py (time context)
+
+#### 2. Updated backend.behavior Exports
+- Added `generate_time_context` import from micro_behaviors
+- Added to `__all__` list for proper export
+
+#### 3. Testing & Validation
+✅ Syntax check passed
+✅ Import test passed
+✅ Worker startup successful
+
+### Technical Impact
+**Code Reduction**: 211 lines removed (9.9%)
+**File Size**: 2,129 → 1,918 lines
+**Total Reduction** (Sessions 17-22): 1,319 lines (40.9%)
+**Quality**: ✅ Single source of truth, ✅ All message processing centralized
+
+### Progress Tracking
+**Phase 2 Modularization Status**:
+- ✅ message_generator.py (Session 17) - 670 lines
+- ✅ Utility deduplication (Sessions 18, 20) - 147 lines
+- ✅ metadata_analyzer.py (Session 19) - 341 lines
+- ✅ Persona deduplication (Session 21) - 153 lines
+- ✅ Message processing deduplication (Session 22) - 211 lines
+- **Total**: 1,522 lines cleaned/extracted (47.2% of original 3,222)
+- **Current size**: 1,918 lines (was 3,222)
+- **Target**: ~1,200 lines (37% reduction remaining - 718 lines to go)
+
+**Remaining Work**:
+1. Extract/clean ~700 more lines
+2. Focus areas:
+   - Bot selection logic (~300-400 lines)
+   - Settings/configuration (~100 lines)
+   - Timing/delay logic (~150-200 lines)
+   - Final core engine optimization
+
+### Commit
+`1eed48e` - refactor(session-22): Remove duplicate message processing functions
+
+---
+
+*Last Updated: 2025-11-03 by Claude Code (Session 22 - COMPLETED)*
+*Message Processing Deduplication: 7 functions + constants removed (211 lines)*
+*Architecture Refactoring: 40.9% complete (1,319 lines reduced)*
+
