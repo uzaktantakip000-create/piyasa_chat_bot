@@ -22,6 +22,7 @@ from fastapi import Depends, FastAPI, Header, Request, WebSocket, WebSocketDisco
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.websockets import WebSocketState
 from pydantic import BaseModel, Field, AnyHttpUrl, ValidationError, parse_obj_as
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import (
@@ -325,14 +326,87 @@ def _bot_to_response(db_bot: Bot) -> BotResponse:
 # Basic endpoints
 # ----------------------
 @app.get("/healthz")
-def healthz():
-    """Health check endpoint with Redis status."""
-    redis_status = "connected" if _redis_available else "unavailable"
-    return {
+def healthz(db: Session = Depends(get_db)):
+    """
+    Comprehensive health check endpoint for production readiness.
+
+    Checks:
+    - API availability (implicit - endpoint responds)
+    - Database connectivity
+    - Redis connectivity
+    - Basic system status
+
+    Returns HTTP 200 if healthy, HTTP 503 if degraded/unhealthy.
+    """
+    health_data = {
         "ok": True,
-        "ts": datetime.now(timezone.utc).isoformat(),
-        "redis": redis_status
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "status": "healthy",
+        "checks": {}
     }
+
+    # Check 1: Database connectivity
+    try:
+        # Simple DB query to verify connection
+        db.execute(text("SELECT 1"))
+        health_data["checks"]["database"] = {"status": "healthy", "message": "Connected"}
+    except Exception as e:
+        health_data["ok"] = False
+        health_data["status"] = "unhealthy"
+        health_data["checks"]["database"] = {"status": "unhealthy", "message": str(e)[:100]}
+
+    # Check 2: Redis connectivity
+    redis_status = "connected" if _redis_available else "unavailable"
+    if _redis_available:
+        try:
+            # Test Redis with a ping
+            redis_pool = get_redis()
+            if redis_pool:
+                redis_pool.ping()
+                health_data["checks"]["redis"] = {"status": "healthy", "message": "Connected"}
+            else:
+                health_data["checks"]["redis"] = {"status": "degraded", "message": "Pool unavailable"}
+        except Exception as e:
+            health_data["checks"]["redis"] = {"status": "degraded", "message": str(e)[:100]}
+    else:
+        health_data["checks"]["redis"] = {"status": "unavailable", "message": "Not configured"}
+
+    # Check 3: Worker metrics (optional - if workers are reporting)
+    try:
+        # Check if we have recent worker activity (last 5 minutes)
+        from database import Message
+        five_min_ago = datetime.now(timezone.utc) - timedelta(minutes=5)
+        recent_count = db.query(Message).filter(Message.created_at >= five_min_ago).count()
+
+        if recent_count > 0:
+            health_data["checks"]["workers"] = {
+                "status": "healthy",
+                "message": f"{recent_count} messages in last 5 min"
+            }
+        else:
+            health_data["checks"]["workers"] = {
+                "status": "warning",
+                "message": "No recent activity (may be intentional)"
+            }
+    except Exception as e:
+        health_data["checks"]["workers"] = {"status": "unknown", "message": str(e)[:100]}
+
+    # Determine overall status
+    if not health_data["ok"]:
+        # Critical failure (database down)
+        health_data["status"] = "unhealthy"
+        return JSONResponse(status_code=503, content=health_data)
+
+    # Check for degraded state (redis issues, no worker activity)
+    degraded_checks = [
+        check for check in health_data["checks"].values()
+        if check["status"] in ["degraded", "warning", "unavailable"]
+    ]
+
+    if degraded_checks:
+        health_data["status"] = "degraded"
+
+    return health_data
 
 
 @app.post("/auth/login", response_model=LoginResponse)

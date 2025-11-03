@@ -1,24 +1,60 @@
-# ---- Base image ----
-FROM python:3.11-slim
+# ============================================================================
+# STAGE 1: Builder - Dependencies compilation
+# ============================================================================
+FROM python:3.11-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
-
-# (İsteğe bağlı) yardımcı araçlar
-RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
 
-# Bağımlılıklar
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
 
-# Uygulama dosyaları
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --user --no-warn-script-location -r requirements.txt
+
+# ============================================================================
+# STAGE 2: Runtime - Minimal production image
+# ============================================================================
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH=/root/.local/bin:$PATH
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy Python dependencies from builder
+COPY --from=builder /root/.local /root/.local
+
+# Copy application files
 COPY . .
 
-# API portu
+# Create non-root user for security
+RUN useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app
+
+USER appuser
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/healthz || exit 1
+
+# API port
 EXPOSE 8000
 
-# Varsayılan komut: API
-# (docker-compose ile worker için komutu override edeceğiz)
+# Default command: API
+# (docker-compose overrides this for worker)
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
