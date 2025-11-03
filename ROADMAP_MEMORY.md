@@ -3174,3 +3174,70 @@ Clean up duplicate message processing functions in behavior_engine.py that are a
 *Message Processing Deduplication: 7 functions + constants removed (211 lines)*
 *Architecture Refactoring: 40.9% complete (1,319 lines reduced)*
 
+## Session 23: Reply Handler Method Deduplication
+
+**Date**: 2025-11-03
+**Duration**: ~20 minutes
+**Focus**: Remove duplicate reply handler methods from BehaviorEngine class
+**Status**: ✅ COMPLETED
+
+### Objective
+Clean up duplicate reply handler methods in BehaviorEngine class that are already available as imported functions from backend.behavior.reply_handler.
+
+### What Was Done
+
+#### 1. Removed 3 Duplicate Class Methods (63 lines)
+**Methods Removed**:
+- _detect_topics() - Topic detection (BIST, FX, Kripto, Makro) (line 535-556, 22 lines)
+- _detect_sentiment() - Sentiment analysis (-1.0 to +1.0) (line 558-578, 21 lines)
+- _extract_symbols() - Symbol/ticker extraction (line 580-597, 18 lines)
+
+**Import Status**: ✅ All already imported from backend.behavior.reply_handler
+**Source Module**: backend/behavior/reply_handler.py (created in Sessions 10-11)
+
+#### 2. Updated 3 Method Calls to Use Imported Functions
+**In pick_reply_target() method**:
+- Line 649: `self._extract_symbols(text)` → `extract_symbols(text)`
+- Line 654: `self._detect_topics(text)` → `detect_topics(text)`
+- Line 662: `self._detect_sentiment(text)` → `detect_sentiment(text)`
+
+#### 3. Testing & Validation
+✅ Syntax check passed
+✅ Import test passed
+✅ Worker startup successful
+
+### Technical Impact
+**Code Reduction**: 64 lines removed (3.3%)
+**File Size**: 1,918 → 1,854 lines
+**Total Reduction** (Sessions 17-23): 1,383 lines (42.9%)
+**Quality**: ✅ Eliminated method wrappers, ✅ Direct function calls
+
+### Progress Tracking
+**Phase 2 Modularization Status**:
+- ✅ message_generator.py (Session 17) - 670 lines
+- ✅ Utility deduplication (Sessions 18, 20) - 147 lines
+- ✅ metadata_analyzer.py (Session 19) - 341 lines
+- ✅ Persona deduplication (Session 21) - 153 lines
+- ✅ Message processing deduplication (Session 22) - 211 lines
+- ✅ Reply handler deduplication (Session 23) - 64 lines
+- **Total**: 1,586 lines cleaned/extracted (49.2% of original 3,222)
+- **Current size**: 1,854 lines (was 3,222)
+- **Target**: ~1,200 lines (35% reduction remaining - 654 lines to go)
+
+**Remaining Work**:
+1. Extract/clean ~650 more lines
+2. Focus areas:
+   - Bot selection logic (~250-300 lines)
+   - Settings/configuration (~100 lines)
+   - Timing/delay logic (~150 lines)
+   - Final core optimization (~150-200 lines)
+
+### Commit
+`c21143b` - refactor(session-23): Remove duplicate reply handler methods
+
+---
+
+*Last Updated: 2025-11-03 by Claude Code (Session 23 - COMPLETED)*
+*Reply Handler Method Deduplication: 3 methods removed (64 lines)*
+*Architecture Refactoring: 42.9% complete (1,383 lines reduced)*
+
