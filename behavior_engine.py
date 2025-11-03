@@ -530,71 +530,7 @@ class BehaviorEngine:
                     active.append(t)
         return active
 
-    # ---- Helper functions for Smart Reply Target Selection ----
-
-    def _detect_topics(self, text: str) -> List[str]:
-        """Mesajdaki konuları tespit et (BIST, FX, Kripto, Makro)"""
-        topics = []
-        text_lower = text.lower()
-
-        # BIST (Turkish stock market)
-        if any(w in text_lower for w in ["bist", "borsa", "hisse", "imkb", "endeks"]):
-            topics.append("BIST")
-
-        # FX (Foreign exchange)
-        if any(w in text_lower for w in ["dolar", "euro", "tl", "kur", "forex", "usd", "eur"]):
-            topics.append("FX")
-
-        # Kripto
-        if any(w in text_lower for w in ["btc", "eth", "kripto", "bitcoin", "ethereum", "coin", "altcoin"]):
-            topics.append("Kripto")
-
-        # Makro
-        if any(w in text_lower for w in ["enflasyon", "faiz", "tcmb", "merkez", "fed", "piyasa", "ekonomi"]):
-            topics.append("Makro")
-
-        return topics
-
-    def _detect_sentiment(self, text: str) -> float:
-        """Basit sentiment analizi (-1.0 to +1.0)"""
-        positive_words = [
-            "yükseldi", "arttı", "güçlü", "olumlu", "iyi", "kazanç", "başarılı",
-            "pozitif", "yükseliş", "artış", "rally", "boğa", "al", "alım"
-        ]
-        negative_words = [
-            "düştü", "azaldı", "zayıf", "olumsuz", "kötü", "zarar", "başarısız",
-            "negatif", "düşüş", "azalış", "satış", "ayı", "sat", "risk"
-        ]
-
-        text_lower = text.lower()
-
-        pos_count = sum(1 for w in positive_words if w in text_lower)
-        neg_count = sum(1 for w in negative_words if w in text_lower)
-
-        total = pos_count + neg_count
-        if total == 0:
-            return 0.0
-
-        return (pos_count - neg_count) / total
-
-    def _extract_symbols(self, text: str) -> List[str]:
-        """Mesajdan sembol/hisse kodlarını çıkar (AKBNK, GARAN, BTCUSDT, etc.)"""
-        import re
-
-        symbols = []
-        text_upper = text.upper()
-
-        # Türk hisse kodları (4-6 harf, tüm büyük)
-        turkish_stocks = re.findall(r'\b[A-Z]{4,6}\b', text_upper)
-        symbols.extend(turkish_stocks)
-
-        # Kripto sembolleri (BTC, ETH, USDT, etc.)
-        crypto_pattern = r'\b(BTC|ETH|USDT|BNB|XRP|ADA|SOL|DOGE|AVAX|MATIC|DOT)\b'
-        cryptos = re.findall(crypto_pattern, text_upper)
-        symbols.extend(cryptos)
-
-        # Duplicate'leri temizle
-        return list(set(symbols))
+    # ---- Smart Reply Target Selection ----
 
     def pick_reply_target(
         self,
@@ -710,12 +646,12 @@ class BehaviorEngine:
 
             # === 5. UZMANLIK ALANI (watchlist overlap) ===
             if bot_watchlist:
-                msg_symbols = self._extract_symbols(text)
+                msg_symbols = extract_symbols(text)
                 overlap = set(msg_symbols) & set(bot_watchlist)
                 score += len(overlap) * 2.5  # Her eşleşen sembol +2.5
 
             # === 6. KONU UYUMU ===
-            msg_topics = self._detect_topics(text)
+            msg_topics = detect_topics(text)
             if msg_topics:
                 # Eğer bot'un expertise'i varsa kontrol et
                 # (Şimdilik basit: her topic +1.5)
@@ -723,7 +659,7 @@ class BehaviorEngine:
 
             # === 7. SENTIMENT UYUMU ===
             # Empatik botlar negatif mesajlara daha çok tepki verir
-            msg_sentiment = self._detect_sentiment(text)
+            msg_sentiment = detect_sentiment(text)
             if msg_sentiment < -0.3 and bot_empathy > 0.7:
                 score += 2.0  # Empatik bot, negatif mesaja tepki verir
 
