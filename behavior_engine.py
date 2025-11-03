@@ -300,72 +300,6 @@ def exp_delay(mean_seconds: float) -> float:
     return random.expovariate(1.0 / mean_seconds)
 
 
-def parse_ranges(ranges: List[str]) -> List[tuple]:
-    """
-    "HH:MM-HH:MM" listesi -> [(start_min, end_min), ...]
-    Zamanlar yerel saat varsayımıyla yorumlanır; burada sadece göreli hız için kullanıyoruz.
-    """
-    out = []
-    for r in ranges or []:
-        try:
-            a, b = r.split("-")
-            sh, sm = [int(x) for x in a.split(":")]
-            eh, em = [int(x) for x in b.split(":")]
-            out.append((sh * 60 + sm, eh * 60 + em))
-        except Exception:
-            continue
-    return out
-
-
-def is_prime_hours(ranges: List[str]) -> bool:
-    local = datetime.now()  # sistemin yerel saati (sunucu)
-    hm = local.hour * 60 + local.minute
-    if not ranges:
-        return False
-    return _time_matches_ranges(ranges, hm)
-
-
-def _time_matches_ranges(ranges: List[str], minute_of_day: int) -> bool:
-    for (s, e) in parse_ranges(ranges):
-        if s <= e:
-            if s <= minute_of_day <= e:
-                return True
-        else:
-            # Gece yarısı devreden aralık (örn. 22:00-02:00)
-            if minute_of_day >= s or minute_of_day <= e:
-                return True
-    return False
-
-
-def is_within_active_hours(ranges: Optional[List[str]], *, moment: Optional[datetime] = None) -> bool:
-    """Yerel zamana göre active_hours aralığında mı? Liste boşsa her zaman aktif say."""
-
-    if not ranges:
-        return True
-
-    local = moment or datetime.now()
-    hm = local.hour * 60 + local.minute
-    return _time_matches_ranges(list(ranges), hm)
-
-
-def _safe_float(value: Any, default: float) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def clamp(v: float, lo: float, hi: float) -> float:
-    return max(lo, min(hi, v))
-
-
-def shorten(s: Optional[str], max_chars: int) -> str:
-    s = (s or "").strip()
-    if len(s) <= max_chars:
-        return s
-    return s[: max_chars - 1] + "…"
-
-
 def _resolve_message_speaker(message: Any) -> str:
     """Best effort speaker label for history transcripts."""
 
@@ -1228,17 +1162,17 @@ class BehaviorEngine:
         delay_profile = self._resolve_delay_profile(bot)
 
         if "base_delay_seconds" in delay_profile:
-            base = _safe_float(delay_profile.get("base_delay_seconds"), base)
+            base = safe_float(delay_profile.get("base_delay_seconds"), base)
 
-        multiplier = _safe_float(
+        multiplier = safe_float(
             delay_profile.get("delay_multiplier", delay_profile.get("multiplier", 1.0)), 1.0
         )
         mean = max(base * multiplier, 0.0)
 
-        jitter_min = _safe_float(
+        jitter_min = safe_float(
             delay_profile.get("jitter_min", delay_profile.get("delay_jitter_min", 0.7)), 0.7
         )
-        jitter_max = _safe_float(
+        jitter_max = safe_float(
             delay_profile.get("jitter_max", delay_profile.get("delay_jitter_max", 1.3)), 1.3
         )
         if jitter_max < jitter_min:
@@ -1246,14 +1180,14 @@ class BehaviorEngine:
 
         delay = exp_delay(mean if mean > 0 else 1.0) * random.uniform(jitter_min, jitter_max)
 
-        min_delay = _safe_float(
+        min_delay = safe_float(
             delay_profile.get(
                 "min_seconds",
                 delay_profile.get("delay_min_seconds", delay_profile.get("seconds_min", 2.0)),
             ),
             2.0,
         )
-        max_delay = _safe_float(
+        max_delay = safe_float(
             delay_profile.get(
                 "max_seconds",
                 delay_profile.get("delay_max_seconds", delay_profile.get("seconds_max", 180.0)),
@@ -1271,25 +1205,25 @@ class BehaviorEngine:
         tempo_multiplier: float = 1.0,
     ) -> float:
         wpm = self.settings(db).get("typing_speed_wpm", {"min": 2.5, "max": 4.5})
-        min_wpm = _safe_float(wpm.get("min"), 2.5)
-        max_wpm = _safe_float(wpm.get("max"), 4.5)
+        min_wpm = safe_float(wpm.get("min"), 2.5)
+        max_wpm = safe_float(wpm.get("max"), 4.5)
 
         typing_profile = self._resolve_typing_profile(bot)
         if isinstance(typing_profile.get("wpm"), dict):
             wpm_dict = typing_profile.get("wpm", {})
-            min_wpm = _safe_float(wpm_dict.get("min"), min_wpm)
-            max_wpm = _safe_float(wpm_dict.get("max"), max_wpm)
+            min_wpm = safe_float(wpm_dict.get("min"), min_wpm)
+            max_wpm = safe_float(wpm_dict.get("max"), max_wpm)
 
-        min_wpm = _safe_float(
+        min_wpm = safe_float(
             typing_profile.get("wpm_min", typing_profile.get("typing_wpm_min", min_wpm)),
             min_wpm,
         )
-        max_wpm = _safe_float(
+        max_wpm = safe_float(
             typing_profile.get("wpm_max", typing_profile.get("typing_wpm_max", max_wpm)),
             max_wpm,
         )
 
-        multiplier = _safe_float(
+        multiplier = safe_float(
             typing_profile.get("typing_multiplier", typing_profile.get("multiplier", 1.0)), 1.0
         )
         min_wpm *= multiplier
@@ -1302,14 +1236,14 @@ class BehaviorEngine:
         cps = (mean_wpm * 5.0) / 60.0  # 1 kelime ~5 karakter varsayımı
         seconds = est_chars / max(cps, 1.0)
 
-        min_seconds = _safe_float(
+        min_seconds = safe_float(
             typing_profile.get(
                 "min_seconds",
                 typing_profile.get("typing_min_seconds", typing_profile.get("seconds_min", 2.0)),
             ),
             2.0,
         )
-        max_seconds = _safe_float(
+        max_seconds = safe_float(
             typing_profile.get(
                 "max_seconds",
                 typing_profile.get("typing_max_seconds", typing_profile.get("seconds_max", 8.0)),
