@@ -73,6 +73,19 @@ from backend.behavior import (
     resolve_message_speaker,
 )
 
+# Message generation functions (Session 17: Modularization Phase 1)
+from backend.behavior_engine.message_generator import (
+    apply_consistency_guard,
+    apply_reaction_overrides,
+    apply_micro_behaviors,
+    paraphrase_safe,
+    add_conversation_openings,
+    add_hesitation_markers,
+    add_colloquial_shortcuts,
+    apply_natural_imperfections,
+    add_filler_words,
+)
+
 # Prometheus metrics (opsiyonel)
 try:
     from backend.metrics import (
@@ -2513,7 +2526,8 @@ METİN:
 
             # Tutarlılık koruması
             if bool(s.get("consistency_guard_enabled", True)):
-                revised = self.apply_consistency_guard(
+                revised = apply_consistency_guard(
+                    self.llm,
                     draft_text=text,
                     persona_profile=persona_profile,
                     stances=stances,
@@ -2521,8 +2535,8 @@ METİN:
                 if revised:
                     text = revised
 
-            text = self.apply_reaction_overrides(text, reaction_plan)
-            text = self.apply_micro_behaviors(
+            text = apply_reaction_overrides(text, reaction_plan)
+            text = apply_micro_behaviors(
                 text,
                 emotion_profile=emotion_profile,
                 plan=reaction_plan,
@@ -2532,7 +2546,7 @@ METİN:
             text = add_conversation_openings(text, probability=0.35)  # Priority için daha yüksek
             text = add_hesitation_markers(text, probability=0.25)
             text = add_colloquial_shortcuts(text, probability=0.20)
-            text = self.add_filler_words(text, probability=0.25)
+            text = add_filler_words(text, probability=0.25)
             text = apply_natural_imperfections(text, probability=0.12)
 
             # Typing simülasyonu
@@ -2912,7 +2926,8 @@ METİN:
 
             # Tutarlılık koruması
             if bool(s.get("consistency_guard_enabled", True)):
-                revised = self.apply_consistency_guard(
+                revised = apply_consistency_guard(
+                    self.llm,
                     draft_text=text,
                     persona_profile=persona_profile,
                     stances=stances,
@@ -2920,9 +2935,9 @@ METİN:
                 if revised:
                     text = revised
 
-            text = self.apply_reaction_overrides(text, reaction_plan)
+            text = apply_reaction_overrides(text, reaction_plan)
 
-            text = self.apply_micro_behaviors(
+            text = apply_micro_behaviors(
                 text,
                 emotion_profile=emotion_profile,
                 plan=reaction_plan,
@@ -2939,7 +2954,7 @@ METİN:
             text = add_colloquial_shortcuts(text, probability=0.18)
 
             # 4. Dolgu kelimeleri ekle
-            text = self.add_filler_words(text, probability=0.20)
+            text = add_filler_words(text, probability=0.20)
 
             # 5. Doğal kusurlar uygula (yazım hataları + düzeltmeler)
             text = apply_natural_imperfections(text, probability=0.15)
@@ -2958,7 +2973,7 @@ METİN:
                 attempts = int(s.get("dedup_max_attempts", 2))
                 tries = 0
                 while self.is_duplicate_recent(db, bot_id=bot.id, text=text, hours=window_h) and tries < attempts:
-                    alt = self.paraphrase_safe(text)
+                    alt = paraphrase_safe(self.llm, text)
                     if not alt or alt.strip() == text.strip():
                         break
                     text = alt.strip()

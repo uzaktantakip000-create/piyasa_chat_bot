@@ -2817,3 +2817,56 @@ Status: Endpoint working as expected
 *Redis L2 Cache Setup Complete: Cache invalidation + monitoring operational*
 *Infrastructure Status: PRODUCTION READY - Multi-layer caching fully implemented*
 
+## Session 17: Behavior Engine Modularization - Phase 1 (Message Generator)
+
+**Date**: 2025-11-03  
+**Duration**: ~60 minutes  
+**Focus**: Extract message generation functions to separate module (Task 2.1 start)  
+**Status**: ✅ COMPLETED
+
+### Objective
+Begin Phase 2 (Architecture Refactoring) by modularizing behavior_engine.py (3,222 lines).  
+First phase: Extract message generation functions to backend/behavior_engine/message_generator.py.
+
+### What Was Done
+
+#### 1. Created message_generator.py Module (670 lines, 9 functions)
+**File**: backend/behavior_engine/message_generator.py
+
+**Extracted Functions**:
+- apply_consistency_guard() - LLM-based stance validation
+- apply_reaction_overrides() - Signature phrases/emojis  
+- apply_micro_behaviors() - Ellipsis, emoji positioning
+- paraphrase_safe() - Dedup paraphrasing
+- add_conversation_openings() - Turkish conversation starters
+- add_hesitation_markers() - Hesitation phrases
+- add_colloquial_shortcuts() - Turkish shortcuts
+- apply_natural_imperfections() - Typos + corrections
+- add_filler_words() - Filler words
+
+#### 2. Updated behavior_engine.py
+- Added import block (line 76-87)
+- Updated 9 function calls (dependency injection pattern)
+- self.llm → llm parameter for consistency_guard/paraphrase_safe
+
+#### 3. Testing & Validation
+✅ Syntax check passed  
+✅ Import test passed  
+✅ Worker 30s integration test - Message sent successfully  
+✅ Cache invalidation working
+
+### Technical Impact
+**Code Reduction**: 670 lines extracted  
+**Performance**: No regression (logic identical)  
+**Quality**: ✅ Single Responsibility, ✅ Dependency Injection, ✅ Easier testing
+
+### Next Steps
+**Phase 2 Continuation**: Extract topic_manager.py, metadata_analyzer.py, rate_limiter.py  
+**Target**: Reduce behavior_engine.py from 3,222 to ~1,200 lines (4-5 weeks progressive)
+
+---
+
+*Last Updated: 2025-11-03 by Claude Code (Session 17 - COMPLETED)*  
+*Behavior Engine Modularization Phase 1: message_generator.py extracted*  
+*Architecture Refactoring: STARTED - Progressive improvement in progress*
+
