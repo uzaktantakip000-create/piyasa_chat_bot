@@ -2978,3 +2978,64 @@ Continue Phase 2 (Architecture Refactoring) by extracting metadata extraction an
 *Behavior Engine Modularization Phase 2: metadata_analyzer.py extracted*
 *Architecture Refactoring: 27.4% complete (889 lines reduced)*
 
+## Session 20: Utility Function Deduplication
+
+**Date**: 2025-11-03
+**Duration**: ~20 minutes
+**Focus**: Remove duplicate utility functions already imported from backend.behavior
+**Status**: ✅ COMPLETED
+
+### Objective
+Clean up duplicate utility functions in behavior_engine.py that are already imported from backend.behavior, reducing code duplication and maintenance burden.
+
+### What Was Done
+
+#### 1. Removed 7 Duplicate Functions (52 lines)
+**Functions Removed**:
+- parse_ranges() - Time range parsing (line 303-317, 15 lines)
+- is_prime_hours() - Prime hours check (line 320-325, 6 lines)
+- _time_matches_ranges() - Time matching helper (line 328-337, 10 lines)
+- is_within_active_hours() - Active hours check (line 340-348, 9 lines)
+- _safe_float() - Safe float conversion (line 351-355, 5 lines)
+- clamp() - Value clamping (line 358-359, 2 lines)
+- shorten() - String truncation (line 362-366, 5 lines)
+
+**Import Status**: ✅ All already imported from backend.behavior (lines 53-68)
+
+#### 2. Updated Function Calls
+- Replaced 13 calls to `_safe_float()` with `safe_float()` (imported name)
+- Updated in: next_delay_seconds(), typing_seconds()
+
+#### 3. Testing & Validation
+✅ Syntax check passed
+✅ Import test passed
+✅ Worker startup successful
+
+### Technical Impact
+**Code Reduction**: 66 lines removed (2.8%)
+**File Size**: 2,348 → 2,282 lines
+**Total Reduction** (Sessions 17-20): 955 lines (29.6%)
+**Quality**: ✅ Single source of truth, ✅ Reduced maintenance burden
+
+### Progress Tracking
+**Phase 2 Modularization Status**:
+- ✅ message_generator.py (Session 17) - 670 lines
+- ✅ Utility deduplication (Session 18, 20) - 147 lines
+- ✅ metadata_analyzer.py (Session 19) - 341 lines
+- **Total**: 1,158 lines cleaned/extracted (35.9% of original 3,222)
+- **Current size**: 2,282 lines (was 3,222)
+- **Target**: ~1,200 lines (47% reduction remaining)
+
+**Remaining Work**:
+1. Extract ~1,000 more lines in specialized modules
+2. Core engine optimization
+
+### Commit
+`5aa4296` - refactor(session-20): Remove duplicate utility functions
+
+---
+
+*Last Updated: 2025-11-03 by Claude Code (Session 20 - COMPLETED)*
+*Utility Function Deduplication: 7 duplicate functions removed*
+*Architecture Refactoring: 29.6% complete (955 lines reduced)*
+
