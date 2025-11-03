@@ -302,3 +302,10 @@ class UserInfoResponse(BaseModel):
     username: str
     role: str
     api_key_last_rotated: datetime
+
+
+# ---------------------------------------------------------
+# DEMO BOTS SCHEMAS
+# ---------------------------------------------------------
+class DemoBotsCreate(BaseModel):
+    count: int = Field(..., description="Oluşturulacak demo bot sayısı", ge=1, le=50)

@@ -64,10 +64,53 @@ patches:
         path: /spec/maxReplicas
         value: 3
 
+  # Use Docker Desktop storage class (hostpath instead of standard)
+  - target:
+      kind: PersistentVolumeClaim
+      name: postgres-pvc
+    patch: |-
+      - op: replace
+        path: /spec/storageClassName
+        value: hostpath
+
+  - target:
+      kind: StatefulSet
+      name: redis
+    patch: |-
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/storageClassName
+        value: hostpath
+
+  # Use local Docker images (IfNotPresent for Docker Desktop K8s)
+  - target:
+      kind: Deployment
+      name: api
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
+
+  - target:
+      kind: Deployment
+      name: frontend
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
+
+  - target:
+      kind: StatefulSet
+      name: worker
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
+
 configMapGenerator:
   - name: piyasa-config
     behavior: merge
     literals:
+      # Dev overrides (merge with base configMapGenerator)
       - LOG_LEVEL=DEBUG
       - TOTAL_WORKERS=2
 

@@ -66,6 +66,7 @@ from schemas import (
     LoginResponse,
     RotateApiKeyRequest,
     UserInfoResponse,
+    DemoBotsCreate,
 )
 from security import mask_token, SecurityConfigError
 from settings_utils import normalize_message_length_profile, unwrap_setting_value
