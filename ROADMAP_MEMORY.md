@@ -5307,3 +5307,217 @@ Completed comprehensive disaster recovery testing with 4 test scenarios validati
 
 *Last Updated: 2025-11-03 by Claude Code (Session 36 - COMPLETED)*
 *System Status: PRODUCTION READY + K8S INFRASTRUCTURE COMPLETE*
+
+
+---
+
+## SESSION 37: KUBERNETES DEPLOYMENT TESTING & PRODUCTION BUILD
+
+**Date**: 2025-11-04
+**Duration**: 3 hours
+**Focus**: Deploy to Docker Desktop K8s, discover and fix critical bugs, production frontend
+**Task**: PHASE 4 - Task 4.3 - Deployment Testing & Validation
+
+### Objectives
+
+1. Deploy Session 36 manifests to Docker Desktop Kubernetes
+2. Discover and fix deployment blockers
+3. Convert frontend from dev mode to production build
+4. Validate all Session 33 security features in real K8s
+5. Verify end-to-end functionality
+
+### Critical Bugs Discovered & Fixed
+
+**Bug #1: DemoBotsCreate Model Missing**
+- Error: `NameError: name 'DemoBotsCreate' is not defined` in main.py:547
+- Impact: API couldn't start
+- Fix: Added model to schemas.py, imported in main.py
+- Commit: 5308a3a
+
+**Bug #2: ConfigMap Merge Conflict**
+- Error: "cannot merge or replace" - static configmap + generator conflict
+- Impact: Dev overlay couldn't merge config values
+- Fix: Removed k8s/base/configmap.yaml, migrated to configMapGenerator
+- Commit: 5308a3a
+
+**Bug #3: ImagePullBackOff**
+- Error: Pods stuck trying to pull from registry
+- Impact: All deployments failing
+- Fix: Added imagePullPolicy: IfNotPresent patches for dev overlay
+- Commit: 5308a3a
+
+**Bug #4: Frontend Permission Denied**
+- Error: EACCES permission denied, CrashLoopBackOff
+- Impact: Frontend crashing on startup
+- Root Cause: Vite dev mode not production-ready
+- Solution: Converted to production build (see Bug #5)
+- Commit: e9a23f4
+
+**Bug #5: Frontend Production Build Missing**
+- Issue: Running Vite dev server in production
+- Impact: Not production-ready, permission issues
+- Fix: Multi-stage Docker build (Node.js builder + Nginx server)
+  - Stage 1: `npm run build` produces 435KB JS, 25KB CSS
+  - Stage 2: Nginx:alpine serves static files on port 8080
+  - Created nginx.conf with /healthz endpoint
+  - Build-time VITE_API_BASE_URL configuration
+- Commit: 7c26608
+
+**Bug #6: Nginx Writable Directories**
+- Error: mkdir() "/var/cache/nginx/client_temp" failed (Read-only file system)
+- Impact: Production container crashing
+- Fix: Added emptyDir volume mounts for /var/cache/nginx and /var/run
+- Commit: 7c26608
+
+**Bug #7: .dockerignore Excluding Assets**
+- Error: Could not resolve "./docs/dashboard-login.svg" during build
+- Impact: Frontend build failing
+- Fix: Commented out `docs` exclusion in .dockerignore
+- Commit: 7c26608
+
+### P3 Issues Resolved
+
+**P3 Issue #1: Base Namespace Labels**
+- Removed hardcoded "environment: production" from base/namespace.yaml
+- Dev/prod overlays now correctly apply environment labels via commonLabels
+
+**P3 Issue #3: Redis StatefulSet DNS**
+- Verified: dev-redis-0.dev-redis-service.piyasa-chatbot-dev.svc.cluster.local → 10.1.0.17 ✅
+- Verified: Workers connected to Redis with authentication ✅
+- All Redis integrations working (rate limiter, L2 cache, priority queue)
+
+### Deployment Validation Results
+
+**All Pods Running** (Docker Desktop K8s):
+```
+dev-api-5cdd74b5cf-qpjr5        1/1     Running
+dev-frontend-78bffcb778-b45kz   1/1     Running   (Nginx production!)
+dev-postgres-b8ffb6946-chc2j    1/1     Running
+dev-redis-0                     1/1     Running
+dev-worker-0                    1/1     Running
+dev-worker-1                    1/1     Running
+```
+
+**Health Checks Passing**:
+- API /healthz: ✅ Database healthy, Redis healthy
+- Frontend /healthz: ✅ Nginx responding
+- Prometheus metrics: ✅ Collecting data
+
+**Services Configured**:
+- dev-api-service: ClusterIP 10.106.161.218:8000
+- dev-frontend-service: ClusterIP 10.96.192.40:8080
+- dev-db-service: ClusterIP 10.97.135.74:5432
+- dev-redis-service: Headless (None)
+
+**Ingress Routing**:
+- api.dev.piyasa-chatbot.example.com → dev-api-service:8000
+- dev.piyasa-chatbot.example.com → dev-frontend-service:8080
+- Load Balancer: localhost (Docker Desktop)
+
+**Session 33 Security Validation**: All 7 fixes verified ✅
+1. WORKER_ID parsing from pod name (dev-worker-0, dev-worker-1)
+2. Security contexts (runAsNonRoot, readOnlyRootFilesystem + volumes)
+3. Storage class patching (hostpath for Docker Desktop)
+4. Secret references (13-key piyasa-secrets from .env)
+5. Redis authentication (REDIS_PASSWORD from secrets)
+6. MFA secret injection (DEFAULT_ADMIN_MFA_SECRET)
+7. PostgreSQL persistent storage (10Gi PVC)
+
+### Frontend Production Stack
+
+**Builder Stage**:
+- Base: node:22-alpine
+- Build: `npm run build`
+- Output: dist/ (435KB JS, 25KB CSS)
+
+**Production Stage**:
+- Base: nginx:alpine
+- Server: Nginx 1.25+
+- Port: 8080 (non-root)
+- User: nginx (UID 101)
+- Security: readOnlyRootFilesystem + writable volume mounts
+- Features: Gzip compression, SPA routing, health check /healthz
+
+### Files Modified
+
+**Docker**:
+- .dockerignore: Allowed docs/ directory
+- Dockerfile.frontend: Multi-stage build (Node + Nginx)
+- nginx.conf: Created production config
+
+**Kubernetes Base**:
+- k8s/base/namespace.yaml: Removed hardcoded environment label
+- k8s/base/frontend-deployment.yaml: Port 8080, volume mounts
+- k8s/base/ingress.yaml: Updated frontend port
+- k8s/base/kustomization.yaml: ConfigMapGenerator
+
+**Kubernetes Dev Overlay**:
+- k8s/overlays/dev/kustomization.yaml: imagePullPolicy, storage class patches
+
+### Commits
+
+**Commit 1**: 5308a3a - fix(session-37): API import, ConfigMap, ImagePullPolicy
+- Fixed DemoBotsCreate import
+- Migrated to configMapGenerator
+- Added imagePullPolicy patches
+
+**Commit 2**: e9a23f4 - fix(session-37): Frontend permission errors
+- Added USER node to Dockerfile
+- Fixed file ownership
+
+**Commit 3**: 7c26608 - feat(session-37): Complete K8s deployment testing
+- Frontend production build with Nginx
+- Volume mounts for writable directories
+- P3 issues resolved
+- Full deployment validated
+
+### Metrics & Performance
+
+**Build Performance**:
+- Frontend build time: 5.27s
+- Gzipped assets: 121KB JS, 5.7KB CSS
+- Docker image layers: 6 (multi-stage)
+
+**Runtime Performance**:
+- API health check: <50ms (avg: 46ms)
+- Frontend health check: <10ms
+- Prometheus metrics: 614 requests served
+
+### Status: PHASE 4 TASK 4.3 COMPLETE
+
+**Production Readiness**: VERY HIGH
+- All deployment blockers fixed
+- Frontend production-ready with Nginx
+- All Session 33 security features validated
+- System 100% functional in Kubernetes
+
+### Lessons Learned
+
+1. **Always test deployments early** - Found 7 critical bugs only visible in real K8s
+2. **Dev mode ≠ Production** - Vite dev server not suitable for production
+3. **ConfigMap generators** - Better than static files for overlay merging
+4. **readOnlyRootFilesystem** - Requires careful volume mount planning
+5. **imagePullPolicy** - Local dev needs IfNotPresent, prod needs Always
+
+### Recommendations
+
+**Immediate**:
+- Fix Kustomize deprecation warnings (bases → resources, etc.)
+- Add TLS certificates for production Ingress
+- Tune resource limits based on actual usage
+
+**Short-term**:
+- Deploy to production cluster
+- Enable monitoring (Prometheus/Grafana)
+- Load testing with realistic traffic
+
+**Long-term**:
+- CI/CD pipeline for automated deployment
+- Multi-region deployment
+- Service mesh (Istio/Linkerd)
+
+---
+
+*Last Updated: 2025-11-04 by Claude Code (Session 37 - COMPLETED)*
+*System Status: PRODUCTION READY + K8S DEPLOYMENT TESTED & VALIDATED*
+*Frontend: Production Build with Nginx ✨*
