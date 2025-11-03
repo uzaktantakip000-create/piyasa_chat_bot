@@ -4,4 +4,3 @@ metadata:
   name: piyasa-chatbot
   labels:
     app: piyasa-chatbot
-    environment: production

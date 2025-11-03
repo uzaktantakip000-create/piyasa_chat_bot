@@ -37,37 +37,27 @@ spec:
         image: ghcr.io/uzaktantakip000-create/piyasa_chat_bot/frontend:latest
         imagePullPolicy: Always
         ports:
-        - containerPort: 5173
+        - containerPort: 8080
           name: http
           protocol: TCP
-        # NOTE: VITE_API_BASE_URL must be configured at BUILD TIME, not runtime
-        # Vite embeds VITE_* variables during build process
+        # NOTE: Production build uses Nginx to serve static files
+        # VITE_API_BASE_URL is configured at BUILD TIME via ARG
+        # Default: VITE_API_BASE_URL=/api (proxied through Ingress)
         #
-        # Option 1: Build with ARG (recommended for production)
-        #   docker build --build-arg VITE_API_BASE_URL=https://api.example.com -t frontend:latest .
-        #
-        # Option 2: Use environment-specific builds
-        #   frontend:dev (built with dev API URL)
-        #   frontend:prod (built with prod API URL)
-        #
-        # Option 3: Runtime configuration (requires nginx + config injection)
-        #   See docs/K8S_DEPLOYMENT.md for details
-        #
-        # env:
-        # - name: VITE_API_BASE_URL  # ← This does NOT work with Vite!
-        #   value: "http://api-service:8000"
+        # To build with custom API URL:
+        #   docker build --build-arg VITE_API_BASE_URL=https://api.example.com -f Dockerfile.frontend .
         livenessProbe:
           httpGet:
-            path: /
-            port: 5173
+            path: /healthz
+            port: 8080
           initialDelaySeconds: 10
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /
-            port: 5173
+            path: /healthz
+            port: 8080
           initialDelaySeconds: 5
           periodSeconds: 5
           timeoutSeconds: 3
@@ -79,6 +69,18 @@ spec:
           limits:
             memory: "512Mi"
             cpu: "500m"
+        # Volume mounts for writable directories (required by Nginx with readOnlyRootFilesystem)
+        volumeMounts:
+        - name: cache
+          mountPath: /var/cache/nginx
+        - name: run
+          mountPath: /var/run
+      # Volumes for Nginx writable directories
+      volumes:
+      - name: cache
+        emptyDir: {}
+      - name: run
+        emptyDir: {}
       # Image pull secret for GHCR (GitHub Container Registry)
       #
       # REQUIRED if repository is private. Uncomment and create secret:
@@ -104,8 +106,8 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-  - port: 5173
-    targetPort: 5173
+  - port: 8080
+    targetPort: 8080
     protocol: TCP
     name: http
   selector:

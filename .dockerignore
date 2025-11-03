@@ -44,7 +44,7 @@ docker-compose*.yml
 *~
 
 # Documentation
-docs
+# docs  # Commented out - frontend needs docs/dashboard-login.svg for QuickStart.jsx
 *.md
 README*
 CLAUDE.md
