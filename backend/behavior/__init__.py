@@ -63,6 +63,9 @@ from backend.behavior.message_processor import (
     build_history_transcript,
     resolve_message_speaker,
 )
+from backend.behavior.micro_behaviors import (
+    generate_time_context,
+)
 
 __all__ = [
     "TOPIC_KEYWORDS",
@@ -84,6 +87,7 @@ __all__ = [
     "normalize_text",
     "choose_message_length_category",
     "compose_length_hint",
+    "generate_time_context",
     "clamp",
     "safe_float",
     "shorten",
