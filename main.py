@@ -134,6 +134,27 @@ except ImportError as e:
 except Exception as e:
     logger.error(f"❌ Prometheus metrics setup hatası: {e}")
 
+# ----------------------
+# API ROUTERS
+# ----------------------
+# Include modular routers for clean separation of concerns
+try:
+    from backend.api.routes import auth, chats, control, logs, metrics, settings, websockets
+
+    app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
+    app.include_router(chats.router, prefix="/chats", tags=["Chats"])
+    app.include_router(control.router, prefix="/control", tags=["Control"])
+    app.include_router(logs.router, prefix="/logs", tags=["Logs"])
+    app.include_router(metrics.router, tags=["Metrics"])
+    app.include_router(settings.router, prefix="/settings", tags=["Settings"])
+    app.include_router(websockets.router, prefix="/ws", tags=["WebSocket"])
+
+    logger.info("✅ API routers loaded: auth, chats, control, logs, metrics, settings, websockets")
+except ImportError as e:
+    logger.warning(f"⚠️ Some API routers could not be loaded: {e}")
+except Exception as e:
+    logger.error(f"❌ API router setup error: {e}")
+
 
 class AuthenticatedUser(BaseModel):
     username: str
