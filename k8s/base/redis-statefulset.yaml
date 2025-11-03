@@ -48,6 +48,14 @@ spec:
         - --save
         - "60"
         - "1"
+        - --requirepass
+        - "$(REDIS_PASSWORD)"
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: piyasa-secrets
+              key: REDIS_PASSWORD
         volumeMounts:
         - name: redis-data
           mountPath: /data

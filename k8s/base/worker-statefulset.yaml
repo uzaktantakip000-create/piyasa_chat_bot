@@ -41,17 +41,19 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
-        # ConfigMap references
+        # Database URL from Secret (contains password)
         - name: DATABASE_URL
           valueFrom:
-            configMapKeyRef:
-              name: piyasa-config
+            secretKeyRef:
+              name: piyasa-secrets
               key: DATABASE_URL
+        # Redis URL from Secret (contains password)
         - name: REDIS_URL
           valueFrom:
-            configMapKeyRef:
-              name: piyasa-config
+            secretKeyRef:
+              name: piyasa-secrets
               key: REDIS_URL
+        # ConfigMap references
         - name: LLM_PROVIDER
           valueFrom:
             configMapKeyRef:

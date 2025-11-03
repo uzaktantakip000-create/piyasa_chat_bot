@@ -11,6 +11,9 @@ metadata:
     # Enforce HTTPS (only after TLS is configured)
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # CORS: Restrict to specific frontend origin (production security)
+    # Replace example.com with your actual domain
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://piyasa-chatbot.example.com"
 spec:
   tls:
   - hosts:

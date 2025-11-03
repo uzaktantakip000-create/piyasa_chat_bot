@@ -6,11 +6,8 @@ metadata:
   labels:
     app: piyasa-chatbot
 data:
-  # Database configuration
-  DATABASE_URL: "postgresql://piyasa_user:piyasa_pass@db-service:5432/piyasa_db"
-
-  # Redis configuration
-  REDIS_URL: "redis://redis-service:6379/0"
+  # Database and Redis URLs moved to Secret (contain passwords)
+  # See k8s/base/secret.yaml for DATABASE_URL and REDIS_URL
 
   # LLM configuration
   LLM_PROVIDER: "openai"
