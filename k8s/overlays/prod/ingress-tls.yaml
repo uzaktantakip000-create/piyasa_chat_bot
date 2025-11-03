@@ -5,8 +5,10 @@ metadata:
   namespace: piyasa-chatbot
   annotations:
     # Enable TLS certificate generation with cert-manager
+    # Prerequisite: cert-manager must be installed in the cluster
+    # kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
-    # Enforce HTTPS
+    # Enforce HTTPS (only after TLS is configured)
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
 spec:

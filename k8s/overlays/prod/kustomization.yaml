@@ -73,7 +73,8 @@ patches:
         path: /spec/template/spec/containers/0/resources/requests/cpu
         value: "1000m"
 
-  # Aggressive HPA for production
+  # Aggressive HPA for production (API and Frontend only)
+  # NOTE: Worker HPA is removed from base (coordination issues with TOTAL_WORKERS)
   - target:
       kind: HorizontalPodAutoscaler
       name: api-hpa
@@ -85,16 +86,9 @@ patches:
         path: /spec/maxReplicas
         value: 20
 
-  - target:
-      kind: HorizontalPodAutoscaler
-      name: worker-hpa
-    patch: |-
-      - op: replace
-        path: /spec/minReplicas
-        value: 6
-      - op: replace
-        path: /spec/maxReplicas
-        value: 24
+  # Worker scaling must be done manually:
+  #   kubectl scale statefulset/worker --replicas=8 -n piyasa-chatbot
+  #   Then update ConfigMap TOTAL_WORKERS=8 and restart pods
 
 configMapGenerator:
   - name: piyasa-config

@@ -7,9 +7,10 @@ metadata:
     app: piyasa-chatbot
   annotations:
     # NGINX Ingress Controller annotations
-    nginx.ingress.kubernetes.io/rewrite-target: /
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # SSL redirect disabled until TLS certificates are configured
+    # Enable these when TLS is ready (see production overlay for TLS config)
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    # nginx.ingress.kubernetes.io/force-ssl-redirect: "true"  # Enable with TLS
     # WebSocket support for /ws/dashboard
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"

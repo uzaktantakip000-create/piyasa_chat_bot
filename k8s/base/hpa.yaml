@@ -44,50 +44,20 @@ spec:
       selectPolicy: Max
 
 ---
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: worker-hpa
-  namespace: piyasa-chatbot
-  labels:
-    app: piyasa-worker
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: StatefulSet
-    name: worker
-  minReplicas: 4
-  maxReplicas: 12
-  metrics:
-  - type: Resource
-    resource:
-      name: cpu
-      target:
-        type: Utilization
-        averageUtilization: 75
-  - type: Resource
-    resource:
-      name: memory
-      target:
-        type: Utilization
-        averageUtilization: 85
-  behavior:
-    scaleDown:
-      stabilizationWindowSeconds: 600  # 10 minutes cooldown before scaling down
-      policies:
-      - type: Pods
-        value: 1
-        periodSeconds: 120
-    scaleUp:
-      stabilizationWindowSeconds: 120
-      policies:
-      - type: Percent
-        value: 50
-        periodSeconds: 60
-      - type: Pods
-        value: 2
-        periodSeconds: 60
-      selectPolicy: Max
+# NOTE: Worker HPA is REMOVED due to coordination issues
+#
+# Problem: StatefulSet workers require coordinated scaling with TOTAL_WORKERS
+# When HPA scales workers (e.g., 4 → 12), TOTAL_WORKERS in ConfigMap stays static
+# This breaks worker coordination logic (each worker must know total count)
+#
+# Solution: Scale workers MANUALLY by updating both:
+#   1. StatefulSet replicas: kubectl scale statefulset/worker --replicas=8
+#   2. ConfigMap TOTAL_WORKERS: Update and restart pods
+#
+# For automatic scaling, implement dynamic TOTAL_WORKERS discovery in code
+# (e.g., query Kubernetes API for StatefulSet replica count)
+#
+# Worker HPA configuration removed (was: 4-12 replicas based on CPU 75% / Memory 85%)
 
 ---
 apiVersion: autoscaling/v2

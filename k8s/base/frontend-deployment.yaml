@@ -26,9 +26,22 @@ spec:
         - containerPort: 5173
           name: http
           protocol: TCP
-        env:
-        - name: VITE_API_BASE_URL
-          value: "http://api-service:8000"
+        # NOTE: VITE_API_BASE_URL must be configured at BUILD TIME, not runtime
+        # Vite embeds VITE_* variables during build process
+        #
+        # Option 1: Build with ARG (recommended for production)
+        #   docker build --build-arg VITE_API_BASE_URL=https://api.example.com -t frontend:latest .
+        #
+        # Option 2: Use environment-specific builds
+        #   frontend:dev (built with dev API URL)
+        #   frontend:prod (built with prod API URL)
+        #
+        # Option 3: Runtime configuration (requires nginx + config injection)
+        #   See docs/K8S_DEPLOYMENT.md for details
+        #
+        # env:
+        # - name: VITE_API_BASE_URL  # ← This does NOT work with Vite!
+        #   value: "http://api-service:8000"
         livenessProbe:
           httpGet:
             path: /

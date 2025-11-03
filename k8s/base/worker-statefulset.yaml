@@ -23,8 +23,24 @@ spec:
       - name: worker
         image: ghcr.io/uzaktantakip000-create/piyasa_chat_bot/api:latest
         imagePullPolicy: Always
-        command: ["python", "worker.py"]
+        # Wrapper script to extract WORKER_ID from pod name
+        # StatefulSet pods are named: worker-0, worker-1, worker-2, etc.
+        # We extract the ordinal number and export it as WORKER_ID
+        command:
+          - /bin/sh
+          - -c
+          - |
+            # Extract ordinal from pod name (worker-0 -> 0, worker-1 -> 1, etc.)
+            export WORKER_ID=$(echo $POD_NAME | grep -oE '[0-9]+$')
+            echo "Starting worker with WORKER_ID=$WORKER_ID, TOTAL_WORKERS=$TOTAL_WORKERS"
+            # Start application
+            exec python worker.py
         env:
+        # POD_NAME for extracting worker ordinal
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
         # ConfigMap references
         - name: DATABASE_URL
           valueFrom:
@@ -92,11 +108,8 @@ spec:
             secretKeyRef:
               name: piyasa-secrets
               key: TOKEN_ENCRYPTION_KEY
-        # WORKER_ID is extracted from pod name (worker-0, worker-1, worker-2, worker-3)
-        - name: WORKER_ID
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
+        # NOTE: WORKER_ID is now dynamically extracted in the command wrapper
+        # from POD_NAME (no explicit env var needed)
         resources:
           requests:
             memory: "512Mi"
