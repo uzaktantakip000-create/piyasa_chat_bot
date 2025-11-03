@@ -2866,7 +2866,115 @@ First phase: Extract message generation functions to backend/behavior_engine/mes
 
 ---
 
-*Last Updated: 2025-11-03 by Claude Code (Session 17 - COMPLETED)*  
-*Behavior Engine Modularization Phase 1: message_generator.py extracted*  
+*Last Updated: 2025-11-03 by Claude Code (Session 17 - COMPLETED)*
+*Behavior Engine Modularization Phase 1: message_generator.py extracted*
 *Architecture Refactoring: STARTED - Progressive improvement in progress*
+
+## Session 18: Topic Management Deduplication
+
+**Date**: 2025-11-03
+**Duration**: ~10 minutes
+**Focus**: Remove duplicate topic management functions
+**Status**: ✅ COMPLETED
+
+### Objective
+Clean up duplicate topic functions in behavior_engine.py that were already extracted to backend.behavior.topic_manager in Sessions 10-11.
+
+### What Was Done
+
+#### 1. Removed Duplicate Functions (81 lines)
+**Functions Removed**:
+- _tokenize_messages() - Already in backend.behavior
+- score_topics_from_messages() - Already in backend.behavior
+- choose_topic_from_messages() - Already in backend.behavior
+
+**Import Status**: ✅ Already imported from backend.behavior (line 42)
+
+#### 2. Testing & Validation
+✅ Syntax check passed
+✅ Import test passed
+✅ Worker startup successful
+
+### Technical Impact
+**Code Reduction**: 81 lines removed (3%)
+**File Size**: 2,741 → 2,660 lines
+**Quality**: ✅ Single source of truth maintained
+
+### Commit
+`df317a5` - refactor(session-18): Remove duplicate topic management functions
+
+---
+
+*Last Updated: 2025-11-03 by Claude Code (Session 18 - COMPLETED)*
+*Topic Management Cleanup: Duplicate functions removed*
+
+## Session 19: Behavior Engine Modularization - Phase 2 (Metadata Analyzer)
+
+**Date**: 2025-11-03
+**Duration**: ~45 minutes
+**Focus**: Extract metadata analysis functions to separate module (Task 2.1)
+**Status**: ✅ COMPLETED
+
+### Objective
+Continue Phase 2 (Architecture Refactoring) by extracting metadata extraction and bot memory functions from behavior_engine.py (2,660 lines).
+
+### What Was Done
+
+#### 1. Created metadata_analyzer.py Module (341 lines, 6 functions)
+**File**: backend/behavior_engine/metadata_analyzer.py
+
+**Extracted Functions**:
+- fetch_bot_memories() - Bot memory retrieval with relevance scoring
+- update_memory_usage() - Memory usage count tracking
+- format_memories_for_prompt() - LLM prompt formatting for memories
+- extract_message_metadata() - Metadata extraction (symbols, sentiment, keywords)
+- find_relevant_past_messages() - Past message relevance scoring
+- format_past_references_for_prompt() - LLM prompt formatting for references
+
+**Module Structure**:
+- Bot Memory Management (3 functions)
+- Message Metadata Extraction (1 function)
+- Relevant Past Messages (2 functions)
+
+#### 2. Updated behavior_engine.py
+- Added import block (line 89-97) for metadata functions
+- Removed 7 duplicate functions (322 lines):
+  - normalize_text() - Already in backend.behavior
+  - 6 metadata functions - Now in metadata_analyzer
+- Total reduction: 312 lines (11.7%)
+
+#### 3. Testing & Validation
+✅ Syntax check passed
+✅ Import test passed
+✅ Worker startup successful
+✅ All metadata functions accessible via imports
+
+### Technical Impact
+**Code Reduction**: 312 lines removed (11.7%)
+**File Size**: 2,660 → 2,348 lines
+**Total Reduction** (Sessions 17-19): 889 lines (27.4%)
+**Performance**: No regression (logic identical)
+**Quality**: ✅ Single Responsibility, ✅ Dependency Injection, ✅ Easier testing
+
+### Progress Tracking
+**Phase 2 Modularization Status**:
+- ✅ message_generator.py (Session 17) - 670 lines
+- ✅ metadata_analyzer.py (Session 19) - 341 lines
+- ⏳ Remaining modules: ~4-5 modules, ~1,000 lines
+- **Target**: Reduce to ~1,200 lines (current: 2,348)
+
+**Remaining Modules to Extract**:
+1. rate_limiter.py (~200 lines) - Rate limiting and timing logic
+2. persona_manager.py (~350 lines) - Persona refresh and management
+3. cache_manager_wrapper.py (~100 lines) - Cache helper wrappers
+4. bot_selector.py (~700 lines) - Bot and chat selection logic (high complexity)
+
+### Commit
+`98953dc` - refactor(session-19): Extract metadata analyzer module
+
+---
+
+*Last Updated: 2025-11-03 by Claude Code (Session 19 - COMPLETED)*
+*Behavior Engine Modularization Phase 2: metadata_analyzer.py extracted*
+*Architecture Refactoring: 27.4% complete (889 lines reduced)*
 
