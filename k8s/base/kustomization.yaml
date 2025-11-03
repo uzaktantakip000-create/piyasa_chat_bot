@@ -6,7 +6,10 @@ namespace: piyasa-chatbot
 resources:
   - namespace.yaml
   - configmap.yaml
-  - secret.yaml
+  # secret.yaml is NOT in git (security best practice)
+  # Create manually: kubectl create secret generic piyasa-secrets --from-env-file=.env -n piyasa-chatbot
+  # Or copy k8s/base/secret.yaml.template to secret.yaml and edit values
+  # - secret.yaml  # Commented out - create manually!
   - postgres-deployment.yaml
   - redis-statefulset.yaml
   - api-deployment.yaml
