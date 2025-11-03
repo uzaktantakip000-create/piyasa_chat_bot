@@ -1,0 +1,42 @@
+# Development and CI/CD Requirements
+# Install with: pip install -r requirements-dev.txt
+
+# Include production requirements
+-r requirements.txt
+
+# Testing
+pytest==8.2.1
+pytest-cov==5.0.0
+pytest-asyncio==0.23.8
+pytest-timeout==2.3.1
+pytest-mock==3.14.0
+coverage[toml]==7.6.1
+
+# Code Quality & Linting
+flake8==7.1.1
+flake8-docstrings==1.7.0
+flake8-bugbear==24.8.19
+flake8-import-order==0.18.2
+flake8-comprehensions==3.15.0
+pep8-naming==0.14.1
+
+# Code Formatting
+black==24.8.0
+isort==5.13.2
+
+# Type Checking
+mypy==1.11.2
+types-redis==4.6.0.20240903
+types-requests==2.32.0.20240905
+
+# Security
+bandit==1.7.9
+safety==3.2.7
+
+# Documentation
+sphinx==7.4.7
+sphinx-rtd-theme==2.0.0
+
+# Development Tools
+ipython==8.27.0
+ipdb==0.13.13

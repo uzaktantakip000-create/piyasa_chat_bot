@@ -1,0 +1,91 @@
+[run]
+# Coverage.py configuration for piyasa_chat_bot
+
+# Source code paths to measure coverage
+source = .
+
+# Omit these files/directories from coverage
+omit =
+    */tests/*
+    */test_*.py
+    */__pycache__/*
+    */venv/*
+    */.venv/*
+    */env/*
+    */site-packages/*
+    */dist-packages/*
+    */conftest.py
+    */setup.py
+    */scripts/*
+    */migrations/*
+    */alembic/*
+    htmlcov/*
+    .tox/*
+    build/*
+    dist/*
+
+# Parallel mode (for multi-process testing)
+parallel = False
+
+# Branch coverage (measure if/else branches)
+branch = True
+
+# Data file location
+data_file = .coverage
+
+[report]
+# Reporting options
+
+# Precision for coverage percentages
+precision = 2
+
+# Show missing lines
+show_missing = True
+
+# Skip covered files in report
+skip_covered = False
+
+# Skip empty files
+skip_empty = True
+
+# Ignore errors (e.g., source file not found)
+ignore_errors = False
+
+# Exclude lines from coverage (use # pragma: no cover)
+exclude_lines =
+    # Standard pragma
+    pragma: no cover
+
+    # Debug-only code
+    def __repr__
+    def __str__
+
+    # Non-runnable code
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    if typing.TYPE_CHECKING:
+
+    # Abstract methods
+    @abstract
+    @abstractmethod
+    raise NotImplementedError
+
+    # Defensive programming
+    raise AssertionError
+    raise NotImplementedError
+
+    # Type checking code
+    \.\.\.
+    pass
+
+# Sort report by name
+sort = Name
+
+[html]
+# HTML report options
+directory = htmlcov
+title = piyasa_chat_bot Coverage Report
+
+[xml]
+# XML report (for CI tools like Codecov)
+output = coverage.xml

@@ -30,9 +30,26 @@ build/
 .vscode/
 *.swp
 
-# Coverage / test cache
+# Testing & Coverage
 .coverage
+.coverage.*
+coverage.xml
+htmlcov/
 .pytest_cache/
+pytest-report.xml
+.tox/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Linting
+.flake8_cache/
+.ruff_cache/
+
+# Security
+bandit-report.json
+trivy-results.sarif
+sbom*.json
 
 # Logs
 *.log
