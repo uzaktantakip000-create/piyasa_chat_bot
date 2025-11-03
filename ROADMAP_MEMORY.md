@@ -3039,3 +3039,67 @@ Clean up duplicate utility functions in behavior_engine.py that are already impo
 *Utility Function Deduplication: 7 duplicate functions removed*
 *Architecture Refactoring: 29.6% complete (955 lines reduced)*
 
+## Session 21: Persona Management Deduplication
+
+**Date**: 2025-11-03
+**Duration**: ~25 minutes
+**Focus**: Remove duplicate persona management functions already imported from backend.behavior
+**Status**: ✅ COMPLETED
+
+### Objective
+Clean up duplicate persona management functions in behavior_engine.py that are already imported from backend.behavior.persona_manager, completing the persona-related deduplication.
+
+### What Was Done
+
+#### 1. Removed 8 Duplicate Functions (153 lines)
+**Functions Removed**:
+- _choose_text_item() - Random text selection helper (line 143-149, 7 lines)
+- synthesize_reaction_plan() - Reaction plan synthesis from emotion profile (line 152-190, 39 lines)
+- derive_tempo_multiplier() - Calculate typing tempo from emotion (line 193-212, 20 lines)
+- compose_persona_refresh_note() - Build persona refresh reminder (line 215-233, 19 lines)
+- _normalize_refresh_state() - Normalize refresh state dict (line 236-248, 13 lines)
+- should_refresh_persona() - Check if persona refresh needed (line 251-271, 21 lines)
+- update_persona_refresh_state() - Update refresh state tracking (line 274-289, 16 lines)
+- now_utc() - UTC datetime utility (line 292-293, 2 lines)
+
+**Import Status**: ✅ All already imported from backend.behavior (lines 46-51)
+**Source Module**: backend/behavior/persona_manager.py (created in Sessions 10-11)
+
+#### 2. Testing & Validation
+✅ Syntax check passed
+✅ Import test passed
+✅ Worker startup successful
+
+### Technical Impact
+**Code Reduction**: 153 lines removed (6.7%)
+**File Size**: 2,282 → 2,129 lines
+**Total Reduction** (Sessions 17-21): 1,108 lines (34.4%)
+**Quality**: ✅ Single source of truth, ✅ Eliminated all persona duplicates
+
+### Progress Tracking
+**Phase 2 Modularization Status**:
+- ✅ message_generator.py (Session 17) - 670 lines
+- ✅ Utility deduplication (Sessions 18, 20) - 147 lines
+- ✅ metadata_analyzer.py (Session 19) - 341 lines
+- ✅ Persona deduplication (Session 21) - 153 lines
+- **Total**: 1,311 lines cleaned/extracted (40.7% of original 3,222)
+- **Current size**: 2,129 lines (was 3,222)
+- **Target**: ~1,200 lines (44% reduction remaining - 929 lines to go)
+
+**Remaining Work**:
+1. Extract/clean ~900 more lines
+2. Focus areas:
+   - Bot selection logic (~400 lines)
+   - Message history/transcript building (~200 lines)
+   - Settings/configuration (~100 lines)
+   - Timing/delay logic (~200 lines)
+
+### Commit
+`9f770e3` - refactor(session-21): Remove duplicate persona management functions
+
+---
+
+*Last Updated: 2025-11-03 by Claude Code (Session 21 - COMPLETED)*
+*Persona Management Deduplication: 8 duplicate functions removed*
+*Architecture Refactoring: 34.4% complete (1,108 lines reduced)*
+
