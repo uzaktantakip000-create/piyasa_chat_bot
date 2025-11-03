@@ -32,7 +32,7 @@ services:
       db:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
 
   # ============================================================================
   # WORKER 1 (Bot ID % 4 == 0)
@@ -67,7 +67,7 @@ services:
       db:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
 
   # ============================================================================
@@ -103,7 +103,7 @@ services:
       db:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
 
   # ============================================================================
@@ -139,7 +139,7 @@ services:
       db:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
 
   # ============================================================================
@@ -175,7 +175,7 @@ services:
       db:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
 
   db:
@@ -194,9 +194,18 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: ["redis-server","--save","","--appendonly","no"]
+    container_name: piyasa_redis
+    command: redis-server --save 60 1 --loglevel warning
     ports:
       - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
 
   frontend:
     build:
@@ -251,5 +260,6 @@ services:
 
 volumes:
   pgdata:
+  redis_data:       # Redis cache verilerini saklar
   prometheus-data:  # Prometheus verilerini saklar
   grafana-data:     # Grafana dashboardlarını saklar

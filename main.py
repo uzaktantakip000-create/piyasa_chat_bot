@@ -69,6 +69,20 @@ from schemas import (
 from security import mask_token, SecurityConfigError
 from settings_utils import normalize_message_length_profile, unwrap_setting_value
 
+# Cache invalidation helpers
+try:
+    from backend.caching.bot_cache_helpers import invalidate_bot_cache
+    from backend.caching.message_cache_helpers import invalidate_chat_message_cache
+    CACHE_AVAILABLE = True
+except ImportError:
+    logger.warning("Cache modules not available - cache invalidation disabled")
+    CACHE_AVAILABLE = False
+    # Define no-op functions
+    def invalidate_bot_cache(bot_id: int) -> None:
+        pass
+    def invalidate_chat_message_cache(chat_id: int) -> None:
+        pass
+
 logger = logging.getLogger("api")
 logging.basicConfig(level=os.getenv("LOG_LEVEL","INFO"))
 
@@ -425,6 +439,13 @@ def update_bot(bot_id: int, patch: BotUpdate, db: Session = Depends(get_db)):
 
     db.commit()
     db.refresh(db_bot)
+
+    # Invalidate cache and publish config update
+    try:
+        invalidate_bot_cache(db_bot.id)
+    except Exception as e:
+        logger.warning(f"Cache invalidation failed for bot {db_bot.id}: {e}")
+
     publish_config_update(get_redis(), {"type": "bot_updated", "bot_id": db_bot.id})
     return _bot_to_response(db_bot)
 
@@ -435,6 +456,13 @@ def delete_bot(bot_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Bot not found")
     db.delete(db_bot)
     db.commit()
+
+    # Invalidate cache and publish config update
+    try:
+        invalidate_bot_cache(bot_id)
+    except Exception as e:
+        logger.warning(f"Cache invalidation failed for bot {bot_id}: {e}")
+
     publish_config_update(get_redis(), {"type": "bot_deleted", "bot_id": bot_id})
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -474,8 +502,19 @@ def delete_chat(chat_id: int, db: Session = Depends(get_db)):
     db_chat = db.query(Chat).filter(Chat.id == chat_id).first()
     if not db_chat:
         raise HTTPException(status_code=404, detail="Chat not found")
+
+    # Store chat_id before deletion
+    deleted_chat_id = db_chat.chat_id
+
     db.delete(db_chat)
     db.commit()
+
+    # Invalidate message cache for this chat
+    try:
+        invalidate_chat_message_cache(deleted_chat_id)
+    except Exception as e:
+        logger.warning(f"Cache invalidation failed for chat {deleted_chat_id}: {e}")
+
     publish_config_update(get_redis(), {"type": "chat_deleted", "chat_id": chat_id})
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -853,6 +892,33 @@ def _normalize_news_feed_urls(value: Any) -> List[str]:
     return normalized
 
 
+# ----- Cache Stats -----
+@app.get("/cache/stats", dependencies=viewer_dependencies)
+def get_cache_stats():
+    """
+    Get cache statistics for monitoring.
+
+    Returns L1 and L2 cache statistics including hit rates, sizes, and availability.
+    """
+    try:
+        from backend.caching.cache_manager import CacheManager
+        cache = CacheManager.get_instance()
+        stats = cache.get_stats()
+        return {
+            "ok": True,
+            "stats": stats,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        logger.exception("Cache stats error")
+        return {
+            "ok": False,
+            "error": str(e),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+
+# ----- Settings -----
 @app.get("/settings", response_model=List[SettingResponse], dependencies=viewer_dependencies)
 def list_settings(db: Session = Depends(get_db)):
     rows = db.query(Setting).order_by(Setting.key.asc()).all()
@@ -1139,6 +1205,13 @@ def put_persona(bot_id: int, profile: PersonaProfile, db: Session = Depends(get_
         raise HTTPException(404, "Bot not found")
     bot.persona_profile = profile.dict(exclude_unset=True)
     db.commit()
+
+    # Invalidate cache and publish config update
+    try:
+        invalidate_bot_cache(bot_id)
+    except Exception as e:
+        logger.warning(f"Cache invalidation failed for bot {bot_id}: {e}")
+
     publish_config_update(get_redis(), {"type": "persona_updated", "bot_id": bot_id})
     return {"ok": True, "bot_id": bot_id, "persona_profile": bot.persona_profile}
 
@@ -1158,6 +1231,13 @@ def put_emotion_profile(bot_id: int, profile: EmotionProfile, db: Session = Depe
         raise HTTPException(404, "Bot not found")
     bot.emotion_profile = profile.dict(exclude_unset=True)
     db.commit()
+
+    # Invalidate cache and publish config update
+    try:
+        invalidate_bot_cache(bot_id)
+    except Exception as e:
+        logger.warning(f"Cache invalidation failed for bot {bot_id}: {e}")
+
     publish_config_update(get_redis(), {"type": "emotion_updated", "bot_id": bot_id})
     return {"ok": True, "bot_id": bot_id, "emotion_profile": bot.emotion_profile}
 
@@ -1203,6 +1283,13 @@ def upsert_stance(bot_id: int, body: StanceCreate, db: Session = Depends(get_db)
 
     db.commit()
     db.refresh(row)
+
+    # Invalidate cache and publish config update
+    try:
+        invalidate_bot_cache(bot_id)
+    except Exception as e:
+        logger.warning(f"Cache invalidation failed for bot {bot_id}: {e}")
+
     publish_config_update(get_redis(), {"type": "stance_upserted", "bot_id": bot_id, "stance_id": row.id})
     return row
 
@@ -1216,6 +1303,13 @@ def update_stance(stance_id: int, patch: StanceUpdate, db: Session = Depends(get
         setattr(row, k, v)
     db.commit()
     db.refresh(row)
+
+    # Invalidate cache and publish config update
+    try:
+        invalidate_bot_cache(row.bot_id)
+    except Exception as e:
+        logger.warning(f"Cache invalidation failed for bot {row.bot_id}: {e}")
+
     publish_config_update(get_redis(), {"type": "stance_updated", "bot_id": row.bot_id, "stance_id": row.id})
     return row
 
@@ -1227,6 +1321,13 @@ def delete_stance(stance_id: int, db: Session = Depends(get_db)):
     bot_id = row.bot_id
     db.delete(row)
     db.commit()
+
+    # Invalidate cache and publish config update
+    try:
+        invalidate_bot_cache(bot_id)
+    except Exception as e:
+        logger.warning(f"Cache invalidation failed for bot {bot_id}: {e}")
+
     publish_config_update(get_redis(), {"type": "stance_deleted", "bot_id": bot_id, "stance_id": stance_id})
     return {"ok": True}
 
@@ -1275,6 +1376,13 @@ def upsert_holding(bot_id: int, body: HoldingCreate, db: Session = Depends(get_d
 
     db.commit()
     db.refresh(row)
+
+    # Invalidate cache and publish config update
+    try:
+        invalidate_bot_cache(bot_id)
+    except Exception as e:
+        logger.warning(f"Cache invalidation failed for bot {bot_id}: {e}")
+
     publish_config_update(get_redis(), {"type": "holding_upserted", "bot_id": bot_id, "holding_id": row.id})
     return row
 
@@ -1288,6 +1396,13 @@ def update_holding(holding_id: int, patch: HoldingUpdate, db: Session = Depends(
         setattr(row, k, v)
     db.commit()
     db.refresh(row)
+
+    # Invalidate cache and publish config update
+    try:
+        invalidate_bot_cache(row.bot_id)
+    except Exception as e:
+        logger.warning(f"Cache invalidation failed for bot {row.bot_id}: {e}")
+
     publish_config_update(get_redis(), {"type": "holding_updated", "bot_id": row.bot_id, "holding_id": row.id})
     return row
 
@@ -1299,6 +1414,13 @@ def delete_holding(holding_id: int, db: Session = Depends(get_db)):
     bot_id = row.bot_id
     db.delete(row)
     db.commit()
+
+    # Invalidate cache and publish config update
+    try:
+        invalidate_bot_cache(bot_id)
+    except Exception as e:
+        logger.warning(f"Cache invalidation failed for bot {bot_id}: {e}")
+
     publish_config_update(get_redis(), {"type": "holding_deleted", "bot_id": bot_id, "holding_id": holding_id})
     return {"ok": True}
 
