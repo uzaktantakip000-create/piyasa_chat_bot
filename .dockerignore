@@ -1,4 +1,62 @@
+# Node.js
 node_modules
 npm-debug.log*
 dist
+
+# Python
+.venv
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info
+.pytest_cache
+.mypy_cache
+.coverage
+htmlcov
+
+# Database & Cache
+*.db
+*.db-shm
+*.db-wal
+*.db.backup
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Environment & Config
 .env
+.env.*
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# IDE & Editor
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Documentation
+docs
+*.md
+README*
+CLAUDE.md
+ROADMAP_MEMORY.md
+PROFESSIONAL_ROADMAP.md
+
+# Tests & Scripts
+tests
+scripts
+.github
+
+# Misc
+.DS_Store
+*.log
+.claude

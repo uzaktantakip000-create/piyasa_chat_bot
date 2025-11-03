@@ -8,15 +8,24 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-WORKDIR /app
+# Create non-root user in builder stage
+RUN useradd -m -u 1000 appuser
 
-# Install build dependencies
+# Switch to non-root user
+USER appuser
+WORKDIR /home/appuser/app
+
+# Install build dependencies (need root for this)
+USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# Switch back to appuser for dependency installation
+USER appuser
+
+# Install Python dependencies to appuser's home
 COPY requirements.txt .
 RUN pip install --user --no-warn-script-location -r requirements.txt
 
@@ -26,27 +35,28 @@ RUN pip install --user --no-warn-script-location -r requirements.txt
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PATH=/root/.local/bin:$PATH
+    PYTHONUNBUFFERED=1
 
 # Install runtime dependencies only
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+# Create non-root user for security
+RUN useradd -m -u 1000 appuser
 
-# Copy Python dependencies from builder
-COPY --from=builder /root/.local /root/.local
+# Switch to non-root user
+USER appuser
+WORKDIR /home/appuser/app
+
+# Copy Python dependencies from builder (to appuser's home)
+COPY --from=builder --chown=appuser:appuser /home/appuser/.local /home/appuser/.local
+
+# Add Python packages to PATH
+ENV PATH="/home/appuser/.local/bin:$PATH"
 
 # Copy application files
-COPY . .
-
-# Create non-root user for security
-RUN useradd -m -u 1000 appuser && \
-    chown -R appuser:appuser /app
-
-USER appuser
+COPY --chown=appuser:appuser . .
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
