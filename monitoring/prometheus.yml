@@ -4,6 +4,20 @@
 global:
   scrape_interval: 15s  # Her 15 saniyede bir metrikleri topla
   evaluation_interval: 15s  # Her 15 saniyede bir kuralları değerlendir
+  external_labels:
+    cluster: 'piyasa-chatbot'
+    environment: 'production'
+
+# AlertManager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - 'alertmanager:9093'  # Docker compose'daki alertmanager servisi
+
+# Alert rules
+rule_files:
+  - '/etc/prometheus/rules/*.yml'  # Alert rules directory
 
 # Metrik toplama hedefleri
 scrape_configs:
@@ -20,6 +34,11 @@ scrape_configs:
       - targets: ['worker:8001']  # Docker compose'daki 'worker' servisi
     metrics_path: '/metrics'  # Metrikler bu endpoint'te
     scrape_interval: 10s  # Worker için daha sık toplama (10 saniye)
+
+  # AlertManager metrics
+  - job_name: 'alertmanager'
+    static_configs:
+      - targets: ['alertmanager:9093']
 
   # Prometheus'un kendi metrikleri (opsiyonel)
   - job_name: 'prometheus'
