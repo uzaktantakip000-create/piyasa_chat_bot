@@ -75,6 +75,14 @@ patches:
         value: hostpath
 
   - target:
+      kind: PersistentVolumeClaim
+      name: backup-pvc
+    patch: |-
+      - op: replace
+        path: /spec/storageClassName
+        value: hostpath
+
+  - target:
       kind: StatefulSet
       name: redis
     patch: |-

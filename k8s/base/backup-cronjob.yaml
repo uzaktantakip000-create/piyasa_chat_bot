@@ -1,0 +1,184 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: database-backup
+  labels:
+    app: piyasa-backup
+    component: backup
+spec:
+  # Schedule: Daily at 2 AM UTC (5 AM Turkey time)
+  schedule: "0 2 * * *"
+
+  # Keep last 3 successful jobs for debugging
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+
+  # Don't start new backup if previous one still running
+  concurrencyPolicy: Forbid
+
+  jobTemplate:
+    spec:
+      # Cleanup completed job pods after 1 hour
+      ttlSecondsAfterFinished: 3600
+
+      template:
+        metadata:
+          labels:
+            app: piyasa-backup
+            component: backup-job
+        spec:
+          restartPolicy: OnFailure
+
+          # Security context
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999  # postgres user
+            fsGroup: 999
+
+          containers:
+          - name: backup
+            image: postgres:16-alpine
+
+            command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+
+              echo "=== Database Backup Starting ==="
+              echo "Date: $(date -u +%Y-%m-%d_%H:%M:%S)"
+              echo "Database: $DATABASE_URL"
+
+              # Create timestamp
+              TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
+              DAY_OF_WEEK=$(date -u +%u)  # 1-7 (Monday-Sunday)
+              DAY_OF_MONTH=$(date -u +%d)
+
+              # Determine backup type
+              if [ "$DAY_OF_MONTH" = "01" ]; then
+                BACKUP_TYPE="monthly"
+              elif [ "$DAY_OF_WEEK" = "7" ]; then
+                BACKUP_TYPE="weekly"
+              else
+                BACKUP_TYPE="daily"
+              fi
+
+              echo "Backup type: $BACKUP_TYPE"
+
+              # Create backup directory
+              BACKUP_DIR="/backups/$BACKUP_TYPE"
+              mkdir -p "$BACKUP_DIR"
+
+              # Backup filename
+              BACKUP_FILE="$BACKUP_DIR/backup_${BACKUP_TYPE}_${TIMESTAMP}.sql.gz"
+
+              # Perform backup based on database type
+              if echo "$DATABASE_URL" | grep -q "postgresql"; then
+                echo "Backing up PostgreSQL database..."
+
+                # Extract connection details
+                DB_HOST=$(echo $DATABASE_URL | sed -n 's/.*@\([^:]*\):.*/\1/p')
+                DB_PORT=$(echo $DATABASE_URL | sed -n 's/.*:\([0-9]*\)\/.*/\1/p')
+                DB_NAME=$(echo $DATABASE_URL | sed -n 's/.*\/\([^?]*\).*/\1/p')
+                DB_USER=$(echo $DATABASE_URL | sed -n 's/.*\/\/\([^:]*\):.*/\1/p')
+
+                echo "  Host: $DB_HOST"
+                echo "  Port: $DB_PORT"
+                echo "  Database: $DB_NAME"
+                echo "  User: $DB_USER"
+
+                # Perform backup
+                pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
+                  --no-owner --no-acl --clean --if-exists \
+                  | gzip > "$BACKUP_FILE"
+
+              elif echo "$DATABASE_URL" | grep -q "sqlite"; then
+                echo "SQLite backup not supported in K8s CronJob (use PVC backup instead)"
+                exit 1
+              else
+                echo "ERROR: Unsupported database type: $DATABASE_URL"
+                exit 1
+              fi
+
+              # Verify backup
+              if [ -f "$BACKUP_FILE" ]; then
+                BACKUP_SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
+                echo "Backup created: $BACKUP_FILE"
+                echo "Backup size: $BACKUP_SIZE"
+
+                # Test gzip integrity
+                if gzip -t "$BACKUP_FILE" 2>/dev/null; then
+                  echo "Backup integrity: OK"
+                else
+                  echo "ERROR: Backup file corrupted!"
+                  exit 1
+                fi
+              else
+                echo "ERROR: Backup file not created!"
+                exit 1
+              fi
+
+              # Cleanup old backups
+              echo "Cleaning up old backups..."
+
+              # Daily backups: keep last 7 days
+              find /backups/daily -name "backup_daily_*.sql.gz" -type f -mtime +7 -delete
+              DAILY_COUNT=$(find /backups/daily -name "backup_daily_*.sql.gz" | wc -l)
+              echo "  Daily backups: $DAILY_COUNT"
+
+              # Weekly backups: keep last 4 weeks (28 days)
+              find /backups/weekly -name "backup_weekly_*.sql.gz" -type f -mtime +28 -delete
+              WEEKLY_COUNT=$(find /backups/weekly -name "backup_weekly_*.sql.gz" | wc -l)
+              echo "  Weekly backups: $WEEKLY_COUNT"
+
+              # Monthly backups: keep last 12 months (365 days)
+              find /backups/monthly -name "backup_monthly_*.sql.gz" -type f -mtime +365 -delete
+              MONTHLY_COUNT=$(find /backups/monthly -name "backup_monthly_*.sql.gz" | wc -l)
+              echo "  Monthly backups: $MONTHLY_COUNT"
+
+              echo "=== Database Backup Completed Successfully ==="
+
+            env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: piyasa-secrets
+                  key: DATABASE_URL
+
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: piyasa-secrets
+                  key: DB_PASSWORD
+
+            resources:
+              requests:
+                memory: "128Mi"
+                cpu: "100m"
+              limits:
+                memory: "512Mi"
+                cpu: "500m"
+
+            volumeMounts:
+            - name: backup-storage
+              mountPath: /backups
+
+          volumes:
+          - name: backup-storage
+            persistentVolumeClaim:
+              claimName: backup-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backup-pvc
+  labels:
+    app: piyasa-backup
+    component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi  # Sufficient for multiple backup generations
+  storageClassName: standard  # Default, will be patched in overlays (Dev: hostpath, Prod: cloud provider)

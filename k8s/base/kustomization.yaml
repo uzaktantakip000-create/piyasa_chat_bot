@@ -22,6 +22,7 @@ resources:
   - frontend-deployment.yaml
   - ingress.yaml
   - hpa.yaml
+  - backup-cronjob.yaml  # Automated daily backups with rotation
 
 labels:
   - pairs:
