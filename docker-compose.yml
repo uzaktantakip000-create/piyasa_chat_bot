@@ -219,7 +219,7 @@ services:
     env_file:
       - .env
     ports:
-      - "5173:5173"
+      - "5173:8080"  # Map host 5173 to container 8080 (nginx listens on 8080)
     depends_on:
       - api
 
