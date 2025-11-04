@@ -3,13 +3,14 @@ kind: Kustomization
 
 namespace: piyasa-chatbot
 
-bases:
+resources:
   - ../../base
 
 namePrefix: prod-
 
-commonLabels:
-  environment: production
+labels:
+  - pairs:
+      environment: production
 
 # Patch for production-specific settings
 patches:

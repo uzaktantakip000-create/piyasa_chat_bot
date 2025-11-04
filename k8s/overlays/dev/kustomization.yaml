@@ -3,13 +3,14 @@ kind: Kustomization
 
 namespace: piyasa-chatbot-dev
 
-bases:
+resources:
   - ../../base
 
 namePrefix: dev-
 
-commonLabels:
-  environment: development
+labels:
+  - pairs:
+      environment: development
 
 # Patch for development-specific settings
 patches:
@@ -115,7 +116,7 @@ configMapGenerator:
       - TOTAL_WORKERS=2
 
 # Use different ingress hosts for dev
-patchesJson6902:
+patches:
   - target:
       group: networking.k8s.io
       version: v1

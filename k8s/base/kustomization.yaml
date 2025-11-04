@@ -23,10 +23,11 @@ resources:
   - ingress.yaml
   - hpa.yaml
 
-commonLabels:
-  app.kubernetes.io/name: piyasa-chatbot
-  app.kubernetes.io/version: "1.0.0"
-  app.kubernetes.io/managed-by: kustomize
+labels:
+  - pairs:
+      app.kubernetes.io/name: piyasa-chatbot
+      app.kubernetes.io/version: "1.0.0"
+      app.kubernetes.io/managed-by: kustomize
 
 configMapGenerator:
   - name: piyasa-config
