@@ -362,6 +362,10 @@ def init_default_settings() -> None:
             # PHASE 2 Week 4 Day 1-3: Rich News Integration
             "news_trigger_enabled": True,     # Haber tetikleyici aktif mi?
             "news_trigger_probability": 0.5,  # %50 olasılıkla haber kullan (was 0.75)
+
+            # SESSION 38: LLM Batch Processing
+            "batch_processing_enabled": False,  # Paralel LLM işleme (priority queue için)
+            "batch_size": 5,                    # Aynı anda işlenecek mesaj sayısı (5-10 önerilir)
         }
 
         for k, v in defaults.items():

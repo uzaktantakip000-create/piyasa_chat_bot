@@ -25,6 +25,7 @@ from settings_utils import (
     unwrap_setting_value,
 )
 from llm_client import LLMClient
+from llm_client_batch import LLMBatchClient  # SESSION 38: Batch generation support
 from system_prompt import (
     generate_user_prompt,
     generate_system_prompt,  # <-- YENİ: Her bot için unique system prompt
@@ -216,6 +217,7 @@ class BehaviorEngine:
 
     def __init__(self) -> None:
         self.llm = LLMClient()
+        self.llm_batch = LLMBatchClient(max_workers=10)  # SESSION 38: Parallel LLM processing
         self.tg = TelegramClient()
         self._last_settings: Dict[str, Any] = {}
         self._settings_loaded_at: datetime = datetime.min.replace(tzinfo=UTC)
@@ -1503,6 +1505,42 @@ class BehaviorEngine:
             logger.warning("Priority queue check failed: %s", e)
             return None
 
+    def _check_priority_queue_batch(self, db: Session, batch_size: int) -> List[Dict[str, Any]]:
+        """
+        SESSION 38: Batch priority queue processing.
+        Redis priority queue'dan birden fazla item çeker (batch processing için).
+        Returns: List of priority queue items (empty list if none available)
+        """
+        if not self._redis_sync_client:
+            return []
+
+        items = []
+        try:
+            # Önce high priority queue'dan batch_size kadar item çek
+            for _ in range(batch_size):
+                raw_item = self._redis_sync_client.rpop("priority_queue:high")
+                if raw_item:
+                    items.append(json.loads(raw_item))
+                else:
+                    break
+
+            # Eğer batch_size dolmadıysa normal queue'dan tamamla
+            remaining = batch_size - len(items)
+            for _ in range(remaining):
+                raw_item = self._redis_sync_client.rpop("priority_queue:normal")
+                if raw_item:
+                    items.append(json.loads(raw_item))
+                else:
+                    break
+
+            if items:
+                logger.info("Fetched %d items from priority queue for batch processing", len(items))
+
+            return items
+        except Exception as e:
+            logger.warning("Batch priority queue check failed: %s", e)
+            return []
+
     async def _process_priority_message(self, db: Session, priority_item: Dict[str, Any]) -> bool:
         """
         Priority queue'dan gelen mesajı işle ve bot'un yanıt vermesini sağla.
@@ -1723,6 +1761,213 @@ class BehaviorEngine:
             logger.exception("Priority message processing failed: %s", e)
             return False
 
+    async def _process_priority_queue_batch(self, db: Session, priority_items: List[Dict[str, Any]]) -> int:
+        """
+        SESSION 38: Batch priority queue processing with parallel LLM generation.
+        Birden fazla priority mesajını aynı anda işler (3-5x daha hızlı).
+        Returns: Number of successfully processed messages
+        """
+        if not priority_items:
+            return 0
+
+        s = self.settings(db)
+        prompts_data = []  # List of (item, bot, chat, user_prompt, context) tuples
+
+        # 1. Tüm item'lar için promptları hazırla
+        for priority_item in priority_items:
+            try:
+                bot_id = priority_item.get("bot_id")
+                chat_id = priority_item.get("chat_id")
+                telegram_message_id = priority_item.get("telegram_message_id")
+                user_text = priority_item.get("text", "")
+
+                if not bot_id or not chat_id:
+                    logger.warning("Invalid priority item: missing bot_id or chat_id")
+                    continue
+
+                # Bot ve chat çek
+                bot = db.query(Bot).filter(Bot.id == bot_id, Bot.is_enabled.is_(True)).first()
+                chat = db.query(Chat).filter(Chat.id == chat_id).first()
+
+                if not bot or not chat:
+                    logger.warning("Bot %s or Chat %s not found for batch processing", bot_id, chat_id)
+                    continue
+
+                # Context hazırla (tek mesaj için olanla aynı mantık)
+                incoming_msg = db.query(Message).filter(
+                    Message.telegram_message_id == telegram_message_id,
+                    Message.chat_db_id == chat_id,
+                ).first()
+
+                (persona_profile, emotion_profile, stances, holdings, persona_hint) = self.fetch_psh(db, bot, topic_hint=None)
+                recent_msgs = self.fetch_recent_messages(db, chat.id, limit=40)
+                history_source = list(recent_msgs[:8])
+                history_excerpt = build_history_transcript(list(reversed(history_source)))
+                contextual_examples = build_contextual_examples(list(reversed(recent_msgs)), bot_id=bot.id, max_pairs=3)
+
+                topic_pool = chat.topics or ["BIST", "FX", "Kripto", "Makro"]
+                topic = choose_topic_from_messages([incoming_msg] if incoming_msg else history_source, topic_pool)
+
+                # Market trigger (düşük olasılık)
+                market_trigger = ""
+                if bool(s.get("news_trigger_enabled", True)) and self.news is not None and random.random() < 0.3:
+                    try:
+                        brief = self.news.get_brief(topic)
+                        if brief:
+                            market_trigger = brief
+                    except Exception:
+                        pass
+
+                reaction_plan = synthesize_reaction_plan(emotion_profile=emotion_profile, market_trigger=market_trigger)
+                tempo_multiplier = derive_tempo_multiplier(emotion_profile, reaction_plan)
+                selected_length_category = choose_message_length_category(s.get("message_length_profile"))
+                length_hint = compose_length_hint(persona_profile=persona_profile, selected_category=selected_length_category)
+                time_context = generate_time_context()
+                bot_memories = fetch_bot_memories(db, bot.id, limit=8)
+                memories_text = format_memories_for_prompt(bot_memories)
+
+                temp_metadata = extract_message_metadata(text=user_text, topic=topic)
+                current_symbols = temp_metadata.get("symbols", [])
+                past_references = find_relevant_past_messages(db, bot_id=bot.id, current_topic=topic, current_symbols=current_symbols, days_back=7, limit=3)
+                past_references_text = format_past_references_for_prompt(past_references)
+
+                reply_excerpt = shorten(user_text, 240)
+
+                # User prompt oluştur
+                user_prompt = generate_user_prompt(
+                    topic_name=topic,
+                    history_excerpt=shorten(history_excerpt, 400),
+                    reply_context=reply_excerpt,
+                    market_trigger=market_trigger,
+                    mode="reply",
+                    mention_context="",
+                    persona_profile=persona_profile,
+                    reaction_guidance=reaction_plan.instructions,
+                    emotion_profile=emotion_profile,
+                    contextual_examples=contextual_examples,
+                    stances=stances,
+                    holdings=holdings,
+                    memories=memories_text,
+                    past_references=past_references_text,
+                    length_hint=length_hint,
+                    persona_hint=persona_hint,
+                    persona_refresh_note="",
+                    time_context=time_context,
+                )
+
+                # Prompt'u listeye ekle (context ile birlikte)
+                prompts_data.append({
+                    "item": priority_item,
+                    "bot": bot,
+                    "chat": chat,
+                    "user_prompt": user_prompt,
+                    "persona_profile": persona_profile,
+                    "emotion_profile": emotion_profile,
+                    "stances": stances,
+                    "reaction_plan": reaction_plan,
+                    "tempo_multiplier": tempo_multiplier,
+                    "telegram_message_id": telegram_message_id,
+                    "topic": topic,
+                })
+
+            except Exception as e:
+                logger.exception("Failed to prepare prompt for batch item: %s", e)
+                continue
+
+        if not prompts_data:
+            logger.warning("No valid prompts prepared for batch processing")
+            return 0
+
+        # 2. Tüm promptları batch olarak LLM'e gönder (PARALLEL!)
+        prompts = [pd["user_prompt"] for pd in prompts_data]
+        logger.info("Sending %d prompts to batch LLM (parallel processing)...", len(prompts))
+
+        results = self.llm_batch.generate_batch(
+            prompts=prompts,
+            temperature=0.75,
+            max_tokens=220,
+            preserve_order=True,  # Sıralama önemli!
+        )
+
+        # 3. Sonuçları işle ve Telegram'a gönder
+        success_count = 0
+        for prompt_data, text in zip(prompts_data, results):
+            if not text:
+                logger.warning("LLM returned empty response for batch item (bot=%s)", prompt_data["bot"].name)
+                continue
+
+            try:
+                bot = prompt_data["bot"]
+                chat = prompt_data["chat"]
+                telegram_message_id = prompt_data["telegram_message_id"]
+                persona_profile = prompt_data["persona_profile"]
+                emotion_profile = prompt_data["emotion_profile"]
+                stances = prompt_data["stances"]
+                reaction_plan = prompt_data["reaction_plan"]
+                tempo_multiplier = prompt_data["tempo_multiplier"]
+                topic = prompt_data["topic"]
+
+                # Tutarlılık koruması
+                if bool(s.get("consistency_guard_enabled", True)):
+                    revised = apply_consistency_guard(self.llm, draft_text=text, persona_profile=persona_profile, stances=stances)
+                    if revised:
+                        text = revised
+
+                text = apply_reaction_overrides(text, reaction_plan)
+                text = apply_micro_behaviors(text, emotion_profile=emotion_profile, plan=reaction_plan)
+
+                # İnsancıl geliştirmeler
+                text = add_conversation_openings(text, probability=0.35)
+                text = add_hesitation_markers(text, probability=0.25)
+                text = add_colloquial_shortcuts(text, probability=0.20)
+                text = add_filler_words(text, probability=0.25)
+                text = apply_natural_imperfections(text, probability=0.12)
+
+                # Typing simülasyonu
+                if bool(s.get("typing_enabled", True)):
+                    await self.tg.send_typing(
+                        bot.token,
+                        chat.chat_id,
+                        self.typing_seconds(db, len(text), bot=bot, tempo_multiplier=tempo_multiplier),
+                    )
+
+                # Mesajı gönder
+                msg_id = await self.tg.send_message(
+                    token=bot.token,
+                    chat_id=chat.chat_id,
+                    text=text,
+                    reply_to_message_id=telegram_message_id,
+                    disable_preview=True,
+                )
+
+                # DB log
+                msg_metadata = extract_message_metadata(text, topic)
+                msg_metadata["is_priority_response"] = True
+                msg_metadata["is_batch_processed"] = True  # Batch flag
+                msg_metadata["responded_to_message_id"] = telegram_message_id
+
+                db.add(Message(
+                    bot_id=bot.id,
+                    chat_db_id=chat.id,
+                    telegram_message_id=msg_id,
+                    text=text,
+                    reply_to_message_id=telegram_message_id,
+                    msg_metadata=msg_metadata,
+                ))
+                db.commit()
+
+                self.invalidate_chat_cache(chat.id)
+
+                logger.info("Batch priority response sent: bot=%s, text_preview=%s", bot.name, text[:50])
+                success_count += 1
+
+            except Exception as e:
+                logger.exception("Failed to process batch result for bot %s: %s", prompt_data["bot"].name, e)
+                continue
+
+        logger.info("Batch processing complete: %d/%d messages sent successfully", success_count, len(priority_items))
+        return success_count
+
     # ---- Akış ----
     async def tick_once(self) -> None:
         db: Session = SessionLocal()
@@ -1737,17 +1982,33 @@ class BehaviorEngine:
                 return
 
             # ÖNCELİK 1: Priority queue'dan gelen mesajları kontrol et
-            priority_item = self._check_priority_queue(db)
-            if priority_item:
-                # Priority mesajı işle (kullanıcı mention/reply'leri)
-                success = await self._process_priority_message(db, priority_item)
-                if success:
-                    # Priority mesaj işlendikten sonra kısa bir gecikme
+            # SESSION 38: Batch processing support
+            batch_enabled = bool(s.get("batch_processing_enabled", False))
+            batch_size = int(s.get("batch_size", 5))
+
+            if batch_enabled and batch_size > 1:
+                # Batch mode: Birden fazla mesajı paralel işle
+                priority_items = self._check_priority_queue_batch(db, batch_size)
+                if priority_items:
+                    logger.info("Batch mode: Processing %d priority messages in parallel", len(priority_items))
+                    success_count = await self._process_priority_queue_batch(db, priority_items)
+                    logger.info("Batch processing result: %d/%d messages sent", success_count, len(priority_items))
+                    # Batch işlendikten sonra kısa gecikme
                     await asyncio.sleep(2.0)
-                else:
-                    # Başarısızsa biraz daha bekle
-                    await asyncio.sleep(5.0)
-                return  # Priority işlendikten sonra normal akışa geri dön
+                    return
+            else:
+                # Sequential mode: Tek mesaj işle (mevcut davranış)
+                priority_item = self._check_priority_queue(db)
+                if priority_item:
+                    # Priority mesajı işle (kullanıcı mention/reply'leri)
+                    success = await self._process_priority_message(db, priority_item)
+                    if success:
+                        # Priority mesaj işlendikten sonra kısa bir gecikme
+                        await asyncio.sleep(2.0)
+                    else:
+                        # Başarısızsa biraz daha bekle
+                        await asyncio.sleep(5.0)
+                    return  # Priority işlendikten sonra normal akışa geri dön
 
             # Global rate limit
             if not self.global_rate_ok(db):
