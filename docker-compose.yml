@@ -224,6 +224,22 @@ services:
       - api
 
   # ============================================================================
+  # ALERTMANAGER - Alert Yönlendirme (SESSION 38)
+  # ============================================================================
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: piyasa-alertmanager
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    ports:
+      - "9093:9093"  # AlertManager UI: http://localhost:9093
+    restart: unless-stopped
+
+  # ============================================================================
   # PROMETHEUS - Metrik Toplama (Gösterge Paneli Arka Plan Servisi)
   # ============================================================================
   prometheus:
@@ -231,6 +247,7 @@ services:
     container_name: piyasa-prometheus
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus_rules:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -242,6 +259,7 @@ services:
       - "9090:9090"  # Prometheus UI: http://localhost:9090
     depends_on:
       - api
+      - alertmanager
     restart: unless-stopped
 
   # ============================================================================
@@ -267,5 +285,6 @@ volumes:
   pgdata:
   redis_data:       # Redis cache verilerini saklar
   prometheus-data:  # Prometheus verilerini saklar
+  alertmanager-data: # AlertManager verilerini saklar (SESSION 38)
   grafana-data:     # Grafana dashboardlarını saklar
   backup_data:      # Database backups (daily/weekly/monthly)

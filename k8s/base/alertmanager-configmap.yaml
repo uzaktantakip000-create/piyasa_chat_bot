@@ -1,0 +1,107 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: piyasa-monitoring
+  labels:
+    app: alertmanager
+data:
+  alertmanager.yml: |
+    # AlertManager Configuration for Kubernetes
+    global:
+      resolve_timeout: 5m
+
+    # Alert routing
+    route:
+      receiver: 'default'
+      group_by: ['alertname', 'severity', 'service']
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 3h
+
+      # Child routes (specific alert routing)
+      routes:
+        # Critical alerts (immediate notification)
+        - match:
+            severity: critical
+          receiver: 'critical-alerts'
+          group_wait: 10s
+          repeat_interval: 5m
+
+        # High severity (API/Worker down)
+        - match:
+            severity: high
+          receiver: 'high-priority'
+          group_wait: 30s
+          repeat_interval: 15m
+
+        # Warning alerts (degraded performance)
+        - match:
+            severity: warning
+          receiver: 'warnings'
+          group_wait: 5m
+          repeat_interval: 1h
+
+        # Info alerts (low priority)
+        - match:
+            severity: info
+          receiver: 'info-alerts'
+          group_wait: 10m
+          repeat_interval: 12h
+
+    # Receivers (notification channels)
+    receivers:
+      # Default receiver (logs only)
+      - name: 'default'
+        webhook_configs:
+          - url: 'http://localhost:5001/webhook'
+            send_resolved: true
+
+      # Critical alerts (multiple channels)
+      - name: 'critical-alerts'
+        webhook_configs:
+          - url: 'http://localhost:5001/webhook/critical'
+            send_resolved: true
+
+      # High priority alerts
+      - name: 'high-priority'
+        webhook_configs:
+          - url: 'http://localhost:5001/webhook/high'
+            send_resolved: true
+
+      # Warnings
+      - name: 'warnings'
+        webhook_configs:
+          - url: 'http://localhost:5001/webhook/warning'
+            send_resolved: true
+
+      # Info alerts
+      - name: 'info-alerts'
+        webhook_configs:
+          - url: 'http://localhost:5001/webhook/info'
+            send_resolved: true
+
+    # Inhibition rules (suppress alerts)
+    inhibit_rules:
+      # If API is down, suppress all API-related warnings
+      - source_match:
+          severity: 'critical'
+          service: 'api'
+        target_match:
+          service: 'api'
+        equal: ['instance']
+
+      # If Worker is down, suppress message generation warnings
+      - source_match:
+          severity: 'critical'
+          service: 'worker'
+        target_match:
+          service: 'worker'
+        equal: ['instance']
+
+      # If circuit breaker is open, suppress LLM error rate warnings
+      - source_match:
+          alertname: 'CircuitBreakerOpen'
+        target_match:
+          alertname: 'HighLLMErrorRate'
+        equal: ['provider']

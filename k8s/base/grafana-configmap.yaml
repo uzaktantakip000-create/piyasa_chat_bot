@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: piyasa-monitoring
+  labels:
+    app: grafana
+data:
+  prometheus.yml: |
+    # Grafana Data Source Configuration for Kubernetes
+    apiVersion: 1
+
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://piyasa-prometheus.piyasa-monitoring.svc.cluster.local:9090
+        isDefault: true
+        editable: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-provider
+  namespace: piyasa-monitoring
+  labels:
+    app: grafana
+data:
+  default.yml: |
+    # Grafana Dashboard Provider Configuration
+    apiVersion: 1
+
+    providers:
+      - name: 'Piyasa ChatBot'
+        orgId: 1
+        folder: ''
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 10
+        allowUiUpdates: true
+        options:
+          path: /etc/grafana/provisioning/dashboards
+          foldersFromFilesStructure: true

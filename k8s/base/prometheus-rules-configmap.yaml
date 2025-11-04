@@ -1,0 +1,324 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: piyasa-monitoring
+  labels:
+    app: prometheus
+data:
+  alert_rules.yml: |
+    # Prometheus Alert Rules
+    # Defines conditions for triggering alerts
+
+    groups:
+      # ============================
+      # API Health & Availability
+      # ============================
+      - name: api_health
+        interval: 30s
+        rules:
+          # API is completely down
+          - alert: APIDown
+            expr: up{job="piyasa-chatbot-api"} == 0
+            for: 1m
+            labels:
+              severity: critical
+              service: api
+            annotations:
+              summary: "API service is down"
+              description: "API has been unreachable for more than 1 minute. Service: {{ $labels.instance }}"
+
+          # API high error rate
+          - alert: HighAPIErrorRate
+            expr: |
+              (
+                sum(rate(http_requests_total{job="piyasa-chatbot-api", status=~"5.."}[5m]))
+                /
+                sum(rate(http_requests_total{job="piyasa-chatbot-api"}[5m]))
+              ) > 0.05
+            for: 5m
+            labels:
+              severity: high
+              service: api
+            annotations:
+              summary: "High API error rate detected"
+              description: "API error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+
+          # API high latency
+          - alert: HighAPILatency
+            expr: |
+              histogram_quantile(0.95,
+                sum(rate(http_request_duration_seconds_bucket{job="piyasa-chatbot-api"}[5m])) by (le)
+              ) > 2.0
+            for: 10m
+            labels:
+              severity: warning
+              service: api
+            annotations:
+              summary: "High API latency detected"
+              description: "API p95 latency is {{ $value }}s (threshold: 2s)"
+
+      # ============================
+      # Worker Health & Performance
+      # ============================
+      - name: worker_health
+        interval: 30s
+        rules:
+          # Worker is down
+          - alert: WorkerDown
+            expr: up{job="piyasa-chatbot-worker"} == 0
+            for: 2m
+            labels:
+              severity: critical
+              service: worker
+            annotations:
+              summary: "Worker service is down"
+              description: "Worker {{ $labels.instance }} has been unreachable for more than 2 minutes"
+
+          # No messages generated
+          - alert: WorkerNoMessages
+            expr: |
+              rate(messages_generated_total[10m]) == 0
+              and
+              on() simulation_active == 1
+            for: 10m
+            labels:
+              severity: high
+              service: worker
+            annotations:
+              summary: "Worker not generating messages"
+              description: "No messages generated in last 10 minutes despite simulation being active"
+
+          # High message generation latency
+          - alert: HighMessageGenerationLatency
+            expr: |
+              histogram_quantile(0.95,
+                sum(rate(message_generation_duration_seconds_bucket[5m])) by (le)
+              ) > 10.0
+            for: 10m
+            labels:
+              severity: warning
+              service: worker
+            annotations:
+              summary: "High message generation latency"
+              description: "Message generation p95 latency is {{ $value }}s (threshold: 10s)"
+
+          # High message generation failure rate
+          - alert: HighMessageFailureRate
+            expr: |
+              (
+                sum(rate(messages_failed_total[5m]))
+                /
+                sum(rate(messages_generated_total[5m]) + rate(messages_failed_total[5m]))
+              ) > 0.10
+            for: 5m
+            labels:
+              severity: warning
+              service: worker
+            annotations:
+              summary: "High message generation failure rate"
+              description: "Message failure rate is {{ $value | humanizePercentage }} (threshold: 10%)"
+
+      # ============================
+      # LLM & Circuit Breaker
+      # ============================
+      - name: llm_health
+        interval: 30s
+        rules:
+          # Circuit breaker open
+          - alert: CircuitBreakerOpen
+            expr: circuit_breaker_state{service=~"openai_api|gemini_api|groq_api"} == 2
+            for: 1m
+            labels:
+              severity: high
+              service: llm
+            annotations:
+              summary: "Circuit breaker OPEN for {{ $labels.service }}"
+              description: "LLM API circuit breaker has opened. Service: {{ $labels.service }}"
+
+          # High LLM error rate
+          - alert: HighLLMErrorRate
+            expr: |
+              (
+                sum(rate(llm_requests_failed_total[5m])) by (provider)
+                /
+                sum(rate(llm_requests_total[5m])) by (provider)
+              ) > 0.15
+            for: 5m
+            labels:
+              severity: warning
+              service: llm
+            annotations:
+              summary: "High LLM error rate for {{ $labels.provider }}"
+              description: "LLM error rate is {{ $value | humanizePercentage }} (threshold: 15%)"
+
+          # LLM token usage spike
+          - alert: LLMTokenUsageSpike
+            expr: |
+              rate(llm_tokens_used_total[5m])
+              >
+              1.5 * avg_over_time(rate(llm_tokens_used_total[5m])[1h:5m])
+            for: 10m
+            labels:
+              severity: warning
+              service: llm
+            annotations:
+              summary: "LLM token usage spike detected"
+              description: "Token usage is 50% higher than 1-hour average. Current rate: {{ $value | humanize }} tokens/s"
+
+      # ============================
+      # Database & Cache
+      # ============================
+      - name: database_health
+        interval: 30s
+        rules:
+          # Database connection pool exhaustion
+          - alert: DatabaseConnectionPoolExhausted
+            expr: |
+              (
+                database_connection_pool_in_use
+                /
+                database_connection_pool_size
+              ) > 0.90
+            for: 5m
+            labels:
+              severity: high
+              service: database
+            annotations:
+              summary: "Database connection pool near exhaustion"
+              description: "{{ $value | humanizePercentage }} of database connections in use (threshold: 90%)"
+
+          # Slow database queries
+          - alert: SlowDatabaseQueries
+            expr: |
+              histogram_quantile(0.95,
+                sum(rate(database_query_duration_seconds_bucket[5m])) by (le)
+              ) > 1.0
+            for: 10m
+            labels:
+              severity: warning
+              service: database
+            annotations:
+              summary: "Slow database queries detected"
+              description: "Database query p95 latency is {{ $value }}s (threshold: 1s)"
+
+          # Low cache hit rate
+          - alert: LowCacheHitRate
+            expr: |
+              (
+                sum(rate(cache_hits_total[5m]))
+                /
+                sum(rate(cache_hits_total[5m]) + rate(cache_misses_total[5m]))
+              ) < 0.50
+            for: 15m
+            labels:
+              severity: warning
+              service: cache
+            annotations:
+              summary: "Low cache hit rate"
+              description: "Cache hit rate is {{ $value | humanizePercentage }} (threshold: 50%)"
+
+      # ============================
+      # Telegram API
+      # ============================
+      - name: telegram_health
+        interval: 30s
+        rules:
+          # Telegram API rate limit hit
+          - alert: TelegramRateLimitHit
+            expr: rate(telegram_429_count[5m]) > 0.1
+            for: 5m
+            labels:
+              severity: warning
+              service: telegram
+            annotations:
+              summary: "Telegram API rate limit hit"
+              description: "Telegram 429 errors: {{ $value | humanize }} per second"
+
+          # Telegram high error rate
+          - alert: HighTelegramErrorRate
+            expr: |
+              (
+                sum(rate(telegram_errors_total[5m]))
+                /
+                sum(rate(telegram_requests_total[5m]))
+              ) > 0.10
+            for: 5m
+            labels:
+              severity: warning
+              service: telegram
+            annotations:
+              summary: "High Telegram API error rate"
+              description: "Telegram error rate is {{ $value | humanizePercentage }} (threshold: 10%)"
+
+      # ============================
+      # System Resources
+      # ============================
+      - name: system_resources
+        interval: 60s
+        rules:
+          # High CPU usage
+          - alert: HighCPUUsage
+            expr: |
+              100 - (avg by (instance) (rate(process_cpu_seconds_total[5m])) * 100) > 80
+            for: 10m
+            labels:
+              severity: warning
+              service: system
+            annotations:
+              summary: "High CPU usage on {{ $labels.instance }}"
+              description: "CPU usage is {{ $value }}% (threshold: 80%)"
+
+          # High memory usage
+          - alert: HighMemoryUsage
+            expr: |
+              (
+                process_resident_memory_bytes
+                /
+                process_virtual_memory_max_bytes
+              ) > 0.85
+            for: 10m
+            labels:
+              severity: warning
+              service: system
+            annotations:
+              summary: "High memory usage on {{ $labels.instance }}"
+              description: "Memory usage is {{ $value | humanizePercentage }} (threshold: 85%)"
+
+      # ============================
+      # Business Metrics
+      # ============================
+      - name: business_metrics
+        interval: 60s
+        rules:
+          # Low message throughput
+          - alert: LowMessageThroughput
+            expr: |
+              rate(messages_generated_total[10m]) < 0.1
+              and
+              on() simulation_active == 1
+              and
+              on() hour() >= 9 and hour() < 18  # Market hours only
+            for: 15m
+            labels:
+              severity: info
+              service: business
+            annotations:
+              summary: "Low message throughput during market hours"
+              description: "Message rate is {{ $value | humanize }} msg/s (expected: >0.1 msg/s)"
+
+          # High deduplication rate
+          - alert: HighDeduplicationRate
+            expr: |
+              (
+                sum(rate(messages_deduplicated_total[5m]))
+                /
+                sum(rate(messages_generated_total[5m]))
+              ) > 0.30
+            for: 15m
+            labels:
+              severity: info
+              service: business
+            annotations:
+              summary: "High deduplication rate"
+              description: "{{ $value | humanizePercentage }} of messages are duplicates (threshold: 30%)"

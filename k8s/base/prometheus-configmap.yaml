@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: piyasa-monitoring
+  labels:
+    app: prometheus
+data:
+  prometheus.yml: |
+    # Prometheus Configuration for Kubernetes
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      external_labels:
+        cluster: 'piyasa-chatbot'
+        environment: 'production'
+
+    # AlertManager configuration
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets:
+                - 'piyasa-alertmanager.piyasa-monitoring.svc.cluster.local:9093'
+
+    # Alert rules
+    rule_files:
+      - '/etc/prometheus/rules/*.yml'
+
+    # Metrik toplama hedefleri (Kubernetes service discovery)
+    scrape_configs:
+      # API servisi metrikleri
+      - job_name: 'piyasa-chatbot-api'
+        static_configs:
+          - targets: ['piyasa-api.piyasa-chatbot.svc.cluster.local:8000']
+        metrics_path: '/metrics'
+        scrape_interval: 10s
+
+      # Worker servisi metrikleri
+      - job_name: 'piyasa-chatbot-worker'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - piyasa-chatbot
+        relabel_configs:
+          # Only scrape pods with app=piyasa-worker label
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: piyasa-worker
+          # Use pod name as instance label
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: instance
+          # Add worker_id label
+          - source_labels: [__meta_kubernetes_pod_label_worker_id]
+            target_label: worker_id
+        metrics_path: '/metrics'
+        scrape_interval: 10s
+
+      # AlertManager metrics
+      - job_name: 'alertmanager'
+        static_configs:
+          - targets: ['piyasa-alertmanager.piyasa-monitoring.svc.cluster.local:9093']
+
+      # Prometheus self-monitoring
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
