@@ -316,6 +316,38 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # =========================================
+  # MEMORY CLEANUP SERVICE (SESSION 41)
+  # =========================================
+  memory-cleanup:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: piyasa-memory-cleanup
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+psycopg://app:app@db:5432/app
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    command: >
+      sh -c "while true; do
+        echo '[Memory Cleanup] Starting monthly cleanup cycle...';
+        python scripts/cleanup_memories.py;
+        echo '[Memory Cleanup] Next cleanup in 30 days. Sleeping...';
+        sleep 2592000;
+      done"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      disable: true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   pgdata:
   redis_data:       # Redis cache verilerini saklar
