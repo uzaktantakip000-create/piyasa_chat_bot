@@ -74,6 +74,8 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      disable: true
 
   # ============================================================================
   # WORKER 2 (Bot ID % 4 == 1)
@@ -110,6 +112,8 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      disable: true
 
   # ============================================================================
   # WORKER 3 (Bot ID % 4 == 2)
@@ -146,6 +150,8 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      disable: true
 
   # ============================================================================
   # WORKER 4 (Bot ID % 4 == 3)
@@ -182,6 +188,8 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      disable: true
 
   db:
     image: postgres:16-alpine
