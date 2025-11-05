@@ -638,6 +638,108 @@ def update_user_password(db: Session, user: ApiUser, new_password: str) -> None:
     db.commit()
 
 
+# ---------------------------------------------------------
+# USER MANAGEMENT HELPERS
+# ---------------------------------------------------------
+def create_user(db: Session, username: str, password: str, role: str, mfa_enabled: bool = False) -> ApiUser:
+    """Create a new user with hashed password and API key."""
+    # Check if username already exists
+    existing = db.query(ApiUser).filter(ApiUser.username == username).first()
+    if existing:
+        raise ValueError(f"Username '{username}' already exists")
+
+    # Validate role
+    if role not in ["viewer", "operator", "admin"]:
+        raise ValueError(f"Invalid role: {role}. Must be viewer, operator, or admin")
+
+    # Hash password
+    password_hash, password_salt = hash_secret(password)
+
+    # Generate API key
+    api_key_plain, api_key_hash, api_key_salt = generate_api_key()
+
+    # Generate MFA secret if enabled
+    mfa_secret = generate_totp_secret() if mfa_enabled else None
+
+    # Create user
+    user = ApiUser(
+        username=username,
+        role=role,
+        password_hash=password_hash,
+        password_salt=password_salt,
+        mfa_secret=mfa_secret,
+        api_key_hash=api_key_hash,
+        api_key_salt=api_key_salt,
+        api_key_last_rotated=datetime.now(timezone.utc),
+        is_active=True,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    logger.info(f"Created new user '{username}' with role '{role}'")
+    return user
+
+
+def update_user(
+    db: Session,
+    user: ApiUser,
+    role: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    reset_password: Optional[str] = None
+) -> ApiUser:
+    """Update user attributes (role, is_active, password)."""
+    if role is not None:
+        if role not in ["viewer", "operator", "admin"]:
+            raise ValueError(f"Invalid role: {role}. Must be viewer, operator, or admin")
+        user.role = role
+        logger.info(f"Updated user '{user.username}' role to '{role}'")
+
+    if is_active is not None:
+        user.is_active = is_active
+        logger.info(f"Updated user '{user.username}' is_active to {is_active}")
+
+    if reset_password:
+        password_hash, password_salt = hash_secret(reset_password)
+        user.password_hash = password_hash
+        user.password_salt = password_salt
+        logger.info(f"Reset password for user '{user.username}'")
+
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def delete_user(db: Session, user: ApiUser) -> None:
+    """Soft delete user by setting is_active to False and invalidating sessions."""
+    user.is_active = False
+    db.add(user)
+
+    # Invalidate all user sessions
+    sessions = db.query(ApiSession).filter(
+        ApiSession.user_id == user.id,
+        ApiSession.is_active.is_(True)
+    ).all()
+    for session in sessions:
+        session.is_active = False
+        db.add(session)
+
+    db.commit()
+    logger.info(f"Deactivated user '{user.username}' and invalidated {len(sessions)} sessions")
+
+
+def reset_user_mfa(db: Session, user: ApiUser) -> str:
+    """Reset user's MFA secret and return new secret."""
+    new_secret = generate_totp_secret()
+    user.mfa_secret = new_secret
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    logger.info(f"Reset MFA secret for user '{user.username}'")
+    return new_secret
+
+
 def create_api_user(
     username: str,
     password: str,

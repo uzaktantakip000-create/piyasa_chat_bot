@@ -305,6 +305,35 @@ class UserInfoResponse(BaseModel):
 
 
 # ---------------------------------------------------------
+# USER MANAGEMENT SCHEMAS
+# ---------------------------------------------------------
+class UserCreateRequest(BaseModel):
+    username: str = Field(..., description="Kullanıcı adı (benzersiz)", min_length=3, max_length=64)
+    password: str = Field(..., description="Şifre", min_length=6)
+    role: str = Field(..., description="Rol: viewer, operator, admin")
+    mfa_enabled: bool = Field(False, description="MFA aktif mi?")
+
+
+class UserUpdateRequest(BaseModel):
+    role: Optional[str] = Field(None, description="Yeni rol: viewer, operator, admin")
+    is_active: Optional[bool] = Field(None, description="Kullanıcı aktif mi?")
+    reset_password: Optional[str] = Field(None, description="Yeni şifre (sadece şifre değiştirmek için)", min_length=6)
+
+
+class UserListResponse(BaseModel):
+    id: int
+    username: str
+    role: str
+    is_active: bool
+    mfa_enabled: bool
+    created_at: datetime
+    api_key_last_rotated: datetime
+
+    class Config:
+        orm_mode = True
+
+
+# ---------------------------------------------------------
 # DEMO BOTS SCHEMAS
 # ---------------------------------------------------------
 class DemoBotsCreate(BaseModel):

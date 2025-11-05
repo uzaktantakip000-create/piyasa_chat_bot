@@ -28,6 +28,7 @@ import SettingsPage from './Settings'
 import Logs from './Logs'
 import Wizard from './components/Wizard'
 import QuickStart from './QuickStart'
+import UserManagement from './UserManagement'
 import { apiFetch, getStoredApiKey, setStoredApiKey, isApiError } from './apiClient'
 import './App.css'
 import LoginPanel from './components/LoginPanel'
@@ -714,7 +715,7 @@ function AppShell() {
 
   const isFetchingMetrics = metricsPhase === 'loading' || metricsPhase === 'refreshing' || metricsPhase === 'manual'
 
-  const sidebarItems = [
+  const allSidebarItems = [
     {
       title: 'Dashboard',
       url: '/',
@@ -741,6 +742,12 @@ function AppShell() {
       icon: Settings
     },
     {
+      title: 'Kullanıcılar',
+      url: '/users',
+      icon: Users,
+      requiredRole: 'admin'
+    },
+    {
       title: 'Loglar',
       url: '/logs',
       icon: FileText
@@ -751,6 +758,12 @@ function AppShell() {
       icon: LifeBuoy
     }
   ]
+
+  // Filter sidebar items based on user role
+  const sidebarItems = allSidebarItems.filter(item => {
+    if (!item.requiredRole) return true
+    return sessionMeta?.role === item.requiredRole
+  })
 
   if (!isAuthenticated) {
     return (
@@ -997,6 +1010,7 @@ function AppShell() {
               <Route path="/bots" element={<Bots />} />
               <Route path="/chats" element={<Chats />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/users" element={sessionMeta?.role === 'admin' ? <UserManagement /> : <Navigate to="/" replace />} />
               <Route path="/logs" element={<Logs />} />
               <Route path="/help" element={<QuickStart />} />
               <Route path="*" element={<Navigate to="/" replace />} />
