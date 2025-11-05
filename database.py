@@ -128,8 +128,10 @@ class Message(Base):
     # Örnek: {"topic": "BIST", "symbols": ["AKBNK", "GARAN"], "sentiment": "positive", "references": [123, 456]}
     msg_metadata = Column(JSON, default=dict, nullable=True)
 
-    bot = relationship("Bot", back_populates="messages")
-    chat = relationship("Chat", back_populates="messages")
+    # SESSION 41: Use lazy='joined' to prevent DetachedInstance errors
+    # All Message queries will automatically eager-load bot and chat
+    bot = relationship("Bot", back_populates="messages", lazy='joined')
+    chat = relationship("Chat", back_populates="messages", lazy='joined')
 
     __table_args__ = (
         # Composite indexes for common queries
