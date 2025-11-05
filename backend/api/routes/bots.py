@@ -7,16 +7,18 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from database import get_db, Bot, BotStance, BotHolding
+from database import get_db, Bot, BotStance, BotHolding, BotMemory
 from schemas import (
     BotCreate, BotUpdate, BotResponse,
     PersonaProfile, EmotionProfile,
     StanceCreate, StanceUpdate, StanceResponse,
     HoldingCreate, HoldingUpdate, HoldingResponse,
+    MemoryCreate, MemoryUpdate, MemoryResponse,
 )
 from security import mask_token, SecurityConfigError
 from backend.api.dependencies import viewer_dependencies, operator_dependencies, admin_dependencies
 from backend.api.routes.control import get_redis, publish_config_update
+from backend.api.utils.memory_generator import auto_generate_bot_memories
 
 # Cache invalidation helpers
 try:
@@ -79,6 +81,15 @@ def create_bot(bot: BotCreate, db: Session = Depends(get_db)):
     db.add(db_bot)
     db.commit()
     db.refresh(db_bot)
+
+    # Auto-generate default memories from persona
+    try:
+        memory_count = auto_generate_bot_memories(db, db_bot)
+        if memory_count > 0:
+            logger.info(f"Auto-generated {memory_count} memories for bot {db_bot.id}")
+    except Exception as e:
+        logger.warning(f"Failed to auto-generate memories for bot {db_bot.id}: {e}")
+
     publish_config_update(get_redis(), {"type": "bot_added", "bot_id": db_bot.id})
     return _bot_to_response(db_bot)
 
@@ -434,4 +445,101 @@ def delete_holding(holding_id: int, db: Session = Depends(get_db)):
         logger.warning(f"Cache invalidation failed for bot {bot_id}: {e}")
 
     publish_config_update(get_redis(), {"type": "holding_deleted", "bot_id": bot_id, "holding_id": holding_id})
+    return None
+
+
+# ============================================================================
+# Bot Memory Management
+# ============================================================================
+
+@router.get("/{bot_id}/memories", response_model=List[MemoryResponse], dependencies=viewer_dependencies)
+def list_memories(bot_id: int, db: Session = Depends(get_db)):
+    """Get all memories for a bot."""
+    bot = db.query(Bot).filter(Bot.id == bot_id).first()
+    if not bot:
+        raise HTTPException(404, "Bot not found")
+    rows = (
+        db.query(BotMemory)
+        .filter(BotMemory.bot_id == bot_id)
+        .order_by(BotMemory.relevance_score.desc(), BotMemory.last_used_at.desc())
+        .all()
+    )
+    return rows
+
+
+@router.post("/{bot_id}/memories", response_model=MemoryResponse, status_code=201, dependencies=operator_dependencies)
+def create_memory(bot_id: int, body: MemoryCreate, db: Session = Depends(get_db)):
+    """
+    Create a new memory for a bot.
+    Requires operator role.
+    """
+    bot = db.query(Bot).filter(Bot.id == bot_id).first()
+    if not bot:
+        raise HTTPException(404, "Bot not found")
+
+    row = BotMemory(
+        bot_id=bot_id,
+        memory_type=body.memory_type,
+        content=body.content,
+        relevance_score=body.relevance_score or 1.0,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
+    # Invalidate cache and publish config update
+    try:
+        invalidate_bot_cache(bot_id)
+    except Exception as e:
+        logger.warning(f"Cache invalidation failed for bot {bot_id}: {e}")
+
+    publish_config_update(get_redis(), {"type": "memory_created", "bot_id": bot_id, "memory_id": row.id})
+    return row
+
+
+@router.patch("/memories/{memory_id}", response_model=MemoryResponse, dependencies=operator_dependencies)
+def update_memory(memory_id: int, patch: MemoryUpdate, db: Session = Depends(get_db)):
+    """
+    Update a memory by ID.
+    Requires operator role.
+    """
+    row = db.query(BotMemory).filter(BotMemory.id == memory_id).first()
+    if not row:
+        raise HTTPException(404, "Memory not found")
+
+    for k, v in patch.dict(exclude_unset=True).items():
+        setattr(row, k, v)
+    db.commit()
+    db.refresh(row)
+
+    # Invalidate cache and publish config update
+    try:
+        invalidate_bot_cache(row.bot_id)
+    except Exception as e:
+        logger.warning(f"Cache invalidation failed for bot {row.bot_id}: {e}")
+
+    publish_config_update(get_redis(), {"type": "memory_updated", "bot_id": row.bot_id, "memory_id": row.id})
+    return row
+
+
+@router.delete("/memories/{memory_id}", status_code=204, dependencies=operator_dependencies)
+def delete_memory(memory_id: int, db: Session = Depends(get_db)):
+    """
+    Delete a memory by ID.
+    Requires operator role.
+    """
+    row = db.query(BotMemory).filter(BotMemory.id == memory_id).first()
+    if not row:
+        raise HTTPException(404, "Memory not found")
+    bot_id = row.bot_id
+    db.delete(row)
+    db.commit()
+
+    # Invalidate cache and publish config update
+    try:
+        invalidate_bot_cache(bot_id)
+    except Exception as e:
+        logger.warning(f"Cache invalidation failed for bot {bot_id}: {e}")
+
+    publish_config_update(get_redis(), {"type": "memory_deleted", "bot_id": bot_id, "memory_id": memory_id})
     return None

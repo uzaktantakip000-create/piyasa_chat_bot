@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -30,7 +31,8 @@ import {
   Square,
   Loader2,
   ArrowUpDown,
-  ListChecks
+  ListChecks,
+  Brain
 } from 'lucide-react'
 
 import { apiFetch } from './apiClient'
@@ -993,6 +995,16 @@ function Bots() {
                           <Button
                             variant="ghost"
                             size="sm"
+                            asChild
+                            aria-label="Hafızalar"
+                          >
+                            <Link to={`/bots/${bot.id}/memories`}>
+                              <Brain className="h-4 w-4" />
+                            </Link>
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => requestDeleteBot(bot)}
                             aria-label="Sil"
                           >
@@ -1070,6 +1082,16 @@ function Bots() {
                         onClick={() => openEditDialog(bot)}
                       >
                         <Edit className="h-4 w-4" /> Düzenle
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex items-center gap-1"
+                        asChild
+                      >
+                        <Link to={`/bots/${bot.id}/memories`}>
+                          <Brain className="h-4 w-4" /> Hafızalar
+                        </Link>
                       </Button>
                       <Button
                         variant="destructive"

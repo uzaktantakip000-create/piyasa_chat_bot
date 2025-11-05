@@ -13,6 +13,7 @@ from schemas import PersonaProfile, EmotionProfile, StanceCreate, HoldingCreate
 from security import SecurityConfigError
 from backend.api.dependencies import viewer_dependencies, admin_dependencies
 from backend.api.routes.control import get_redis, publish_config_update, _set_setting
+from backend.api.utils.memory_generator import auto_generate_bot_memories
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +223,15 @@ def wizard_setup(payload: WizardSetup, db: Session = Depends(get_db)):
             created_holdings.append(row.id)
         publish_config_update(r, {"type": "holding_bulk_upsert", "bot_id": bot.id, "ids": created_holdings})
 
+    # --- Auto-generate bot memories from persona ---
+    memory_count = 0
+    try:
+        memory_count = auto_generate_bot_memories(db, bot)
+        if memory_count > 0:
+            logger.info(f"Wizard: Auto-generated {memory_count} memories for bot {bot.id}")
+    except Exception as e:
+        logger.warning(f"Wizard: Failed to auto-generate memories for bot {bot.id}: {e}")
+
     # --- Simülasyonu başlat (opsiyonel) ---
     if payload.start_simulation:
         _set_setting(db, "simulation_active", True)
@@ -233,5 +243,6 @@ def wizard_setup(payload: WizardSetup, db: Session = Depends(get_db)):
         "chat": {"id": chat.id, "chat_id": chat.chat_id, "title": chat.title},
         "stances": created_stances,
         "holdings": created_holdings,
+        "memories": memory_count,
         "simulation_active": payload.start_simulation,
     }

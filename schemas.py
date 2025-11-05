@@ -202,6 +202,37 @@ class HoldingResponse(BaseModel):
 
 
 # ---------------------------------------------------------
+# BOT MEMORY SCHEMAS
+# ---------------------------------------------------------
+class MemoryCreate(BaseModel):
+    memory_type: Literal["personal_fact", "past_event", "relationship", "preference", "routine"] = Field(
+        ..., description="Hafıza tipi"
+    )
+    content: str = Field(..., description="Hafıza içeriği (Türkçe doğal dil)")
+    relevance_score: Optional[float] = Field(1.0, ge=0.0, le=1.0, description="0.0-1.0 arası önem skoru")
+
+
+class MemoryUpdate(BaseModel):
+    memory_type: Optional[Literal["personal_fact", "past_event", "relationship", "preference", "routine"]] = None
+    content: Optional[str] = None
+    relevance_score: Optional[float] = Field(None, ge=0.0, le=1.0)
+
+
+class MemoryResponse(BaseModel):
+    id: int
+    bot_id: int
+    memory_type: str
+    content: str
+    relevance_score: float
+    created_at: datetime
+    last_used_at: datetime
+    usage_count: int
+
+    class Config:
+        orm_mode = True
+
+
+# ---------------------------------------------------------
 # SYSTEM CHECKS
 # ---------------------------------------------------------
 class HealthCheckStatus(BaseModel):

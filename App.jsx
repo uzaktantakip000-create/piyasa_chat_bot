@@ -29,6 +29,7 @@ import Logs from './Logs'
 import Wizard from './components/Wizard'
 import QuickStart from './QuickStart'
 import UserManagement from './UserManagement'
+import BotMemories from './BotMemories'
 import { apiFetch, getStoredApiKey, setStoredApiKey, isApiError } from './apiClient'
 import './App.css'
 import LoginPanel from './components/LoginPanel'
@@ -1008,6 +1009,7 @@ function AppShell() {
               />
               <Route path="/wizard" element={<Wizard onDone={fetchMetrics} />} />
               <Route path="/bots" element={<Bots />} />
+              <Route path="/bots/:botId/memories" element={<BotMemories />} />
               <Route path="/chats" element={<Chats />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/users" element={sessionMeta?.role === 'admin' ? <UserManagement /> : <Navigate to="/" replace />} />
