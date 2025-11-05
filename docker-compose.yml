@@ -281,6 +281,33 @@ services:
       - prometheus
     restart: unless-stopped
 
+  # =========================================
+  # DATABASE BACKUP SERVICE (SESSION 41)
+  # =========================================
+  backup:
+    build:
+      context: .
+      dockerfile: Dockerfile.backup
+    container_name: piyasa-backup
+    environment:
+      - DATABASE_URL=postgresql+psycopg://app:app@db:5432/app
+      - BACKUP_DIR=/backups
+      - BACKUP_RETENTION_DAYS=7
+      - BACKUP_RETENTION_WEEKS=4
+      - BACKUP_RETENTION_MONTHS=12
+      - TZ=Europe/Istanbul
+    volumes:
+      - backup_data:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   pgdata:
   redis_data:       # Redis cache verilerini saklar

@@ -1,0 +1,48 @@
+# Dockerfile for automated database backup service
+FROM postgres:16-alpine
+
+# Install Python and dependencies
+RUN apk add --no-cache \
+    python3 \
+    py3-pip \
+    tzdata \
+    dcron
+
+# Set timezone (default UTC, can be overridden)
+ENV TZ=UTC
+
+# Create app directory
+WORKDIR /app
+
+# Copy backup scripts
+COPY scripts/backup_database.py /app/backup_database.py
+COPY scripts/restore_database.py /app/restore_database.py
+
+# Create backup directory
+RUN mkdir -p /backups/daily /backups/weekly /backups/monthly
+
+# Create crontab for automated backups
+# Daily backup at 2:00 AM
+RUN echo "0 2 * * * cd /app && python3 backup_database.py --backup-dir /backups >> /var/log/backup.log 2>&1" > /etc/crontabs/root
+
+# Create entrypoint script
+RUN echo '#!/bin/sh' > /entrypoint.sh && \
+    echo 'echo "=== Database Backup Service Started ===" ' >> /entrypoint.sh && \
+    echo 'echo "Cron schedule: Daily backups at 2:00 AM UTC"' >> /entrypoint.sh && \
+    echo 'echo "Backup directory: /backups"' >> /entrypoint.sh && \
+    echo 'echo "Database: $DATABASE_URL"' >> /entrypoint.sh && \
+    echo 'echo "======================================"' >> /entrypoint.sh && \
+    echo 'echo ""' >> /entrypoint.sh && \
+    echo '# Run initial backup on startup' >> /entrypoint.sh && \
+    echo 'echo "[$(date)] Running initial backup..."' >> /entrypoint.sh && \
+    echo 'python3 /app/backup_database.py --backup-dir /backups || echo "[$(date)] Initial backup failed"' >> /entrypoint.sh && \
+    echo 'echo ""' >> /entrypoint.sh && \
+    echo '# Start cron daemon' >> /entrypoint.sh && \
+    echo 'crond -f -l 2' >> /entrypoint.sh && \
+    chmod +x /entrypoint.sh
+
+# Health check: Verify recent backup exists
+HEALTHCHECK --interval=1h --timeout=10s --start-period=30s --retries=3 \
+    CMD sh -c 'find /backups -name "backup_*.sql.gz" -mtime -2 | grep -q . || exit 1'
+
+ENTRYPOINT ["/entrypoint.sh"]

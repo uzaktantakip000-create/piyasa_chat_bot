@@ -53,7 +53,7 @@ PROFESSIONAL_ROADMAP.md
 
 # Tests & Scripts
 tests
-scripts
+# scripts  # Needed for backup service (SESSION 41)
 .github
 
 # Misc
