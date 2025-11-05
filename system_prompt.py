@@ -171,10 +171,14 @@ def summarize_persona(persona: Optional[Dict[str, Any]]) -> str:
     if watch: parts.append("İzleme listesi: " + ", ".join(map(str, watch)))
     if style:
         style_bits = []
-        if style.get("emojis") is True:
-            style_bits.append("emoji: kontrollü")
-        length = style.get("length")
-        if length: style_bits.append(f"uzunluk: {length}")
+        # Handle both dict (new format) and string (legacy format)
+        if isinstance(style, dict):
+            if style.get("emojis") is True:
+                style_bits.append("emoji: kontrollü")
+            length = style.get("length")
+            if length: style_bits.append(f"uzunluk: {length}")
+        elif isinstance(style, str):
+            style_bits.append(style)
         if style_bits:
             parts.append("Stil: " + ", ".join(style_bits))
     if never_do:
