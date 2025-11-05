@@ -40,8 +40,12 @@ def get_recent_messages_cached(
 
     def loader():
         from database import Message
+        from sqlalchemy.orm import joinedload
+        # SESSION 41: Added joinedload to prevent DetachedInstance errors
         return (
             db.query(Message)
+            .options(joinedload(Message.bot))
+            .options(joinedload(Message.chat))
             .filter_by(chat_db_id=chat_id)
             .order_by(Message.created_at.desc())
             .limit(limit)
@@ -75,8 +79,12 @@ def get_bot_recent_messages_cached(
 
     def loader():
         from database import Message
+        from sqlalchemy.orm import joinedload
+        # SESSION 41: Added joinedload to prevent DetachedInstance errors
         return (
             db.query(Message)
+            .options(joinedload(Message.bot))
+            .options(joinedload(Message.chat))
             .filter_by(bot_id=bot_id)
             .order_by(Message.created_at.desc())
             .limit(limit)

@@ -507,8 +507,10 @@ class BehaviorEngine:
 
         last_bot_id: Optional[int] = None
         if chat is not None:
+            from sqlalchemy.orm import joinedload
             last_message = (
                 db.query(Message)
+                .options(joinedload(Message.bot))
                 .filter(Message.chat_db_id == chat.id)
                 .order_by(Message.created_at.desc())
                 .first()
@@ -887,8 +889,12 @@ class BehaviorEngine:
             return get_recent_messages_cached(chat_id, db, limit=limit)
         else:
             # Fallback to direct DB query
+            # SESSION 41: Added joinedload to prevent DetachedInstance errors
+            from sqlalchemy.orm import joinedload
             messages = (
                 db.query(Message)
+                .options(joinedload(Message.bot))
+                .options(joinedload(Message.chat))
                 .filter(Message.chat_db_id == chat_id)
                 .order_by(Message.created_at.desc())
                 .limit(limit)
@@ -1571,7 +1577,11 @@ class BehaviorEngine:
                 return False
 
             # Kullanıcı mesajını DB'den bul (context için)
-            incoming_msg = db.query(Message).filter(
+            from sqlalchemy.orm import joinedload
+            incoming_msg = db.query(Message).options(
+                joinedload(Message.bot),
+                joinedload(Message.chat)
+            ).filter(
                 Message.telegram_message_id == telegram_message_id,
                 Message.chat_db_id == chat_id,
             ).first()
@@ -1794,7 +1804,11 @@ class BehaviorEngine:
                     continue
 
                 # Context hazırla (tek mesaj için olanla aynı mantık)
-                incoming_msg = db.query(Message).filter(
+                from sqlalchemy.orm import joinedload
+                incoming_msg = db.query(Message).options(
+                    joinedload(Message.bot),
+                    joinedload(Message.chat)
+                ).filter(
                     Message.telegram_message_id == telegram_message_id,
                     Message.chat_db_id == chat_id,
                 ).first()
@@ -2078,8 +2092,10 @@ class BehaviorEngine:
 
             # Reaksiyon-only olayı
             if random.random() < float(s.get("short_reaction_probability", 0.12)):
+                from sqlalchemy.orm import joinedload
                 last = (
                     db.query(Message)
+                    .options(joinedload(Message.bot))
                     .filter(Message.chat_db_id == chat.id)
                     .order_by(Message.created_at.desc())
                     .limit(10)

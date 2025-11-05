@@ -39,18 +39,25 @@ def resolve_message_speaker(message: Any) -> str:
         >>> resolve_message_speaker(msg)
         "Ali"
     """
-    bot = getattr(message, "bot", None)
-    if bot is not None:
-        username = getattr(bot, "username", None)
-        if isinstance(username, str) and username.strip():
-            return username.lstrip("@")
-        name = getattr(bot, "name", None)
-        if isinstance(name, str) and name.strip():
-            return name.strip()
+    # SESSION 41: Try to access bot relationship, but catch DetachedInstanceError
+    try:
+        bot = getattr(message, "bot", None)
+        if bot is not None:
+            username = getattr(bot, "username", None)
+            if isinstance(username, str) and username.strip():
+                return username.lstrip("@")
+            name = getattr(bot, "name", None)
+            if isinstance(name, str) and name.strip():
+                return name.strip()
+            bot_id = getattr(message, "bot_id", None)
+            if bot_id is not None:
+                return f"Bot#{bot_id}"
+            return "Bot"
+    except Exception:
+        # Detached or lazy-load error - fallback to bot_id
         bot_id = getattr(message, "bot_id", None)
         if bot_id is not None:
             return f"Bot#{bot_id}"
-        return "Bot"
 
     # Human participants - check common name attributes
     for attr in ("sender_name", "author_name", "display_name"):
@@ -67,11 +74,15 @@ def resolve_message_speaker(message: Any) -> str:
                 return candidate.strip()
 
     # Fallback: chat title if available
-    chat = getattr(message, "chat", None)
-    if chat is not None:
-        title = getattr(chat, "title", None)
-        if isinstance(title, str) and title.strip():
-            return title.strip()
+    try:
+        chat = getattr(message, "chat", None)
+        if chat is not None:
+            title = getattr(chat, "title", None)
+            if isinstance(title, str) and title.strip():
+                return title.strip()
+    except Exception:
+        # Detached or lazy-load error - continue to fallback
+        pass
 
     return "Kullanıcı"
 
