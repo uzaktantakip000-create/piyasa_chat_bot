@@ -142,7 +142,7 @@ except Exception as e:
 try:
     from backend.api.routes import auth, bots, chats, control, logs, metrics, settings, system, users, websockets, wizard
 
-    app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
+    app.include_router(auth.router, tags=["Authentication"])
     app.include_router(bots.router, tags=["Bots"])
     app.include_router(chats.router, prefix="/chats", tags=["Chats"])
     app.include_router(control.router, prefix="/control", tags=["Control"])
