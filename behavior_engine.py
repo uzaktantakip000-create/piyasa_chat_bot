@@ -1118,21 +1118,21 @@ class BehaviorEngine:
             plan=reaction_plan,
         )
 
-        # İnsancıl geliştirmeler (sıralama önemli!)
+        # İnsancıl geliştirmeler (ARTIK DAHA AGRESIF!)
         # 1. Konuşma açılışları ekle
-        text = add_conversation_openings(text, probability=0.25)
+        text = add_conversation_openings(text, probability=0.40)
 
-        # 2. Belirsizlik belirteçleri ekle (en kritik özellik)
-        text = add_hesitation_markers(text, probability=0.30)
+        # 2. Belirsizlik belirteçleri ekle (en kritik özellik) - ARTIRDI!
+        text = add_hesitation_markers(text, probability=0.55)
 
-        # 3. Günlük kısaltmalar ekle
-        text = add_colloquial_shortcuts(text, probability=0.18)
+        # 3. Günlük kısaltmalar ekle - ARTIRDI!
+        text = add_colloquial_shortcuts(text, probability=0.40)
 
-        # 4. Dolgu kelimeleri ekle
-        text = add_filler_words(text, probability=0.20)
+        # 4. Dolgu kelimeleri ekle - ARTIRDI!
+        text = add_filler_words(text, probability=0.35)
 
-        # 5. Doğal kusurlar uygula (yazım hataları + düzeltmeler)
-        text = apply_natural_imperfections(text, probability=0.15)
+        # 5. Doğal kusurlar uygula (yazım hataları + düzeltmeler) - ARTIRDI!
+        text = apply_natural_imperfections(text, probability=0.30)
 
         # Mention'ı metne kibarca ekle (başta değilse)
         if mention_ctx and mention_ctx not in text:
@@ -1416,23 +1416,23 @@ class BehaviorEngine:
             bot_name=bot.name,
         )
 
-        # ==== DİNAMİK LLM PARAMETRELERİ ====
-        # Temperature: Bot kişiliğine göre değişir
-        base_temp = 1.0
+        # ==== DİNAMİK LLM PARAMETRELERİ (HUMANIZATION OPTIMIZED!) ====
+        # Temperature: Daha yaratıcı, daha insan gibi!
+        base_temp = 1.2  # ARTIRDI: 1.0 → 1.2
         tone = (persona_profile or {}).get("tone", "").lower()
         if "profesyonel" in tone or "akademik" in tone:
-            temperature = base_temp + random.uniform(0.05, 0.10)  # 1.05-1.10 (kontrollü)
+            temperature = base_temp + random.uniform(0.05, 0.15)  # 1.25-1.35 (daha yaratıcı)
         else:
-            temperature = base_temp + random.uniform(0.10, 0.20)  # 1.10-1.20 (yaratıcı)
+            temperature = base_temp + random.uniform(0.15, 0.30)  # 1.35-1.50 (çok yaratıcı)
 
         # PHASE 2 Week 4 Day 4-5: Dynamic Message Length
         # Base length: Bot persona'ya göre
         if "akademik" in tone or "tecrübeli" in tone or "profesyonel" in tone:
-            base_min, base_max = 150, 250  # Uzun mesajlar
+            base_min, base_max = 150, 300  # Uzun mesajlar (artırıldı)
         elif "genç" in tone or "enerjik" in tone:
-            base_min, base_max = 80, 150  # Kısa-orta
+            base_min, base_max = 100, 200  # Kısa-orta (artırıldı)
         else:
-            base_min, base_max = 100, 200  # Orta
+            base_min, base_max = 120, 250  # Orta (artırıldı)
 
         # Context modifiers
         is_reply = (mode == "reply")
@@ -1446,9 +1446,9 @@ class BehaviorEngine:
 
         # Modifiers uygula
         if is_reply and not is_question:
-            # Basit reply: daha kısa
-            base_min = int(base_min * 0.7)
-            base_max = int(base_max * 0.8)
+            # Basit reply: biraz daha kısa
+            base_min = int(base_min * 0.8)  # 0.7 → 0.8 (daha uzun)
+            base_max = int(base_max * 0.85)  # 0.8 → 0.85
 
         if is_question:
             # Soruya cevap: daha uzun
@@ -1462,11 +1462,11 @@ class BehaviorEngine:
 
         max_tokens = random.randint(base_min, base_max)
 
-        # Top-p sampling
-        top_p = 0.95
+        # Top-p sampling (biraz daha yaratıcı)
+        top_p = 0.92  # 0.95 → 0.92 (daha fazla çeşitlilik)
 
-        # Frequency penalty (tekrarları önle)
-        frequency_penalty = 0.5
+        # Frequency penalty (AZALTILDI - daha doğal tekrarlar)
+        frequency_penalty = 0.3  # 0.5 → 0.3 (insanlar bazen tekrar eder!)
 
         logger.debug(
             "LLM params for %s: temp=%.2f, max_tokens=%d (reply=%s, question=%s, news=%s), top_p=%.2f, freq_penalty=%.2f",

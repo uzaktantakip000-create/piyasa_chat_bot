@@ -145,10 +145,25 @@ def generate_system_prompt(
         symbols = ", ".join(watchlist[:3])
         base += f"Özellikle {symbols} hakkında konuşmayı seversin. "
 
-    # === 10. KRİTİK: ROBOT OLMA! ===
-    base += "\n\nÖNEMLİ: Robot gibi yazma, gerçek insan gibi doğal ve samimi ol. "
-    base += "Mükemmel gramer kullanma, hata yapabilirsin. "
-    base += "Her mesajda aynı kalıpları kullanma, çeşitli yaz."
+    # === 10. KRİTİK: NASIL YAZILIR - ÖRNEKLERLE! ===
+    base += "\n\nGerçek Telegram kullanıcıları şöyle yazar:\n"
+
+    if "genç" in tone or "sokak" in tone:
+        base += "ÖRNEK DOĞRU: 'ya bist dün iyi yükselmiş ama bugün düşer gibi hissediyom'\n"
+        base += "ÖRNEK DOĞRU: 'aga btc şu seviyede kalırsa alırım belki'\n"
+        base += "YANLIŞ: 'Merhaba, BIST endeksi dün yükseldi ancak bugün düşüş bekliyorum.'\n"
+    elif "profesyonel" in tone:
+        base += "ÖRNEK DOĞRU: 'bist 100 teknik olarak 10bin direncini test ediyor sanırım'\n"
+        base += "ÖRNEK DOĞRU: 'akbank için al sat noktalarına bakıyorum birazdan paylaşırım'\n"
+        base += "YANLIŞ: 'Sayın yatırımcılar, BIST 100 endeksi teknik olarak...'\n"
+    else:
+        base += "ÖRNEK DOĞRU: 'dolarda hareket var bi bakın'\n"
+        base += "ÖRNEK DOĞRU: 'akbnk için ne düşünüyosunuz bi fikir verin'\n"
+        base += "YANLIŞ: 'Merhaba arkadaşlar, dolar kurunda hareket gözlemliyorum.'\n"
+
+    base += "\nKurallar: Nokta, virgül atla. 'mı/mi' bitişik yaz. Büyük harf kullanma. "
+    base += "Emoji kullanma (sadece emoji profili açıksa kullan). "
+    base += "Kısa cümleler, uzun paragraflar ASLA. Her mesaj biraz farklı olsun."
 
     return base.strip()
 
@@ -352,43 +367,32 @@ Son mesajlar:
 Kısa yaz ({length_hint}), samimi ol.
 """
 
-# YENI: Zenginleştirilmiş template - tüm context dahil
+# YENI: DOĞAL KONUŞMA DİLİNDE PROMPT (MARKDOWN YOK!)
 USER_TEMPLATE_V2 = """\
-## SENİN KİŞİLİĞİN
-{persona_summary}
+Senin tarzın: {persona_summary}
 {persona_hint_section}
 
-## SENİN GÖRÜŞLERİN (Tutarlı Kal!)
-{stance_summary}
+Senin görüşlerin (tutarlı kalmalısın): {stance_summary}
 
-## SENİN POZİSYONLARIN
-{holdings_summary}
+Senin pozisyonların: {holdings_summary}
 
-## GEÇMIŞTE BU KONUDA SÖYLEDİKLERİN
-{past_references}
+Daha önce bu konuda şunları söylemiştin: {past_references}
 
-## KİŞİSEL NOTLARIN / HAFIZALARIN
-{memory_summary}
+Kişisel notların: {memory_summary}
 
-## SON SOHBET (DİKKATLE OKU!)
+Son sohbet şöyleydi:
 {history_excerpt}
 
 {contextual_examples}
 
-## ŞİMDİ SENİN SIRAN
 {reply_context}
 
 {market_trigger}
 
 {mention_context}
 
-## TALİMATLAR
-- Yukarıdaki sohbeti OKU ve doğal bir şekilde devam ettir
-- Kişiliğine uygun yaz (persona/emotion: {emotion_summary})
-- Görüşlerine sadık kal (stance)
-- Önceki söylediklerinle çelişme (past_references)
-- {length_hint}
-- Gerçek insan gibi yaz, robot DEĞİLSİN!
+Şimdi sen de katıl sohbete. {emotion_summary} tarzında, {length_hint} yaz. Daha önce söylediklerinle çelişme, kişiliğine uygun ol. Gerçek insan gibi doğal yaz - mükemmel gramer kullanma, bazen hata yap, robotik kalıplar kullanma.
+
 {reaction_guidance}
 
 {time_context}
@@ -499,12 +503,12 @@ def sanitize_model_traces(text: str) -> str:
 def postprocess_output(text: str) -> str:
     """
     Temel son işlem: AI-izleri ve manipülatif kalıpları törpüler.
-    İstenirse ilave kurallar (maks. uzunluk, dipnot) burada yönetilebilir.
+    İnsanlar Telegram'da 300-500 karakter arası yazar.
     """
     t = sanitize_model_traces(text)
-    # Kısa mesajlar için - Telegram'da insanlar uzun yazmaz
-    if len(t) > 250:
-        t = t[:240].rstrip() + "…"
+    # Gerçekçi limit - insanlar 500 karaktere kadar yazar
+    if len(t) > 500:
+        t = t[:490].rstrip() + "…"
     return t
 
 
