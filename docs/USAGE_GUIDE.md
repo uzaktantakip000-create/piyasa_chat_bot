@@ -196,6 +196,52 @@ Alerts appear as banners when issues detected:
 - On (default): Updates every 10 seconds
 - Off: Manual refresh only
 
+### Export Features 🆕
+
+Export current system health metrics for reporting and analysis.
+
+**CSV Export:**
+- Click "CSV" button in Health Dashboard header
+- Downloads `health_metrics_YYYY-MM-DD.csv`
+- Structured format: Timestamp, Component, Metric, Value, Unit
+- Compatible with Excel, Google Sheets, data analysis tools
+
+**Example CSV:**
+```csv
+Timestamp,Component,Metric,Value,Unit
+2025-11-08T17:11:50,API,Status,running,
+2025-11-08T17:11:50,Worker,Messages Last Hour,53,count
+2025-11-08T17:11:50,Database,Active Bots,4,count
+2025-11-08T17:11:50,Disk,Usage Percent,3.9,%
+```
+
+**JSON Export:**
+- Click "JSON" button in Health Dashboard header
+- Downloads `health_metrics_YYYY-MM-DD.json`
+- Complete health snapshot with metadata
+- Compatible with API integration, automation scripts
+
+**Example JSON:**
+```json
+{
+  "export_timestamp": "2025-11-08T17:11:51+00:00",
+  "export_format": "json",
+  "export_version": "1.0",
+  "data": {
+    "api": { "status": "running" },
+    "worker": { "messages_last_hour": 53 },
+    "database": { "active_bots": 4 }
+  }
+}
+```
+
+**Use Cases:**
+- 📊 Daily/weekly reporting
+- 📈 Trend analysis over time
+- 🔍 Incident investigation
+- 📋 Compliance documentation
+- 🤖 Automated monitoring integration
+
 ---
 
 ## 👥 User Management

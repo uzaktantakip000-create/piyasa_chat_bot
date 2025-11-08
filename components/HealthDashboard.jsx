@@ -14,6 +14,9 @@ import {
   RefreshCw,
   Zap,
   Loader2,
+  Download,
+  FileText,
+  FileJson,
 } from "lucide-react";
 import { apiFetch } from "../apiClient";
 
@@ -60,6 +63,57 @@ export default function HealthDashboard({ refreshInterval = 10000 }) {
   const handleRefresh = () => {
     setLoading(true);
     fetchHealth();
+  };
+
+  // Export handlers
+  const handleExportCSV = async () => {
+    try {
+      const response = await fetch("/api/system/health/export/csv", {
+        method: "GET",
+        headers: {
+          "X-API-Key": localStorage.getItem("api_key") || "",
+        },
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `health_metrics_${new Date().toISOString().split("T")[0]}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      }
+    } catch (error) {
+      console.error("CSV export failed:", error);
+    }
+  };
+
+  const handleExportJSON = async () => {
+    try {
+      const response = await fetch("/api/system/health/export/json", {
+        method: "GET",
+        headers: {
+          "X-API-Key": localStorage.getItem("api_key") || "",
+        },
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `health_metrics_${new Date().toISOString().split("T")[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      }
+    } catch (error) {
+      console.error("JSON export failed:", error);
+    }
   };
 
   // Status badge component
@@ -138,6 +192,24 @@ export default function HealthDashboard({ refreshInterval = 10000 }) {
           )}
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportCSV}
+            title="CSV olarak indir"
+          >
+            <FileText className="h-4 w-4 mr-2" />
+            CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportJSON}
+            title="JSON olarak indir"
+          >
+            <FileJson className="h-4 w-4 mr-2" />
+            JSON
+          </Button>
           <Button
             variant="outline"
             size="sm"

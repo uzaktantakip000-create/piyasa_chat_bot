@@ -32,6 +32,15 @@ APP_ROOT = Path(__file__).resolve().parent.parent.parent
 router = APIRouter(prefix="/system", tags=["System"])
 
 
+def _format_datetime_for_csv(dt):
+    """Format datetime for CSV export"""
+    if dt is None:
+        return ""
+    if isinstance(dt, str):
+        return dt
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
 def _system_check_to_response(db_obj: SystemCheck) -> SystemCheckResponse:
     """Convert SystemCheck model to response schema."""
     details = db_obj.details or {}
@@ -502,3 +511,112 @@ def get_system_health(db: Session = Depends(get_db)) -> Dict[str, Any]:
     health["overall_status"] = "critical" if critical_errors else "healthy"
 
     return health
+
+
+@router.get("/health/export/csv", dependencies=viewer_dependencies)
+def export_health_csv(db: Session = Depends(get_db)):
+    """
+    Export current system health as CSV.
+
+    Returns CSV file with current metrics for reporting/analysis.
+    Requires viewer role or higher.
+    """
+    from fastapi.responses import StreamingResponse
+    import io
+    import csv
+
+    # Get current health data
+    health = get_system_health(db)
+
+    # Create CSV in memory
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Write headers
+    writer.writerow(["Timestamp", "Component", "Metric", "Value", "Unit"])
+
+    timestamp = health.get("timestamp", "")
+
+    # API metrics
+    api_data = health.get("api", {})
+    if api_data:
+        writer.writerow([timestamp, "API", "Status", api_data.get("status", ""), ""])
+        writer.writerow([timestamp, "API", "Uptime", api_data.get("uptime_seconds", ""), "seconds"])
+        writer.writerow([timestamp, "API", "Python Version", api_data.get("python_version", ""), ""])
+
+    # Worker metrics
+    worker_data = health.get("worker", {})
+    if worker_data:
+        writer.writerow([timestamp, "Worker", "Status", worker_data.get("status", ""), ""])
+        writer.writerow([timestamp, "Worker", "Messages Last Hour", worker_data.get("messages_last_hour", ""), "count"])
+        writer.writerow([timestamp, "Worker", "Last Message Age", worker_data.get("last_message_age_seconds", ""), "seconds"])
+
+    # Database metrics
+    db_data = health.get("database", {})
+    if db_data:
+        writer.writerow([timestamp, "Database", "Status", db_data.get("status", ""), ""])
+        writer.writerow([timestamp, "Database", "Type", db_data.get("type", ""), ""])
+        writer.writerow([timestamp, "Database", "Active Bots", db_data.get("active_bots", ""), "count"])
+        writer.writerow([timestamp, "Database", "Total Messages", db_data.get("total_messages", ""), "count"])
+
+    # Redis metrics
+    redis_data = health.get("redis", {})
+    if redis_data:
+        writer.writerow([timestamp, "Redis", "Status", redis_data.get("status", ""), ""])
+        writer.writerow([timestamp, "Redis", "Available", redis_data.get("available", ""), "boolean"])
+
+    # Disk metrics
+    disk_data = health.get("disk", {})
+    if disk_data:
+        writer.writerow([timestamp, "Disk", "Usage Percent", disk_data.get("usage_percent", ""), "%"])
+        writer.writerow([timestamp, "Disk", "Free Space", disk_data.get("free_gb", ""), "GB"])
+        writer.writerow([timestamp, "Disk", "Total Space", disk_data.get("total_gb", ""), "GB"])
+
+    # Alerts
+    for alert in health.get("alerts", []):
+        writer.writerow([
+            timestamp,
+            "Alert",
+            alert.get("component", ""),
+            alert.get("message", ""),
+            alert.get("severity", "")
+        ])
+
+    # Prepare response
+    output.seek(0)
+    filename = f"health_metrics_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+@router.get("/health/export/json", dependencies=viewer_dependencies)
+def export_health_json(db: Session = Depends(get_db)):
+    """
+    Export current system health as JSON.
+
+    Returns JSON file with current metrics for API integration.
+    Requires viewer role or higher.
+    """
+    from fastapi.responses import JSONResponse
+
+    # Get current health data
+    health = get_system_health(db)
+
+    # Add export metadata
+    export_data = {
+        "export_timestamp": datetime.now(timezone.utc).isoformat(),
+        "export_format": "json",
+        "export_version": "1.0",
+        "data": health
+    }
+
+    filename = f"health_metrics_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
+
+    return JSONResponse(
+        content=export_data,
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
