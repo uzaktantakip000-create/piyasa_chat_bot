@@ -24,6 +24,7 @@ cryptography==42.0.5
 
 # --- Monitoring ---
 prometheus-client==0.20.0  # Prometheus metrics exporter
+psutil==5.9.8              # System and process utilities (for health dashboard)
 
 # --- Testing ---
 pytest==8.2.1

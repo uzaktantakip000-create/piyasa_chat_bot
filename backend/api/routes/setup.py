@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from database import get_db, ApiUser, create_user
-from auth_utils import hash_password
+from auth_utils import hash_secret
 
 logger = logging.getLogger(__name__)
 

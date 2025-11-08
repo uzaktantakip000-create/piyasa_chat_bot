@@ -389,10 +389,10 @@ def get_system_health(db: Session = Depends(get_db)) -> Dict[str, Any]:
     # Worker Status
     try:
         # Check last message timestamp
-        last_message = db.query(Message).order_by(Message.timestamp.desc()).first()
+        last_message = db.query(Message).order_by(Message.created_at.desc()).first()
 
         if last_message:
-            last_message_age = (datetime.now(timezone.utc) - last_message.timestamp.replace(tzinfo=timezone.utc)).total_seconds()
+            last_message_age = (datetime.now(timezone.utc) - last_message.created_at.replace(tzinfo=timezone.utc)).total_seconds()
             worker_status = "active" if last_message_age < 300 else "slow"  # 5 minutes threshold
         else:
             worker_status = "idle"
@@ -401,14 +401,14 @@ def get_system_health(db: Session = Depends(get_db)) -> Dict[str, Any]:
         # Count messages in last hour
         one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
         messages_last_hour = db.query(Message).filter(
-            Message.timestamp >= one_hour_ago
+            Message.created_at >= one_hour_ago
         ).count()
 
         health["worker"] = {
             "status": worker_status,
             "last_message_age_seconds": last_message_age,
             "messages_last_hour": messages_last_hour,
-            "last_message_at": last_message.timestamp.isoformat() if last_message else None,
+            "last_message_at": last_message.created_at.isoformat() if last_message else None,
         }
 
         # Alert if worker is slow
@@ -425,8 +425,9 @@ def get_system_health(db: Session = Depends(get_db)) -> Dict[str, Any]:
 
     # Database Status
     try:
+        from sqlalchemy import text
         # Test connection
-        db.execute("SELECT 1")
+        db.execute(text("SELECT 1"))
 
         # Count active bots
         active_bots = db.query(Bot).filter(Bot.is_enabled == True).count()
@@ -451,14 +452,15 @@ def get_system_health(db: Session = Depends(get_db)) -> Dict[str, Any]:
     try:
         redis_url = os.getenv("REDIS_URL")
         if redis_url:
-            from backend.caching.redis_cache import RedisCache
-            redis_client = RedisCache()
-            if redis_client.is_available():
+            import redis
+            try:
+                r = redis.from_url(redis_url, socket_connect_timeout=2)
+                r.ping()
                 health["redis"] = {
                     "status": "connected",
                     "available": True,
                 }
-            else:
+            except Exception:
                 health["redis"] = {"status": "unavailable", "available": False}
         else:
             health["redis"] = {"status": "not_configured", "available": False}
