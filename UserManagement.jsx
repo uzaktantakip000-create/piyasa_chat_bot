@@ -29,6 +29,9 @@ import {
 
 import { apiFetch } from './apiClient'
 import { useToast } from './components/ToastProvider'
+import { toast } from 'sonner'
+import { SkeletonTable } from './components/ui/skeleton'
+import { EmptyState } from './components/EmptyState'
 
 function UserManagement() {
   const { showToast } = useToast()
@@ -268,8 +271,16 @@ function UserManagement() {
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center p-8">
-        <Loader2 className="w-8 h-8 animate-spin text-gray-500" />
+      <div className="p-6 space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-2xl">Kullanıcı Yönetimi</CardTitle>
+            <CardDescription>API kullanıcılarını yönetin (sadece admin)</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <SkeletonTable rows={5} columns={6} />
+          </CardContent>
+        </Card>
       </div>
     )
   }
@@ -348,19 +359,30 @@ function UserManagement() {
           </div>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Kullanıcı Adı</TableHead>
-                <TableHead>Rol</TableHead>
-                <TableHead>Durum</TableHead>
-                <TableHead>MFA</TableHead>
-                <TableHead>Oluşturulma</TableHead>
-                <TableHead className="text-right">İşlemler</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {users.map((user) => (
+          {users.length === 0 ? (
+            <EmptyState
+              icon={UserPlus}
+              title="Henüz kullanıcı yok"
+              description="Sisteme ilk kullanıcıyı ekleyerek başlayın."
+              action={{
+                label: "Yeni Kullanıcı Ekle",
+                onClick: () => setAddDialogOpen(true)
+              }}
+            />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Kullanıcı Adı</TableHead>
+                  <TableHead>Rol</TableHead>
+                  <TableHead>Durum</TableHead>
+                  <TableHead>MFA</TableHead>
+                  <TableHead>Oluşturulma</TableHead>
+                  <TableHead className="text-right">İşlemler</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {users.map((user) => (
                 <TableRow key={user.id}>
                   <TableCell className="font-medium">{user.username}</TableCell>
                   <TableCell>{getRoleBadge(user.role)}</TableCell>
@@ -414,9 +436,10 @@ function UserManagement() {
                     </Button>
                   </TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
