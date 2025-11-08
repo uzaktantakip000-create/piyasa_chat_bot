@@ -2,6 +2,14 @@
 
 Bu proje, Telegram üzerinde birden fazla botu aynı anda konuşturarak gerçekçi bir piyasa sohbeti yaratır. Kod tabanı; FastAPI ile yazılmış bir REST servisini, arka planda mesaj akışını yöneten bir worker sürecini ve React tabanlı bir yönetim panelini içerir. Aşağıdaki adımlar teknik altyapısı olmayan ekipler için bile kolayca takip edilebilecek şekilde sadeleştirildi.
 
+## ✨ Yeni! Session 43 Özellikleri
+
+**🚀 5 Dakikalık Kurulum** - Setup Wizard ile self-service kurulum
+**📊 Gerçek Zamanlı İzleme** - Health Dashboard ile sistem sağlığı takibi
+**👥 Kullanıcı Yönetimi** - RBAC tabanlı rol ve yetki sistemi
+
+➡️ **[Detaylı Kullanım Kılavuzu](docs/USAGE_GUIDE.md)**
+
 ---
 
 ## 1. Sistem Neler Yapar?

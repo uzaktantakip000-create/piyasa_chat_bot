@@ -1,0 +1,67 @@
+{
+  "timestamp": "2025-11-08T20:05:10.553578",
+  "summary": {
+    "total": 14,
+    "passed": 14,
+    "failed": 0,
+    "success_rate": 100.0
+  },
+  "tests": [
+    {
+      "name": "Setup Status API",
+      "passed": true
+    },
+    {
+      "name": "Health Dashboard API",
+      "passed": true
+    },
+    {
+      "name": "Health - api",
+      "passed": true
+    },
+    {
+      "name": "Health - worker",
+      "passed": true
+    },
+    {
+      "name": "Health - database",
+      "passed": true
+    },
+    {
+      "name": "Health - redis",
+      "passed": true
+    },
+    {
+      "name": "Health - disk",
+      "passed": true
+    },
+    {
+      "name": "Frontend Available",
+      "passed": true
+    },
+    {
+      "name": "Frontend JS Bundle",
+      "passed": true
+    },
+    {
+      "name": "Component - SetupWizard.jsx",
+      "passed": true
+    },
+    {
+      "name": "Component - HealthDashboard.jsx",
+      "passed": true
+    },
+    {
+      "name": "Component - UserManagement.jsx",
+      "passed": true
+    },
+    {
+      "name": "SetupWizard import",
+      "passed": true
+    },
+    {
+      "name": "HealthDashboard import",
+      "passed": true
+    }
+  ]
+}
