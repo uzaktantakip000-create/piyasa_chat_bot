@@ -57,3 +57,4 @@ sbom*.json
 # Kubernetes Secrets
 k8s/base/secret.yaml
 k8s/overlays/*/secret*.yaml
+backups/

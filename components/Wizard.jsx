@@ -568,7 +568,7 @@ export default function Wizard({ onDone }) {
 
   async function fetchMetrics() {
     try {
-      const r = await apiFetch("/metrics");
+      const r = await apiFetch("/api/metrics");
       const m = await r.json();
       setSimActive(!!m.simulation_active);
       setScale(Number(m.scale_factor || 1.0));
