@@ -156,7 +156,7 @@ def _run_step(name: str, cmd: List[str], env: Optional[Dict[str, Any]] = None) -
     }
 
 
-@router.get("/metrics", response_model=MetricsResponse, dependencies=viewer_dependencies)
+@router.get("/api/metrics", response_model=MetricsResponse, dependencies=viewer_dependencies)
 def metrics(db: Session = Depends(get_db)):
     """Get current system metrics."""
     return _calculate_metrics(db)

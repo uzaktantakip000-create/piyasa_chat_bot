@@ -142,17 +142,17 @@ except Exception as e:
 try:
     from backend.api.routes import auth, bots, chats, control, logs, metrics, settings, system, users, websockets, wizard
 
-    app.include_router(auth.router, tags=["Authentication"])
-    app.include_router(bots.router, tags=["Bots"])
-    app.include_router(chats.router, prefix="/chats", tags=["Chats"])
-    app.include_router(control.router, prefix="/control", tags=["Control"])
-    app.include_router(logs.router, prefix="/logs", tags=["Logs"])
-    app.include_router(metrics.router, tags=["Metrics"])
-    app.include_router(settings.router, prefix="/settings", tags=["Settings"])
-    app.include_router(system.router, tags=["System"])
-    app.include_router(users.router, tags=["User Management"])
-    app.include_router(websockets.router, prefix="/ws", tags=["WebSocket"])
-    app.include_router(wizard.router, tags=["Wizard"])
+    app.include_router(auth.router)
+    app.include_router(bots.router)
+    app.include_router(chats.router)
+    app.include_router(control.router)
+    app.include_router(logs.router)
+    app.include_router(metrics.router)
+    app.include_router(settings.router)
+    app.include_router(system.router)
+    app.include_router(users.router)
+    app.include_router(websockets.router)
+    app.include_router(wizard.router)
 
     logger.info("✅ API routers loaded: auth, bots, chats, control, logs, metrics, settings, system, users, websockets, wizard")
 except ImportError as e:
