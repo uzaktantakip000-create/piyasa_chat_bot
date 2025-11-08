@@ -40,6 +40,10 @@ import { useToast } from './components/ToastProvider'
 import { useAdaptiveView, isTableView } from './useAdaptiveView'
 import { useTranslation } from './localization'
 import ViewModeToggle from './components/ViewModeToggle'
+import { toast } from 'sonner'
+import { FilterBar } from './components/ui/filter-select'
+import { SkeletonList } from './components/ui/skeleton'
+import { EmptyState, EmptySearchResults } from './components/EmptyState'
 
 const BOT_FILTER_STORAGE_KEY = 'piyasa.bots.filters'
 
@@ -527,7 +531,27 @@ function Bots() {
     : tf('common.selection.selectVisible', 'Görünürleri seç')
 
   if (loading) {
-    return <div className="flex items-center justify-center h-64">Yükleniyor...</div>
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold">Botlar</h2>
+            <p className="text-muted-foreground">Telegram botlarını yönetin ve yapılandırın</p>
+          </div>
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Bot className="h-5 w-5" />
+              Bot Listesi
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <SkeletonList items={6} />
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (
@@ -758,35 +782,26 @@ function Bots() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="flex w-full items-center gap-2 sm:w-64">
-                <Filter className="h-4 w-4 text-muted-foreground" />
-                <Input
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="İsim, kullanıcı adı veya kişilik ara"
-                  className="flex-1"
-                />
-              </div>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-full sm:w-48">
-                  <SelectValue placeholder="Durum filtresi" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tümü</SelectItem>
-                  <SelectItem value="active">Aktif</SelectItem>
-                  <SelectItem value="inactive">Pasif</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span>{filteredBots.length} bot listeleniyor</span>
+          <FilterBar
+            searchValue={searchTerm}
+            onSearchChange={setSearchTerm}
+            searchPlaceholder="İsim, kullanıcı adı veya kişilik ara..."
+            filterValue={statusFilter}
+            onFilterChange={setStatusFilter}
+            filterOptions={[
+              { value: 'all', label: 'Tümü', count: bots.length },
+              { value: 'active', label: 'Aktif', count: bots.filter(b => b.is_enabled).length },
+              { value: 'inactive', label: 'Pasif', count: bots.filter(b => !b.is_enabled).length }
+            ]}
+            className="mb-4"
+          >
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span>{filteredBots.length} listeleniyor</span>
               {hasSelection && (
                 <span className="font-medium text-primary">{selectedBotIds.length} seçili</span>
               )}
             </div>
-          </div>
+          </FilterBar>
 
           <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap items-center gap-2">
@@ -886,14 +901,13 @@ function Bots() {
               </div>
             </div>
           ) : filteredBots.length === 0 ? (
-            <div className="rounded-md border border-dashed border-border bg-muted/30 p-6 text-center text-sm text-muted-foreground space-y-3">
-              <div>{tf('bots.empty.noResults', 'Filtre kriterlerine uygun bot bulunamadı.')}</div>
-              <div className="text-xs text-muted-foreground">
-                <p>{tf('bots.empty.tipHeader', 'Akıllı öneri:')}</p>
-                <p>• {tf('bots.empty.tipClear', 'Arama kutusunu temizleyin veya durum filtresini "Tümü" konumuna getirin.')}</p>
-                <p>• {tf('bots.empty.tipPersonaSearch', 'Aradığınız botu kolayca bulmak için kullanıcı adı yerine persona ipuçlarını deneyin.')}</p>
-              </div>
-            </div>
+            <EmptySearchResults
+              searchTerm={searchTerm || statusFilter !== 'all' ? (statusFilter === 'active' ? 'Aktif' : 'Pasif') : 'filtrelenmiş'}
+              onClear={() => {
+                setSearchTerm('')
+                setStatusFilter('all')
+              }}
+            />
           ) : tableViewActive ? (
             <Table>
               <TableHeader>
