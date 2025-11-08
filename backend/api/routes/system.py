@@ -339,3 +339,164 @@ def run_system_checks(db: Session = Depends(get_db)):
     db.refresh(db_obj)
 
     return _system_check_to_response(db_obj)
+
+
+# ============================================================================
+# Enhanced Health Dashboard Endpoint
+# ============================================================================
+
+@router.get("/health", dependencies=viewer_dependencies)
+def get_system_health(db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """
+    Get comprehensive system health status for dashboard.
+
+    Returns real-time status of:
+    - API service
+    - Worker service
+    - Database
+    - Redis (optional)
+    - Disk usage
+    - System alerts
+
+    Requires viewer role or higher.
+    """
+    import psutil
+    from database import Message, Bot
+
+    health = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "api": {},
+        "worker": {},
+        "database": {},
+        "redis": {},
+        "disk": {},
+        "alerts": []
+    }
+
+    # API Status
+    try:
+        import main
+        health["api"] = {
+            "status": "running",
+            "uptime_seconds": time.time() - getattr(main, '_start_time', time.time()),
+            "version": getattr(main, '__version__', "unknown"),
+            "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        }
+    except Exception as e:
+        logger.error(f"Failed to get API status: {e}")
+        health["api"] = {"status": "error", "error": str(e)}
+
+    # Worker Status
+    try:
+        # Check last message timestamp
+        last_message = db.query(Message).order_by(Message.timestamp.desc()).first()
+
+        if last_message:
+            last_message_age = (datetime.now(timezone.utc) - last_message.timestamp.replace(tzinfo=timezone.utc)).total_seconds()
+            worker_status = "active" if last_message_age < 300 else "slow"  # 5 minutes threshold
+        else:
+            worker_status = "idle"
+            last_message_age = None
+
+        # Count messages in last hour
+        one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+        messages_last_hour = db.query(Message).filter(
+            Message.timestamp >= one_hour_ago
+        ).count()
+
+        health["worker"] = {
+            "status": worker_status,
+            "last_message_age_seconds": last_message_age,
+            "messages_last_hour": messages_last_hour,
+            "last_message_at": last_message.timestamp.isoformat() if last_message else None,
+        }
+
+        # Alert if worker is slow
+        if worker_status == "slow":
+            health["alerts"].append({
+                "severity": "warning",
+                "component": "worker",
+                "message": f"No messages generated in last {int(last_message_age/60)} minutes"
+            })
+
+    except Exception as e:
+        logger.error(f"Failed to get worker status: {e}")
+        health["worker"] = {"status": "error", "error": str(e)}
+
+    # Database Status
+    try:
+        # Test connection
+        db.execute("SELECT 1")
+
+        # Count active bots
+        active_bots = db.query(Bot).filter(Bot.is_enabled == True).count()
+        total_messages = db.query(Message).count()
+
+        health["database"] = {
+            "status": "connected",
+            "type": "sqlite" if "sqlite" in str(db.bind.url) else "postgresql",
+            "active_bots": active_bots,
+            "total_messages": total_messages,
+        }
+    except Exception as e:
+        logger.error(f"Database health check failed: {e}")
+        health["database"] = {"status": "error", "error": str(e)}
+        health["alerts"].append({
+            "severity": "critical",
+            "component": "database",
+            "message": f"Database connection failed: {str(e)}"
+        })
+
+    # Redis Status (optional)
+    try:
+        redis_url = os.getenv("REDIS_URL")
+        if redis_url:
+            from backend.caching.redis_cache import RedisCache
+            redis_client = RedisCache()
+            if redis_client.is_available():
+                health["redis"] = {
+                    "status": "connected",
+                    "available": True,
+                }
+            else:
+                health["redis"] = {"status": "unavailable", "available": False}
+        else:
+            health["redis"] = {"status": "not_configured", "available": False}
+    except Exception as e:
+        logger.error(f"Redis health check failed: {e}")
+        health["redis"] = {"status": "error", "error": str(e), "available": False}
+
+    # Disk Usage
+    try:
+        disk = psutil.disk_usage('.')
+        disk_usage_percent = disk.percent
+
+        health["disk"] = {
+            "usage_percent": disk_usage_percent,
+            "free_gb": disk.free / (1024**3),
+            "total_gb": disk.total / (1024**3),
+        }
+
+        # Alert if disk is >90% full
+        if disk_usage_percent > 90:
+            health["alerts"].append({
+                "severity": "critical",
+                "component": "disk",
+                "message": f"Disk usage critical: {disk_usage_percent:.1f}% full"
+            })
+        elif disk_usage_percent > 80:
+            health["alerts"].append({
+                "severity": "warning",
+                "component": "disk",
+                "message": f"Disk usage high: {disk_usage_percent:.1f}% full"
+            })
+
+    except Exception as e:
+        logger.error(f"Disk usage check failed: {e}")
+        health["disk"] = {"error": str(e)}
+
+    # Overall status
+    critical_errors = [a for a in health["alerts"] if a.get("severity") == "critical"]
+    health["overall_status"] = "critical" if critical_errors else "healthy"
+
+    return health

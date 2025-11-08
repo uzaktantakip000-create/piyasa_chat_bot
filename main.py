@@ -140,7 +140,7 @@ except Exception as e:
 # ----------------------
 # Include modular routers for clean separation of concerns
 try:
-    from backend.api.routes import auth, bots, chats, control, logs, metrics, settings, system, users, websockets, wizard
+    from backend.api.routes import auth, bots, chats, control, logs, metrics, settings, setup, system, users, websockets, wizard
 
     app.include_router(auth.router)
     app.include_router(bots.router)
@@ -149,12 +149,13 @@ try:
     app.include_router(logs.router)
     app.include_router(metrics.router)
     app.include_router(settings.router)
+    app.include_router(setup.router)
     app.include_router(system.router)
     app.include_router(users.router)
     app.include_router(websockets.router)
     app.include_router(wizard.router)
 
-    logger.info("✅ API routers loaded: auth, bots, chats, control, logs, metrics, settings, system, users, websockets, wizard")
+    logger.info("✅ API routers loaded: auth, bots, chats, control, logs, metrics, settings, setup, system, users, websockets, wizard")
 except ImportError as e:
     logger.warning(f"⚠️ Some API routers could not be loaded: {e}")
 except Exception as e:

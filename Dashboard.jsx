@@ -33,6 +33,7 @@ import {
 import { useAdaptiveView, isTableView } from './useAdaptiveView'
 import { useTranslation } from './localization'
 import ViewModeToggle from './components/ViewModeToggle'
+import HealthDashboard from './components/HealthDashboard'
 
 const formatRelativeTime = (date) => {
   if (!date) {
@@ -890,6 +891,9 @@ function Dashboard({
           </p>
         </CardContent>
       </Card>
+
+      {/* System Health Dashboard */}
+      <HealthDashboard refreshInterval={10000} />
 
       <section id="metrics-grid" className="space-y-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
