@@ -41,6 +41,7 @@ import { ThemeProvider } from './components/ThemeProvider'
 import ActivityCenter from './components/ActivityCenter'
 import { useWebSocketMetrics } from './src/hooks/useWebSocketMetrics'
 import { Toaster } from 'sonner'
+import { SimpleThemeToggle } from './components/ThemeToggle'
 
 function AppShell() {
   const toastApi = useToast()
@@ -905,6 +906,8 @@ function AppShell() {
                 )}
 
                 <div className="flex items-center gap-2 text-sm">
+                  <SimpleThemeToggle />
+
                   <Button
                     type="button"
                     onClick={handleOpenActivityCenter}
