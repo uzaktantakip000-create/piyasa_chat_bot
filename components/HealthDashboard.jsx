@@ -19,6 +19,7 @@ import {
   FileJson,
 } from "lucide-react";
 import { apiFetch } from "../apiClient";
+import { SkeletonDashboard } from "@/components/ui/skeleton";
 
 /**
  * HealthDashboard - Real-time system health monitoring
@@ -158,11 +159,7 @@ export default function HealthDashboard({ refreshInterval = 10000 }) {
   };
 
   if (loading && !health) {
-    return (
-      <div className="flex items-center justify-center p-12">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <SkeletonDashboard />;
   }
 
   if (!health) {
