@@ -31,6 +31,9 @@ import {
 import { apiFetch } from './apiClient'
 import { useToast } from './components/ToastProvider'
 import { useTranslation } from './localization'
+import { toast } from 'sonner'
+import { SkeletonTable } from './components/ui/skeleton'
+import { EmptyState } from './components/EmptyState'
 
 // Memory type labels in Turkish
 const MEMORY_TYPE_LABELS = {
@@ -318,21 +321,21 @@ function BotMemories({ botId: propBotId, botName: propBotName }) {
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-8">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      ) : memories.length === 0 ? (
         <Card>
-          <CardContent className="py-8">
-            <div className="text-center text-muted-foreground">
-              <Brain className="mx-auto h-12 w-12 mb-4 opacity-50" />
-              <p className="text-sm">Henüz hafıza eklenmemiş</p>
-              <p className="text-xs mt-2">
-                Botunuza kişisel özellikler, geçmiş olaylar ve tercihler ekleyin
-              </p>
-            </div>
+          <CardContent>
+            <SkeletonTable rows={6} columns={5} />
           </CardContent>
         </Card>
+      ) : memories.length === 0 ? (
+        <EmptyState
+          icon={Brain}
+          title="Henüz hafıza eklenmemiş"
+          description="Botunuza kişisel özellikler, geçmiş olaylar ve tercihler ekleyerek daha gerçekçi konuşmalar oluşturun"
+          action={{
+            label: "Hafıza Ekle",
+            onClick: () => handleOpenDialog()
+          }}
+        />
       ) : (
         <Card>
           <CardContent className="p-0">

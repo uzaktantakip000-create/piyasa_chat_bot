@@ -15,6 +15,10 @@ import {
 } from 'lucide-react'
 
 import { apiFetch } from './apiClient'
+import { toast } from 'sonner'
+import { SkeletonTable } from './components/ui/skeleton'
+import { EmptyState, EmptySearchResults } from './components/EmptyState'
+import { SearchInput } from './components/ui/search-input'
 
 function Logs() {
   const [logs, setLogs] = useState([])
@@ -144,15 +148,12 @@ function Logs() {
         <CardContent>
           <div className="flex items-center gap-4">
             <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Mesaj, bot adı veya sohbet adında ara..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
+              <SearchInput
+                placeholder="Mesaj, bot adı veya sohbet adında ara..."
+                value={searchTerm}
+                onChange={setSearchTerm}
+                onClear={() => setSearchTerm('')}
+              />
             </div>
             
             <Select value={limitFilter} onValueChange={setLimitFilter}>
@@ -183,17 +184,20 @@ function Logs() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <RefreshCw className="h-6 w-6 animate-spin mr-2" />
-              Yükleniyor...
-            </div>
+            <SkeletonTable rows={10} columns={5} />
           ) : filteredLogs.length === 0 ? (
-            <div className="text-center py-8">
-              <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <p className="text-muted-foreground">
-                {searchTerm ? 'Arama kriterlerine uygun log bulunamadı' : 'Henüz log kaydı yok'}
-              </p>
-            </div>
+            searchTerm ? (
+              <EmptySearchResults
+                searchTerm={searchTerm}
+                onClear={() => setSearchTerm('')}
+              />
+            ) : (
+              <EmptyState
+                icon={FileText}
+                title="Henüz log kaydı yok"
+                description="Botlar mesaj göndermeye başladığında loglar burada görünecek."
+              />
+            )
           ) : (
             <div className="overflow-x-auto">
               <Table>

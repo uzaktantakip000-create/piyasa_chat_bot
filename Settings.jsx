@@ -27,6 +27,8 @@ import { apiFetch } from './apiClient'
 import InlineNotice from './components/InlineNotice'
 import { useThemePreferences } from './components/ThemeProvider'
 import { useTranslation } from './localization'
+import { SkeletonForm } from './components/ui/skeleton'
+import { toast } from 'sonner'
 import {
   DEFAULT_MESSAGE_LENGTH_PROFILE,
   createAlertChannelOptions,
@@ -327,8 +329,19 @@ function Settings() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        {translateWithFallback('common.loading', 'Yükleniyor...')}
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-2xl font-bold">Ayarlar</h2>
+          <p className="text-muted-foreground">Sistem ayarlarını yapılandırın</p>
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Sistem Ayarları</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <SkeletonForm fields={8} />
+          </CardContent>
+        </Card>
       </div>
     )
   }
