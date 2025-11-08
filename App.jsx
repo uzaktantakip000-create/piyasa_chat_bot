@@ -40,6 +40,7 @@ import { ToastProvider, useToast } from './components/ToastProvider'
 import { ThemeProvider } from './components/ThemeProvider'
 import ActivityCenter from './components/ActivityCenter'
 import { useWebSocketMetrics } from './src/hooks/useWebSocketMetrics'
+import { Toaster } from 'sonner'
 
 function AppShell() {
   const toastApi = useToast()
@@ -1038,6 +1039,7 @@ function App() {
   return (
     <ToastProvider>
       <ThemeProvider>
+        <Toaster position="top-right" richColors closeButton />
         <AppShell />
       </ThemeProvider>
     </ToastProvider>

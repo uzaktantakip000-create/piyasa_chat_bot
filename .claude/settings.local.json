@@ -135,7 +135,8 @@
       "Bash(then echo \"Frontend build MEVCUT\")",
       "Bash(else echo \"Frontend build YOK\")",
       "Bash(rm:*)",
-      "Bash(.gitignore)"
+      "Bash(.gitignore)",
+      "Bash(npm install:*)"
     ],
     "deny": [],
     "ask": []
