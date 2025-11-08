@@ -34,6 +34,7 @@ import { useAdaptiveView, isTableView } from './useAdaptiveView'
 import { useTranslation } from './localization'
 import ViewModeToggle from './components/ViewModeToggle'
 import HealthDashboard from './components/HealthDashboard'
+import { SkeletonMetricCard } from './components/ui/skeleton'
 
 const formatRelativeTime = (date) => {
   if (!date) {
@@ -939,6 +940,12 @@ function Dashboard({
                 ))}
               </tbody>
             </table>
+          </div>
+        ) : isLoading ? (
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+            {[1, 2, 3, 4].map((i) => (
+              <SkeletonMetricCard key={i} />
+            ))}
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
