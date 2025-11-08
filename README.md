@@ -77,6 +77,22 @@ Aşağıdaki yöntemlerden size uyanı seçin. Her yol sonunda paneli `http://lo
    ```
 5. Panelden giriş yapın. Worker betiği artık eksik `argparse` importu nedeniyle hata vermez.
 
+### Yöntem D – Setup Wizard (İlk Kurulum için Önerilen) 🆕
+1. Sistemi yukarıdaki yöntemlerden biriyle başlatın.
+2. Tarayıcıdan `http://localhost:5173` adresine gidin.
+3. Sistem otomatik olarak Setup Wizard'ı gösterecektir (ilk kurulumda).
+4. **Adım 1:** LLM Provider seçin (Groq önerilen - ücretsiz ve hızlı) ve API key'inizi girin.
+5. **Adım 2:** Admin kullanıcı oluşturun (kullanıcı adı, güçlü şifre, opsiyonel MFA).
+6. **Adım 3:** Kurulumu tamamlayın ve dashboard'a yönlendirileceksiniz.
+7. Setup Wizard `.env` dosyasını otomatik oluşturur ve admin kullanıcıyı database'e ekler.
+
+**Avantajlar:**
+- ✅ Manuel `.env` düzenlemeye gerek yok
+- ✅ 5 dakikada kurulum tamamlanır
+- ✅ API key validation ile hata riski minimize
+- ✅ Güçlü şifre kontrolü
+- ✅ Otomatik admin user oluşturma
+
 ---
 
 ## 4. Günlük Kullanım
